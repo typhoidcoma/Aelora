@@ -1,0 +1,59 @@
+# =============================================================================
+# Aelora - settings.yaml
+# Copy this file to settings.yaml and fill in your values.
+# =============================================================================
+
+# --- Discord ---
+discord:
+  token: "YOUR_DISCORD_BOT_TOKEN"
+  # How the bot responds in guild (server) channels:
+  #   "mention" = only replies when @mentioned (recommended)
+  #   "all"     = replies to every message in allowed channels
+  guildMode: "mention"
+  # Restrict to specific channel IDs. Empty list = all channels.
+  allowedChannels: []
+  # Whether to respond to DMs
+  allowDMs: true
+  # Status message shown under the bot's name
+  status: "Watching the void"
+
+# --- LLM ---
+# Any OpenAI-compatible endpoint works:
+#   OpenAI:      https://api.openai.com/v1
+#   Ollama:      http://localhost:11434/v1
+#   OpenRouter:  https://openrouter.ai/api/v1
+#   Together:    https://api.together.xyz/v1
+#   Groq:        https://api.groq.com/openai/v1
+#   LM Studio:   http://localhost:1234/v1
+llm:
+  baseURL: "https://api.openai.com/v1"
+  apiKey: "sk-YOUR_API_KEY"
+  model: "gpt-4o-mini"
+  systemPrompt: "You are a helpful Discord bot. Be concise."
+  maxTokens: 1024
+  # How many previous messages to keep in conversation history per channel
+  maxHistory: 20
+
+# --- Cron Jobs ---
+cron:
+  jobs:
+    - name: "Good morning"
+      schedule: "0 9 * * *"
+      timezone: "America/New_York"
+      channelId: "DISCORD_CHANNEL_ID"
+      type: "static"
+      message: "Good morning everyone! Have a great day."
+      enabled: true
+
+    - name: "Daily wisdom"
+      schedule: "0 12 * * *"
+      timezone: "America/New_York"
+      channelId: "DISCORD_CHANNEL_ID"
+      type: "llm"
+      prompt: "Generate a short, interesting piece of wisdom or trivia. Keep it under 200 words."
+      enabled: true
+
+# --- Web Dashboard ---
+web:
+  enabled: true
+  port: 3000

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aelora Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Aelora</h1>
+    <div id="status-badge" class="badge offline">Offline</div>
+  </header>
+
+  <main>
+    <section>
+      <h2>Bot Status</h2>
+      <div class="card">
+        <div class="stat"><span class="label">Connection:</span> <span id="conn-status">--</span></div>
+        <div class="stat"><span class="label">Username:</span> <span id="bot-username">--</span></div>
+        <div class="stat"><span class="label">Guilds:</span> <span id="guild-count">--</span></div>
+        <div class="stat"><span class="label">Uptime:</span> <span id="uptime">--</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Cron Jobs</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Schedule</th>
+            <th>Type</th>
+            <th>Enabled</th>
+            <th>Last Run</th>
+            <th>Next Run</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="cron-body">
+          <tr><td colspan="7" class="muted">Loading...</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Configuration</h2>
+      <pre id="config-display" class="card">Loading...</pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

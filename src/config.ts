@@ -35,6 +35,11 @@ export type Config = {
     enabled: boolean;
     port: number;
   };
+  soul: {
+    enabled: boolean;
+    dir: string;
+    botName: string;
+  };
 };
 
 export function loadConfig(path = "settings.yaml"): Config {
@@ -90,6 +95,11 @@ export function loadConfig(path = "settings.yaml"): Config {
     web: {
       enabled: parsed.web?.enabled ?? true,
       port: parsed.web?.port ?? 3000,
+    },
+    soul: {
+      enabled: parsed.soul?.enabled ?? true,
+      dir: parsed.soul?.dir ?? "soul",
+      botName: parsed.soul?.botName ?? "Aelora",
     },
   };
 }

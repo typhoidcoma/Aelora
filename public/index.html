@@ -9,46 +9,106 @@
 <body>
   <header>
     <h1>Aelora</h1>
-    <div id="status-badge" class="badge offline">Offline</div>
+    <div id="status-badge" class="badge offline"><span class="pulse-dot"></span> Offline</div>
+    <span id="last-updated" class="last-updated"></span>
   </header>
 
   <main>
     <section>
-      <h2>Bot Status</h2>
-      <div class="card">
-        <div class="stat"><span class="label">Connection:</span> <span id="conn-status">--</span></div>
-        <div class="stat"><span class="label">Username:</span> <span id="bot-username">--</span></div>
-        <div class="stat"><span class="label">Guilds:</span> <span id="guild-count">--</span></div>
-        <div class="stat"><span class="label">Uptime:</span> <span id="uptime">--</span></div>
+      <div class="section-header" data-section="status">
+        <span class="chevron">&#9660;</span>
+        <h2>Bot Status</h2>
+      </div>
+      <div class="section-body" data-section="status">
+        <div class="card">
+          <div class="stat"><span class="label">Connection:</span> <span id="conn-status">--</span></div>
+          <div class="stat"><span class="label">Username:</span> <span id="bot-username">--</span></div>
+          <div class="stat"><span class="label">Guilds:</span> <span id="guild-count">--</span></div>
+          <div class="stat"><span class="label">Uptime:</span> <span id="uptime">--</span></div>
+        </div>
       </div>
     </section>
 
     <section>
-      <h2>Cron Jobs</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Schedule</th>
-            <th>Type</th>
-            <th>Enabled</th>
-            <th>Last Run</th>
-            <th>Next Run</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="cron-body">
-          <tr><td colspan="7" class="muted">Loading...</td></tr>
-        </tbody>
-      </table>
+      <div class="section-header" data-section="soul">
+        <span class="chevron">&#9660;</span>
+        <h2>Soul</h2>
+        <button class="btn" id="soul-reload-btn" onclick="reloadSoul()">Reload</button>
+      </div>
+      <div class="section-body" data-section="soul">
+        <div id="soul-status" class="card">Loading...</div>
+        <table id="soul-table" style="display: none; margin-top: 0.75rem;">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Section</th>
+              <th>Label</th>
+              <th>Order</th>
+              <th>Enabled</th>
+              <th>Size</th>
+            </tr>
+          </thead>
+          <tbody id="soul-body"></tbody>
+        </table>
+      </div>
     </section>
 
     <section>
-      <h2>Configuration</h2>
-      <pre id="config-display" class="card">Loading...</pre>
+      <div class="section-header" data-section="llm-test">
+        <span class="chevron">&#9660;</span>
+        <h2>LLM Test</h2>
+      </div>
+      <div class="section-body" data-section="llm-test">
+        <div class="llm-test">
+          <textarea id="llm-input" placeholder="Type a message to test the bot's personality..."></textarea>
+          <div class="actions">
+            <button class="btn btn-primary" id="llm-send-btn" onclick="testLLM()">Send</button>
+            <span id="llm-loading" style="display: none; color: #71717a; font-size: 0.85rem;">Thinking...</span>
+          </div>
+        </div>
+        <div id="llm-response" class="llm-response" style="display: none;">
+          <pre class="card"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header" data-section="cron">
+        <span class="chevron">&#9660;</span>
+        <h2>Cron Jobs</h2>
+      </div>
+      <div class="section-body" data-section="cron">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Schedule</th>
+              <th>Type</th>
+              <th>Enabled</th>
+              <th>Last Run</th>
+              <th>Next Run</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="cron-body">
+            <tr><td colspan="7" class="muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header" data-section="config">
+        <span class="chevron">&#9660;</span>
+        <h2>Configuration</h2>
+      </div>
+      <div class="section-body" data-section="config">
+        <pre id="config-display" class="card">Loading...</pre>
+      </div>
     </section>
   </main>
 
+  <div id="toast-container"></div>
   <script src="app.js"></script>
 </body>
 </html>

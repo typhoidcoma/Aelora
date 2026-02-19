@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600&family=Roboto+Mono:wght@400;500&display=swap");
+
 * {
   margin: 0;
   padding: 0;
@@ -5,68 +7,72 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-  background: #0e0e10;
-  color: #d4d4d8;
-  line-height: 1.6;
-  padding: 2rem;
-  max-width: 960px;
+  font-family: "Roboto", sans-serif;
+  font-weight: 400;
+  background: #0c0c0e;
+  color: #b0b0b8;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 1.25rem 1.5rem;
+  max-width: 880px;
   margin: 0 auto;
 }
+
+/* --- Header --- */
 
 header {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #27272a;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #1a1a1f;
 }
 
 h1 {
-  font-size: 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 500;
   color: #a78bfa;
+  letter-spacing: 0.02em;
 }
 
 h2 {
-  font-size: 1.1rem;
-  color: #71717a;
-  margin-bottom: 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #55555e;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-section {
-  margin-bottom: 2rem;
+  letter-spacing: 0.08em;
 }
 
 /* --- Badges --- */
 
 .badge {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.75rem;
+  font-size: 0.65rem;
+  padding: 0.15rem 0.55rem;
   border-radius: 9999px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
 }
 
 .badge.online {
-  background: #064e3b;
+  background: rgba(52, 211, 153, 0.1);
   color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.15);
 }
 
 .badge.offline {
-  background: #450a0a;
+  background: rgba(248, 113, 113, 0.1);
   color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.15);
 }
 
-/* Pulsing dot */
 .pulse-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   display: inline-block;
 }
@@ -81,26 +87,33 @@ section {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
-  50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(52, 211, 153, 0); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.4); }
+  50% { opacity: 0.5; box-shadow: 0 0 0 4px rgba(52, 211, 153, 0); }
+}
+
+/* --- Layout --- */
+
+section {
+  margin-bottom: 1rem;
 }
 
 /* --- Cards --- */
 
 .card {
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 0.5rem;
-  padding: 1rem 1.25rem;
+  background: #121215;
+  border: 1px solid #1a1a1f;
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
 }
 
 .stat {
-  padding: 0.25rem 0;
+  padding: 0.1rem 0;
+  font-size: 0.82rem;
 }
 
 .label {
-  color: #71717a;
-  margin-right: 0.5rem;
+  color: #55555e;
+  margin-right: 0.35rem;
 }
 
 /* --- Tables --- */
@@ -108,42 +121,51 @@ section {
 table {
   width: 100%;
   border-collapse: collapse;
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 0.5rem;
+  background: #121215;
+  border: 1px solid #1a1a1f;
+  border-radius: 6px;
   overflow: hidden;
+  font-size: 0.8rem;
 }
 
 th, td {
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.6rem;
   text-align: left;
-  border-bottom: 1px solid #27272a;
+  border-bottom: 1px solid #1a1a1f;
+}
+
+tr:last-child td {
+  border-bottom: none;
 }
 
 th {
-  background: #1f1f23;
-  color: #71717a;
-  font-size: 0.8rem;
+  background: #16161a;
+  color: #55555e;
+  font-size: 0.65rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 td code {
-  background: #27272a;
-  padding: 0.15rem 0.4rem;
-  border-radius: 0.25rem;
-  font-size: 0.85em;
+  font-family: "Roboto Mono", monospace;
+  background: #1a1a1f;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.78em;
+  color: #8888a0;
 }
 
 .ok { color: #34d399; }
 .error { color: #f87171; }
-.muted { color: #52525b; text-align: center; }
+.muted { color: #3a3a42; text-align: center; }
 
 pre {
+  font-family: "Roboto Mono", monospace;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.85rem;
-  color: #a1a1aa;
+  font-size: 0.78rem;
+  color: #8888a0;
 }
 
 /* --- Section headers (collapsible) --- */
@@ -151,9 +173,10 @@ pre {
 .section-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   cursor: pointer;
   user-select: none;
+  padding: 0.25rem 0;
 }
 
 .section-header h2 {
@@ -161,8 +184,8 @@ pre {
 }
 
 .section-header .chevron {
-  font-size: 0.7rem;
-  color: #52525b;
+  font-size: 0.55rem;
+  color: #3a3a42;
   transition: transform 0.2s;
 }
 
@@ -172,8 +195,7 @@ pre {
 
 .section-body {
   overflow: hidden;
-  transition: margin 0.2s;
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .section-body.hidden {
@@ -183,35 +205,39 @@ pre {
 /* --- Buttons --- */
 
 .btn {
-  font-family: inherit;
-  font-size: 0.75rem;
-  padding: 0.3rem 0.75rem;
-  border-radius: 0.375rem;
-  border: 1px solid #3f3f46;
-  background: #27272a;
-  color: #d4d4d8;
+  font-family: "Roboto", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid #2a2a30;
+  background: #1a1a1f;
+  color: #8888a0;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: all 0.15s;
+  letter-spacing: 0.02em;
 }
 
 .btn:hover {
-  background: #3f3f46;
-  border-color: #52525b;
+  background: #222228;
+  border-color: #3a3a42;
+  color: #b0b0b8;
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn-primary {
-  background: #4c1d95;
-  border-color: #6d28d9;
-  color: #c4b5fd;
+  background: rgba(167, 139, 250, 0.12);
+  border-color: rgba(167, 139, 250, 0.2);
+  color: #a78bfa;
 }
 
 .btn-primary:hover {
-  background: #6d28d9;
+  background: rgba(167, 139, 250, 0.2);
+  border-color: rgba(167, 139, 250, 0.35);
 }
 
 /* --- LLM Test Panel --- */
@@ -219,24 +245,25 @@ pre {
 .llm-test {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .llm-test textarea {
-  font-family: inherit;
-  font-size: 0.9rem;
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 0.5rem;
-  color: #d4d4d8;
-  padding: 0.75rem;
+  font-family: "Roboto", sans-serif;
+  font-size: 0.82rem;
+  background: #121215;
+  border: 1px solid #1a1a1f;
+  border-radius: 6px;
+  color: #b0b0b8;
+  padding: 0.5rem 0.7rem;
   resize: vertical;
-  min-height: 80px;
+  min-height: 60px;
+  transition: border-color 0.15s;
 }
 
 .llm-test textarea:focus {
   outline: none;
-  border-color: #6d28d9;
+  border-color: rgba(167, 139, 250, 0.35);
 }
 
 .llm-test .actions {
@@ -246,65 +273,65 @@ pre {
 }
 
 .llm-response {
-  margin-top: 0.5rem;
+  margin-top: 0.35rem;
 }
 
 .llm-response pre {
-  color: #d4d4d8;
+  color: #b0b0b8;
 }
 
 /* --- Toast notifications --- */
 
 #toast-container {
   position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
+  bottom: 1rem;
+  right: 1rem;
   display: flex;
   flex-direction: column-reverse;
-  gap: 0.5rem;
+  gap: 0.35rem;
   z-index: 1000;
   pointer-events: none;
 }
 
 .toast {
-  padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  font-weight: 400;
   pointer-events: auto;
-  animation: toast-in 0.25s ease-out;
+  animation: toast-in 0.2s ease-out;
 }
 
 .toast.fade-out {
-  animation: toast-out 0.3s ease-in forwards;
+  animation: toast-out 0.25s ease-in forwards;
 }
 
 .toast.success {
-  background: #064e3b;
+  background: rgba(52, 211, 153, 0.1);
   color: #34d399;
-  border: 1px solid #065f46;
+  border: 1px solid rgba(52, 211, 153, 0.15);
 }
 
 .toast.error {
-  background: #450a0a;
+  background: rgba(248, 113, 113, 0.1);
   color: #f87171;
-  border: 1px solid #7f1d1d;
+  border: 1px solid rgba(248, 113, 113, 0.15);
 }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes toast-out {
   from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(10px); }
+  to { opacity: 0; transform: translateY(8px); }
 }
 
 /* --- Last updated --- */
 
 .last-updated {
-  font-size: 0.75rem;
-  color: #52525b;
+  font-size: 0.68rem;
+  color: #3a3a42;
   margin-left: auto;
 }

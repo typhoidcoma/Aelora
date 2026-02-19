@@ -40,6 +40,14 @@ export type Config = {
     dir: string;
     botName: string;
   };
+  heartbeat: {
+    enabled: boolean;
+    intervalMs: number;
+  };
+  agents: {
+    enabled: boolean;
+    maxIterations: number;
+  };
 };
 
 export function loadConfig(path = "settings.yaml"): Config {
@@ -100,6 +108,14 @@ export function loadConfig(path = "settings.yaml"): Config {
       enabled: parsed.soul?.enabled ?? true,
       dir: parsed.soul?.dir ?? "soul",
       botName: parsed.soul?.botName ?? "Aelora",
+    },
+    heartbeat: {
+      enabled: parsed.heartbeat?.enabled ?? true,
+      intervalMs: parsed.heartbeat?.intervalMs ?? 60_000,
+    },
+    agents: {
+      enabled: parsed.agents?.enabled ?? true,
+      maxIterations: parsed.agents?.maxIterations ?? 5,
     },
   };
 }

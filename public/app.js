@@ -233,10 +233,145 @@ function esc(str) {
   return el.innerHTML;
 }
 
+// --- Tools ---
+
+async function fetchTools() {
+  try {
+    const res = await fetch("/api/tools");
+    const tools = await res.json();
+    const tbody = document.getElementById("tools-body");
+
+    if (tools.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">No tools loaded</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = tools
+      .map(
+        (t) => `
+      <tr>
+        <td><code>${esc(t.name)}</code></td>
+        <td>${esc(t.description)}</td>
+        <td>${t.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        <td><button class="btn" onclick="toggleTool('${esc(t.name)}')">${t.enabled ? "Disable" : "Enable"}</button></td>
+      </tr>`,
+      )
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function toggleTool(name) {
+  try {
+    const res = await fetch(`/api/tools/${encodeURIComponent(name)}/toggle`, { method: "POST" });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`Toggle failed: ${data.error}`, "error");
+    } else {
+      showToast(`Tool "${name}" is now ${data.enabled ? "enabled" : "disabled"}`);
+      fetchTools();
+    }
+  } catch (err) {
+    showToast(`Toggle error: ${err.message}`, "error");
+  }
+}
+
+// --- Agents ---
+
+async function fetchAgents() {
+  try {
+    const res = await fetch("/api/agents");
+    const agents = await res.json();
+    const tbody = document.getElementById("agents-body");
+
+    if (agents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No agents loaded</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = agents
+      .map(
+        (a) => `
+      <tr>
+        <td><code>${esc(a.name)}</code></td>
+        <td>${esc(a.description)}</td>
+        <td>${a.tools.length === 0 ? '<span class="muted">none</span>' : a.tools.map((t) => `<code>${esc(t)}</code>`).join(", ")}</td>
+        <td>${a.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        <td><button class="btn" onclick="toggleAgent('${esc(a.name)}')">${a.enabled ? "Disable" : "Enable"}</button></td>
+      </tr>`,
+      )
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function toggleAgent(name) {
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(name)}/toggle`, { method: "POST" });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`Toggle failed: ${data.error}`, "error");
+    } else {
+      showToast(`Agent "${name}" is now ${data.enabled ? "enabled" : "disabled"}`);
+      fetchAgents();
+    }
+  } catch (err) {
+    showToast(`Toggle error: ${err.message}`, "error");
+  }
+}
+
+// --- Heartbeat ---
+
+async function fetchHeartbeat() {
+  try {
+    const res = await fetch("/api/heartbeat");
+    const data = await res.json();
+    const statusEl = document.getElementById("heartbeat-status");
+    const tableEl = document.getElementById("heartbeat-table");
+
+    const statusClass = data.running ? "ok" : "error";
+
+    statusEl.innerHTML =
+      `<div class="stat"><span class="label">Status:</span> <span class="${statusClass}">${data.running ? "Running" : "Stopped"}</span></div>` +
+      `<div class="stat"><span class="label">Interval:</span> ${(data.intervalMs / 1000).toFixed(0)}s</div>` +
+      `<div class="stat"><span class="label">Last tick:</span> ${data.lastTick ? new Date(data.lastTick).toLocaleString() : "--"}</div>` +
+      `<div class="stat"><span class="label">Tick count:</span> ${data.tickCount}</div>` +
+      `<div class="stat"><span class="label">Handlers:</span> ${data.handlers.length}</div>`;
+
+    if (data.handlers.length > 0) {
+      tableEl.style.display = "";
+      document.getElementById("heartbeat-body").innerHTML = data.handlers
+        .map(
+          (h) => `
+        <tr>
+          <td><code>${esc(h.name)}</code></td>
+          <td>${esc(h.description)}</td>
+          <td>${h.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        </tr>`,
+        )
+        .join("");
+    } else {
+      tableEl.style.display = "none";
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 // --- Init ---
 fetchStatus();
 fetchCron();
 fetchConfig();
 fetchSoul();
+fetchTools();
+fetchAgents();
+fetchHeartbeat();
 setInterval(fetchStatus, 5000);
 setInterval(fetchCron, 10000);
+setInterval(fetchTools, 10000);
+setInterval(fetchAgents, 10000);
+setInterval(fetchHeartbeat, 5000);

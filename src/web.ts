@@ -4,6 +4,9 @@ import path from "node:path";
 import type { Config } from "./config.js";
 import { loadSoul, type SoulState } from "./soul.js";
 import { getLLMOneShot } from "./llm.js";
+import { getAllTools, toggleTool } from "./tool-registry.js";
+import { getAllAgents, toggleAgent } from "./agent-registry.js";
+import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
 import { cronJobs } from "./cron.js";
 
@@ -130,6 +133,62 @@ export function startWeb(state: AppState): void {
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
+  });
+
+  // List all tools
+  app.get("/api/tools", (_req, res) => {
+    res.json(
+      getAllTools().map((t) => ({
+        name: t.name,
+        description: t.description,
+        enabled: t.enabled,
+      })),
+    );
+  });
+
+  // Toggle a tool on/off
+  app.post("/api/tools/:name/toggle", (req, res) => {
+    const { name } = req.params;
+    const result = toggleTool(name);
+
+    if (!result.found) {
+      res.status(404).json({ error: `Tool "${name}" not found` });
+      return;
+    }
+
+    res.json({ name, enabled: result.enabled });
+  });
+
+  // List all agents
+  app.get("/api/agents", (_req, res) => {
+    res.json(
+      getAllAgents().map((a) => ({
+        name: a.name,
+        description: a.description,
+        enabled: a.enabled,
+        tools: a.definition.tools ?? [],
+        maxIterations: a.definition.maxIterations ?? null,
+        model: a.definition.model ?? null,
+      })),
+    );
+  });
+
+  // Toggle an agent on/off
+  app.post("/api/agents/:name/toggle", (req, res) => {
+    const { name } = req.params;
+    const result = toggleAgent(name);
+
+    if (!result.found) {
+      res.status(404).json({ error: `Agent "${name}" not found` });
+      return;
+    }
+
+    res.json({ name, enabled: result.enabled });
+  });
+
+  // Heartbeat status
+  app.get("/api/heartbeat", (_req, res) => {
+    res.json(getHeartbeatState());
   });
 
   app.listen(config.web.port, () => {

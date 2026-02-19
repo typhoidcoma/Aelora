@@ -98,6 +98,71 @@
     </section>
 
     <section>
+      <div class="section-header" data-section="tools">
+        <span class="chevron">&#9660;</span>
+        <h2>Tools</h2>
+      </div>
+      <div class="section-body" data-section="tools">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Enabled</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="tools-body">
+            <tr><td colspan="4" class="muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header" data-section="agents">
+        <span class="chevron">&#9660;</span>
+        <h2>Agents</h2>
+      </div>
+      <div class="section-body" data-section="agents">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Tools</th>
+              <th>Enabled</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="agents-body">
+            <tr><td colspan="5" class="muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header" data-section="heartbeat">
+        <span class="chevron">&#9660;</span>
+        <h2>Heartbeat</h2>
+      </div>
+      <div class="section-body" data-section="heartbeat">
+        <div id="heartbeat-status" class="card">Loading...</div>
+        <table id="heartbeat-table" style="display: none; margin-top: 0.75rem;">
+          <thead>
+            <tr>
+              <th>Handler</th>
+              <th>Description</th>
+              <th>Enabled</th>
+            </tr>
+          </thead>
+          <tbody id="heartbeat-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
       <div class="section-header" data-section="config">
         <span class="chevron">&#9660;</span>
         <h2>Configuration</h2>

@@ -1,3 +1,11 @@
+---
+order: 100
+enabled: true
+label: "aelora/persona.md"
+section: identity
+description: "The brains of the operation."
+---
+
 # Persona: Default
 
 This is your standard operating mode.

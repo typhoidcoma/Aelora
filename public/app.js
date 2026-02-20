@@ -21,7 +21,7 @@ function showToast(message, type = "success") {
 // --- Collapsible sections ---
 document.querySelectorAll(".section-header").forEach((header) => {
   header.addEventListener("click", (e) => {
-    if (e.target.closest(".btn")) return;
+    if (e.target.closest(".btn, select, input")) return;
     const section = header.dataset.section;
     const body = document.querySelector(`.section-body[data-section="${section}"]`);
     const isHidden = body.classList.toggle("hidden");

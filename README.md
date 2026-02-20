@@ -2,17 +2,21 @@
 
 **The embodiment layer of the Luminora Emotion Engine.**
 
-Aelora is an LLM-powered Discord bot built as part of the [Aeveon](https://github.com/your-org/aeveon) creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Persona"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard — all from a single `settings.yaml` config file.
+Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Persona"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard — all from a single `settings.yaml` config file.
 
 ## Features
 
 - **LLM Chat** — Works with any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
+- **Streaming Responses** — Token-by-token streaming to Discord messages and the dashboard LLM test
 - **Persona System** — Composable personality built from layered markdown files with switchable modes and hot-reload
 - **Tool Framework** — Drop a `.ts` file in `src/tools/`, it auto-loads. Typed params, config resolution, runtime toggle
 - **Agent Framework** — Sub-agents with their own system prompts, tool allowlists, and reasoning loops
+- **Memory** — Persistent per-user and per-channel fact storage, automatically injected into the system prompt
+- **Web Search** — Brave Search API integration for real-time web queries
 - **CalDAV Calendar** — Full CRUD for any CalDAV server (Radicale, Nextcloud, Baikal, iCloud)
 - **Notes** — Persistent note storage scoped to channels or global
-- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support
+- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, runtime CRUD
+- **Sessions** — Conversation session tracking with metadata, persisted to disk
 - **Heartbeat** — Periodic handler system for proactive actions (e.g. calendar reminders)
 - **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
@@ -29,7 +33,7 @@ Aelora is an LLM-powered Discord bot built as part of the [Aeveon](https://githu
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/aelora.git
+git clone <your-repo-url>
 cd aelora
 
 # Install dependencies
@@ -164,11 +168,13 @@ For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 Access at `http://localhost:3000` (configurable via `web.port`).
 
 - **Status** — Discord connection, uptime, guild count
-- **Persona** — File inventory, active mode, prompt size, hot-reload button
+- **Persona** — File inventory, active mode switching, prompt size, hot-reload button
 - **Tools & Agents** — Enable/disable at runtime
-- **Cron** — Job schedules, last/next run, errors
+- **Sessions** — Active conversations, message counts, clear/delete
+- **Memory** — Stored facts by scope, delete individual facts or clear scopes
+- **Cron** — Create, edit, delete, trigger, toggle jobs; schedules, last/next run, errors
 - **Heartbeat** — Tick count, handler list
-- **LLM Test** — Send test prompts with current persona config
+- **LLM Test** — Send test prompts with streaming output
 - **Console** — Live log stream via SSE
 
 ## Project Structure
@@ -178,11 +184,13 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   ├── index.ts              — Startup orchestration (10-step boot)
 │   ├── boot.ts               — Process wrapper (auto-restart on exit 100)
 │   ├── config.ts             — YAML config loader + types
-│   ├── llm.ts                — LLM client, conversation history, tool loop
+│   ├── llm.ts                — LLM client, conversation history, streaming, tool loop
 │   ├── persona.ts            — Persona file discovery, parsing, composition
 │   ├── tool-registry.ts      — Tool auto-discovery + execution
 │   ├── agent-registry.ts     — Agent auto-discovery + execution
-│   ├── cron.ts               — Cron job scheduler
+│   ├── cron.ts               — Cron job scheduler + runtime CRUD
+│   ├── sessions.ts           — Conversation session tracking + persistence
+│   ├── memory.ts             — Per-user/channel fact memory store
 │   ├── heartbeat.ts          — Periodic handler system
 │   ├── heartbeat-calendar.ts — Calendar reminder handler
 │   ├── web.ts                — Express dashboard + REST API
@@ -191,15 +199,19 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   ├── utils.ts              — Shared utilities
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
-│   │   ├── client.ts         — Discord.js client, message routing
-│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /reboot)
+│   │   ├── client.ts         — Discord.js client, message routing, streaming
+│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /reboot)
 │   │   ├── attachments.ts    — Image vision + text file processing
 │   │   └── embeds.ts         — Embed builders
 │   ├── tools/
 │   │   ├── types.ts          — Tool type system, defineTool(), param builders
 │   │   ├── ping.ts           — Test tool
 │   │   ├── notes.ts          — Persistent note storage
-│   │   └── calendar.ts       — CalDAV calendar CRUD
+│   │   ├── calendar.ts       — CalDAV calendar CRUD
+│   │   ├── brave-search.ts   — Brave Search web queries
+│   │   ├── cron.ts           — Runtime cron job management
+│   │   ├── memory.ts         — Memory save/list/forget tool
+│   │   └── _example-gmail.ts — Example tool template (skipped on load)
 │   └── agents/
 │       └── types.ts          — Agent type definitions
 ├── persona/                  — Personality files (see Persona System above)
@@ -207,6 +219,7 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   ├── index.html
 │   ├── app.js
 │   └── style.css
+├── assets/                   — Static assets (bot graphics, etc.)
 ├── data/                     — Runtime data (gitignored)
 ├── settings.yaml             — Your config (gitignored)
 ├── settings.example.yaml     — Config template

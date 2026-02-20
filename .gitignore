@@ -5,3 +5,5 @@ settings.yaml
 .env*
 data/
 .claude/
+*.log
+.DS_Store

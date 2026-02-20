@@ -1,6 +1,10 @@
 {
   "name": "aelora",
   "version": "0.1.0",
+  "description": "LLM-powered Discord bot with persona system, tools, agents, and web dashboard",
+  "author": "Tyler Paul Esselstrom",
+  "license": "MIT",
+  "keywords": ["discord", "bot", "llm", "ai", "openai", "persona"],
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

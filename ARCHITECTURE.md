@@ -31,7 +31,14 @@ Technical reference for the Aelora bot. Covers every system, how they connect, a
                               │             │
                      ┌────────▼─────────────▼────────┐
                      │        Tool handlers          │
-                     │   ping · notes · calendar     │
+                     │  ping · notes · calendar ·    │
+                     │  brave-search · cron · memory │
+                     └──────────────┬────────────────┘
+                                    │
+                     ┌──────────────▼────────────────┐
+                     │       Persistence layer       │
+                     │  memory.ts · sessions.ts ·    │
+                     │  data/*.json                  │
                      └───────────────────────────────┘
 
   ┌────────────┐    ┌────────────┐    ┌────────────────────┐
@@ -76,19 +83,21 @@ Graceful shutdown on SIGINT: stops heartbeat, stops cron, exits.
    - Strips @mention prefix from content
    - channel.sendTyping() (shows "typing..." indicator)
    - processAttachments() → string or ContentPart[] (vision/text)
-3. llm.ts: getLLMResponse(channelId, userContent)
+3. llm.ts: getLLMResponse(channelId, userContent, onToken, userId)
    - Retrieves per-channel history from Map
    - Appends user message, trims to maxHistory
-   - buildSystemPrompt() — persona base + system status + tool/agent inventory
-   - runCompletionLoop(messages, tools, channelId)
+   - buildSystemPrompt(userId, channelId) — persona base + system status + tool/agent inventory + memory
+   - runCompletionLoop(messages, tools, channelId, onToken, userId)
      Loop (up to 10 iterations):
-       → client.chat.completions.create()
+       → client.chat.completions.create({ stream: true })
+       → Tokens streamed via onToken callback
        → If tool_calls: dispatch each to agent or tool, push results, continue
        → If text: return final response
    - Appends assistant response to history
-4. client.ts: chunkMessage(text, 2000)
-   - Splits response for Discord's 2000-char limit
-   - message.reply(first chunk), channel.send(remaining chunks)
+4. client.ts: Streaming response
+   - Sends initial reply, then edits the message as tokens arrive
+   - Chunks are buffered and the Discord message is updated periodically
+   - Final message is split via chunkMessage(text, 2000) if needed
 ```
 
 ### Slash Commands (embed responses)
@@ -96,13 +105,15 @@ Graceful shutdown on SIGINT: stops heartbeat, stops cron, exits.
 ```
 1. Discord InteractionCreate event
 2. client.ts: handleSlashCommand()
-   /ask [prompt]  → deferReply → getLLMResponse() → buildResponseEmbed()
-   /tools         → getAllTools() + getAllAgents() → buildToolListEmbed()
-   /ping          → latency measurement → buildSuccessEmbed()
-   /reboot        → reply embed → setTimeout(500ms) → reboot()
+   /ask [prompt]     → deferReply → getLLMResponse() → buildResponseEmbed()
+   /tools            → getAllTools() + getAllAgents() → buildToolListEmbed()
+   /ping             → latency measurement → buildSuccessEmbed()
+   /clear            → clearHistory(channelId) → buildSuccessEmbed()
+   /websearch [query]→ executeTool("brave-search") → buildResponseEmbed()
+   /reboot           → reply embed → setTimeout(500ms) → reboot()
 ```
 
-Chat messages respond with **plain text**. The `/ask` slash command responds with **rich embeds**.
+Chat messages respond with **streaming plain text**. Slash commands respond with **rich embeds**.
 
 ---
 
@@ -123,7 +134,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 
 ### System Prompt Composition
 
-`buildSystemPrompt()` assembles the prompt fresh on every request:
+`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request:
 
 ```
 [Persona composed prompt]
@@ -134,7 +145,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 - Model: gpt-5-mini-2025-08-07
 - Uptime: 2h 15m
 - Heartbeat: running, 1 handler(s)
-- Cron: 0 active job(s)
+- Cron: 2 active job(s)
 
 ## Currently Available
 
@@ -142,12 +153,22 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 - **ping** — Responds with pong and server time
 - **notes** — Save, retrieve, list, and delete notes
 - **calendar** — Manage calendar events via CalDAV
+- **brave-search** — Search the web via Brave Search API
+- **cron** — Create, list, toggle, trigger, and delete scheduled jobs
+- **memory** — Remember and recall facts about users and channels
 
 ### Agents
 (none currently)
+
+## Memory
+### About this user
+- Prefers casual tone
+- Working on a Rust game engine
+### About this channel
+- This channel discusses AI news
 ```
 
-This gives the LLM live awareness of its environment.
+The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` — only appears when relevant facts exist. This gives the LLM live awareness of its environment and persistent knowledge about users and channels.
 
 ### Tool Calling Loop
 
@@ -290,6 +311,9 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `ping` | Responds with pong + server time | none |
 | `notes` | Persistent note storage (save/get/list/delete) | none |
 | `calendar` | CalDAV calendar CRUD (list/create/update/delete) | `caldav.*` |
+| `brave-search` | Web search via Brave Search API | `brave.apiKey` |
+| `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
+| `memory` | Remember/recall/forget facts about users and channels | none |
 
 ---
 
@@ -385,7 +409,14 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 **File:** [src/cron.ts](src/cron.ts)
 
-Schedules jobs from the `cron.jobs` array in settings. Uses the `croner` library (cron expressions with timezone support).
+Schedules jobs from two sources: config-based jobs (from `settings.yaml`) and runtime-created jobs (via the `cron` tool or REST API). Uses the `croner` library (cron expressions with timezone support).
+
+### Job Sources
+
+| Source | Created via | Editable at runtime? | Persistence |
+|--------|-------------|----------------------|-------------|
+| `config` | `cron.jobs` in `settings.yaml` | No (read-only) | `settings.yaml` |
+| `runtime` | `cron` tool or `POST /api/cron` | Yes (full CRUD) | `data/cron-jobs.json` |
 
 ### Job Types
 
@@ -418,9 +449,18 @@ cron:
       enabled: true
 ```
 
+### Runtime Job Management
+
+Runtime jobs can be created, updated, toggled, triggered, and deleted through:
+- The `cron` tool (LLM-accessible, used during conversations)
+- REST API (`POST/PUT/DELETE /api/cron/...`)
+- Web dashboard UI
+
+Runtime jobs persist to `data/cron-jobs.json` and are restored on restart. Each job maintains up to 10 execution history records with timestamps, duration, output preview, and error status.
+
 ### State Tracking
 
-Each job maintains `CronJobState`: name, schedule, last run, next run, last error. Exposed via `GET /api/cron` and the web dashboard.
+Each job maintains `CronJobState`: name, schedule, last run, next run, last error, execution history. Exposed via `GET /api/cron` and the web dashboard.
 
 ---
 
@@ -437,13 +477,15 @@ Each job maintains `CronJobState`: name, schedule, last run, next run, last erro
 
 ### commands.ts
 
-Four slash commands, registered on startup:
+Six slash commands, registered on startup:
 
 | Command | Description |
 |---------|-------------|
 | `/ask [prompt]` | Ask Aelora with a rich embed response |
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
+| `/clear` | Clear conversation history for this channel |
+| `/websearch [query]` | Search the web via Brave Search |
 | `/reboot` | Graceful restart |
 
 ### attachments.ts
@@ -478,12 +520,26 @@ Express 5 server serving the dashboard frontend and REST API.
 | `GET` | `/api/config` | Sanitized config (no secrets) |
 | `GET` | `/api/persona` | Persona file inventory, active mode + prompt stats |
 | `POST` | `/api/persona/reload` | Hot-reload persona files from disk |
+| `GET` | `/api/persona/modes` | List available persona modes |
+| `POST` | `/api/persona/mode` | Switch active persona mode |
 | `POST` | `/api/llm/test` | One-shot LLM test call |
+| `POST` | `/api/llm/test/stream` | Streaming LLM test (SSE) |
 | `GET` | `/api/tools` | All tools with enabled status |
 | `POST` | `/api/tools/:name/toggle` | Enable/disable a tool |
 | `GET` | `/api/agents` | All agents with config |
 | `POST` | `/api/agents/:name/toggle` | Enable/disable an agent |
-| `GET` | `/api/cron` | Cron job states |
+| `GET` | `/api/cron` | Cron job list with state |
+| `POST` | `/api/cron` | Create a new runtime cron job |
+| `PUT` | `/api/cron/:name` | Update a runtime cron job |
+| `POST` | `/api/cron/:name/toggle` | Enable/disable a cron job |
+| `POST` | `/api/cron/:name/trigger` | Manually trigger a cron job |
+| `DELETE` | `/api/cron/:name` | Delete a runtime cron job |
+| `GET` | `/api/sessions` | All active conversation sessions |
+| `DELETE` | `/api/sessions/:channelId` | Delete a specific session |
+| `DELETE` | `/api/sessions` | Clear all sessions |
+| `GET` | `/api/memory` | All stored memory facts |
+| `DELETE` | `/api/memory/:scope/:index` | Delete a specific fact |
+| `DELETE` | `/api/memory/:scope` | Clear all facts in a scope |
 | `GET` | `/api/heartbeat` | Heartbeat state + handler list |
 | `GET` | `/api/logs` | Recent 200 log entries |
 | `GET` | `/api/logs/stream` | SSE live log stream |
@@ -564,7 +620,11 @@ type Config = {
 | Notes | `data/notes.json` (disk) | Yes |
 | Calendar events | External CalDAV server | Yes |
 | Tool/agent enabled state | In-memory registry | No (resets to code defaults) |
-| Cron job state | In-memory (rebuilt from config) | No |
+| Cron jobs (config) | `settings.yaml` | Yes |
+| Cron jobs (runtime) | `data/cron-jobs.json` (disk) | Yes |
+| Cron execution history | `data/cron-jobs.json` (disk) | Yes |
+| Memory facts | `data/memory.json` (disk) | Yes |
+| Sessions | `data/sessions.json` (disk) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Persona files | Disk (`persona/` directory) | Yes |
@@ -604,7 +664,7 @@ type Config = {
 
 ### Adding a Cron Job
 
-Add an entry to `settings.yaml` under `cron.jobs`:
+**Option 1: Config-based** — add to `settings.yaml` under `cron.jobs`:
 
 ```yaml
 cron:
@@ -617,3 +677,5 @@ cron:
       prompt: "Generate something interesting."
       enabled: true
 ```
+
+**Option 2: Runtime** — create via the REST API (`POST /api/cron`), the web dashboard, or ask the bot to create one using the `cron` tool. Runtime jobs persist to `data/cron-jobs.json` and survive restarts.

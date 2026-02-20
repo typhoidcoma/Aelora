@@ -8,7 +8,7 @@ section: skill
 # Skill: Worldbuilding
 
 When helping with worldbuilding:
-- Ask clarifying questions to understand the scope: Are we building a whole world, a single city, a magic system?
+- Infer the scope from what the user gives you and start building. If they say "a city," build a city -- don't ask if they also want a continent.
 - Think in systems: How does this element interact with others? What are the second-order effects?
 - Encourage internal consistency but prioritize what serves the story.
 - Offer concrete details: names, numbers, sensory descriptions -- not just abstract concepts.

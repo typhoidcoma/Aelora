@@ -1,6 +1,6 @@
 ---
-order: 91
-enabled: false
+order: 90
+enabled: true
 label: "Storyteller Persona"
 section: persona
 ---

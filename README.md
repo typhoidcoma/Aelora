@@ -2,12 +2,12 @@
 
 **The embodiment layer of the Luminora Emotion Engine.**
 
-Aelora is an LLM-powered Discord bot built as part of the [Aeveon](https://github.com/your-org/aeveon) creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Soul"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard — all from a single `settings.yaml` config file.
+Aelora is an LLM-powered Discord bot built as part of the [Aeveon](https://github.com/your-org/aeveon) creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Persona"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard — all from a single `settings.yaml` config file.
 
 ## Features
 
 - **LLM Chat** — Works with any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
-- **Soul System** — Composable personality built from layered markdown files with hot-reload
+- **Persona System** — Composable personality built from layered markdown files with switchable modes and hot-reload
 - **Tool Framework** — Drop a `.ts` file in `src/tools/`, it auto-loads. Typed params, config resolution, runtime toggle
 - **Agent Framework** — Sub-agents with their own system prompts, tool allowlists, and reasoning loops
 - **CalDAV Calendar** — Full CRUD for any CalDAV server (Radicale, Nextcloud, Baikal, iCloud)
@@ -59,16 +59,16 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 |---|---|
 | `discord` | Bot token, response mode (mention/all), allowed channels, DMs, status |
 | `llm` | API endpoint, model, max tokens, conversation history length |
-| `soul` | Personality system toggle, directory, bot name |
+| `persona` | Personality system toggle, directory, bot name, active mode |
 | `tools` | Per-tool config (API keys, CalDAV credentials, etc.) |
 | `agents` | Agent system toggle, max iterations |
 | `cron` | Scheduled jobs (static messages or LLM-generated) |
 | `heartbeat` | Periodic handler system interval |
 | `web` | Dashboard toggle and port |
 
-## Soul System
+## Persona System
 
-Aelora's personality is composed from markdown files in the `soul/` directory. Each file has YAML frontmatter controlling load order, enable/disable, and section labels:
+Aelora's personality is composed from markdown files in the `persona/` directory. Each file has YAML frontmatter controlling load order, enable/disable, and section labels:
 
 ```markdown
 ---
@@ -83,26 +83,34 @@ section: identity
 You are **{{botName}}**, the embodiment layer of the Luminora Emotion Engine...
 ```
 
-Files are sorted by `order`, concatenated, and injected as the system prompt. Variables like `{{botName}}` are substituted from config. Soul files can be hot-reloaded from the web dashboard without restarting the bot.
+Files are sorted by `order`, concatenated, and injected as the system prompt. Variables like `{{botName}}` are substituted from config. Persona files can be hot-reloaded from the web dashboard without restarting the bot.
 
-**Current soul structure:**
+### Modes
+
+Each persona mode is a folder under `persona/modes/`. The active mode is set via `persona.activeMode` in `settings.yaml`. Shared files (identity, skills, tools, etc.) are always loaded; only the active mode's folder is included. Each mode has its own `mode.md` (persona description) and `soul.md` (behavioral core).
+
+**Current persona structure:**
 
 ```
-soul/
-├── bootstrap.md          — Response format, behavioral rules, safety (order 5)
-├── identity.md           — Who Aelora is (order 10)
-├── soul.md               — Core directive, behavioral standards (order 20)
+persona/
+├── bootstrap.md              — Response format, behavioral rules, safety (order 5)
+├── identity.md               — Who Aelora is (order 10)
 ├── skills/
-│   ├── creative-writing.md  — Prose craft rules (order 50)
-│   ├── worldbuilding.md     — World design rules (order 51)
-│   └── roleplay.md          — Narration and scene rules (order 52)
-├── tools.md              — Tool/agent usage instructions (order 80)
-├── personas/
-│   ├── default.md           — Standard persona (order 90)
-│   ├── storyteller.md       — Narrative mode (disabled)
-│   └── worldbuilder.md      — Lore mode (disabled)
+│   ├── creative-writing.md   — Prose craft rules (order 50)
+│   └── worldbuilding.md      — World design rules (order 51)
+├── tools.md                  — Tool/agent usage instructions (order 80)
+├── modes/
+│   ├── default/
+│   │   ├── mode.md           — Default persona (order 90)
+│   │   └── soul.md           — Default behavioral core (order 20)
+│   ├── storyteller/
+│   │   ├── mode.md           — Narrative persona (order 90)
+│   │   └── soul.md           — Storyteller behavioral core (order 20)
+│   └── worldbuilder/
+│       ├── mode.md           — Lore-building persona (order 90)
+│       └── soul.md           — Worldbuilder behavioral core (order 20)
 └── templates/
-    └── user.md              — Per-user preferences (disabled, placeholder)
+    └── user.md               — Per-user preferences (disabled, placeholder)
 ```
 
 ## Tools & Agents
@@ -156,11 +164,11 @@ For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 Access at `http://localhost:3000` (configurable via `web.port`).
 
 - **Status** — Discord connection, uptime, guild count
-- **Soul** — File inventory, prompt size, hot-reload button
+- **Persona** — File inventory, active mode, prompt size, hot-reload button
 - **Tools & Agents** — Enable/disable at runtime
 - **Cron** — Job schedules, last/next run, errors
 - **Heartbeat** — Tick count, handler list
-- **LLM Test** — Send test prompts with current soul config
+- **LLM Test** — Send test prompts with current persona config
 - **Console** — Live log stream via SSE
 
 ## Project Structure
@@ -171,7 +179,7 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   ├── boot.ts               — Process wrapper (auto-restart on exit 100)
 │   ├── config.ts             — YAML config loader + types
 │   ├── llm.ts                — LLM client, conversation history, tool loop
-│   ├── soul.ts               — Soul file discovery, parsing, composition
+│   ├── persona.ts            — Persona file discovery, parsing, composition
 │   ├── tool-registry.ts      — Tool auto-discovery + execution
 │   ├── agent-registry.ts     — Agent auto-discovery + execution
 │   ├── cron.ts               — Cron job scheduler
@@ -194,7 +202,7 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   │   └── calendar.ts       — CalDAV calendar CRUD
 │   └── agents/
 │       └── types.ts          — Agent type definitions
-├── soul/                     — Personality files (see Soul System above)
+├── persona/                  — Personality files (see Persona System above)
 ├── public/                   — Web dashboard frontend
 │   ├── index.html
 │   ├── app.js

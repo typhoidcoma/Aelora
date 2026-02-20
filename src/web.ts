@@ -2,19 +2,26 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Config } from "./config.js";
-import { loadSoul, type SoulState } from "./soul.js";
+import { loadPersona, discoverModes, type PersonaState } from "./persona.js";
 import { getLLMOneShot } from "./llm.js";
 import { getAllTools, toggleTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
-import { cronJobs } from "./cron.js";
+import {
+  getCronJobsForAPI,
+  createCronJob,
+  toggleCronJob,
+  triggerCronJob,
+  deleteCronJob,
+} from "./cron.js";
 import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
+import { getAllSessions } from "./sessions.js";
 
 export type AppState = {
   config: Config;
-  soulState: SoulState | null;
+  personaState: PersonaState | null;
 };
 
 export function startWeb(state: AppState): void {
@@ -45,18 +52,87 @@ export function startWeb(state: AppState): void {
 
   // Cron job list with state
   app.get("/api/cron", (_req, res) => {
-    res.json(
-      cronJobs.map((j) => ({
-        name: j.name,
-        schedule: j.schedule,
-        channelId: j.channelId,
-        type: j.type,
-        enabled: j.enabled,
-        lastRun: j.lastRun?.toISOString() ?? null,
-        nextRun: j.nextRun?.toISOString() ?? null,
-        lastError: j.lastError,
-      })),
-    );
+    res.json(getCronJobsForAPI());
+  });
+
+  // Create a new runtime cron job
+  app.post("/api/cron", (req, res) => {
+    const { name, schedule, timezone, channelId, type, message, prompt, enabled } = req.body ?? {};
+
+    if (!name || typeof name !== "string") {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+    if (!schedule || typeof schedule !== "string") {
+      res.status(400).json({ error: "schedule is required" });
+      return;
+    }
+    if (!channelId || typeof channelId !== "string") {
+      res.status(400).json({ error: "channelId is required" });
+      return;
+    }
+    if (!type || !["static", "llm"].includes(type)) {
+      res.status(400).json({ error: 'type must be "static" or "llm"' });
+      return;
+    }
+
+    const result = createCronJob({ name, schedule, timezone, channelId, type, message, prompt, enabled });
+
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ success: true, name });
+  });
+
+  // Toggle a cron job on/off
+  app.post("/api/cron/:name/toggle", (req, res) => {
+    const { name } = req.params;
+    const result = toggleCronJob(name);
+
+    if (!result.found) {
+      res.status(404).json({ error: `Job "${name}" not found` });
+      return;
+    }
+
+    res.json({ name, enabled: result.enabled });
+  });
+
+  // Manually trigger a cron job
+  app.post("/api/cron/:name/trigger", async (req, res) => {
+    const { name } = req.params;
+    const result = await triggerCronJob(name);
+
+    if (!result.found) {
+      res.status(404).json({ error: `Job "${name}" not found` });
+      return;
+    }
+
+    if (result.error) {
+      res.json({ success: false, error: result.error });
+      return;
+    }
+
+    res.json({ success: true, output: result.output });
+  });
+
+  // Delete a runtime cron job
+  app.delete("/api/cron/:name", (req, res) => {
+    const { name } = req.params;
+    const result = deleteCronJob(name);
+
+    if (!result.found) {
+      res.status(404).json({ error: result.error ?? `Job "${name}" not found` });
+      return;
+    }
+
+    if (result.error) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ success: true });
   });
 
   // Sanitized config (no secrets)
@@ -80,18 +156,19 @@ export function startWeb(state: AppState): void {
     });
   });
 
-  // Soul file inventory
-  app.get("/api/soul", (_req, res) => {
-    if (!state.soulState) {
+  // Persona file inventory
+  app.get("/api/persona", (_req, res) => {
+    if (!state.personaState) {
       res.json({ enabled: false, files: [] });
       return;
     }
 
     res.json({
       enabled: true,
-      loadedAt: state.soulState.loadedAt.toISOString(),
-      promptLength: state.soulState.composedPrompt.length,
-      files: state.soulState.files.map((f) => ({
+      activeMode: state.personaState.activeMode,
+      loadedAt: state.personaState.loadedAt.toISOString(),
+      promptLength: state.personaState.composedPrompt.length,
+      files: state.personaState.files.map((f) => ({
         path: f.path,
         label: f.meta.label,
         section: f.meta.section,
@@ -102,16 +179,17 @@ export function startWeb(state: AppState): void {
     });
   });
 
-  // Reload soul from disk
-  app.post("/api/soul/reload", (_req, res) => {
+  // Reload persona from disk
+  app.post("/api/persona/reload", (_req, res) => {
     try {
-      const newState = loadSoul(config.soul.dir, { botName: config.soul.botName });
-      state.soulState = newState;
+      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activeMode);
+      state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
 
       const enabledCount = newState.files.filter((f) => f.meta.enabled).length;
       res.json({
         success: true,
+        activeMode: newState.activeMode,
         promptLength: newState.composedPrompt.length,
         fileCount: newState.files.length,
         enabledCount,
@@ -121,7 +199,42 @@ export function startWeb(state: AppState): void {
     }
   });
 
-  // Test LLM with current soul prompt
+  // List available persona modes
+  app.get("/api/persona/modes", (_req, res) => {
+    const modes = discoverModes(config.persona.dir);
+    res.json({ modes, activeMode: config.persona.activeMode });
+  });
+
+  // Switch active persona mode
+  app.post("/api/persona/mode", (req, res) => {
+    const { mode } = req.body ?? {};
+    const available = discoverModes(config.persona.dir);
+
+    if (!mode || !available.includes(mode)) {
+      res.status(400).json({ error: `Invalid mode "${mode}". Available: ${available.join(", ")}` });
+      return;
+    }
+
+    try {
+      config.persona.activeMode = mode;
+      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, mode);
+      state.personaState = newState;
+      config.llm.systemPrompt = newState.composedPrompt;
+
+      const enabledCount = newState.files.filter((f) => f.meta.enabled).length;
+      res.json({
+        success: true,
+        activeMode: mode,
+        promptLength: newState.composedPrompt.length,
+        fileCount: newState.files.length,
+        enabledCount,
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err) });
+    }
+  });
+
+  // Test LLM with current persona prompt
   app.post("/api/llm/test", async (req, res) => {
     const message = req.body?.message;
     if (!message || typeof message !== "string") {
@@ -134,6 +247,41 @@ export function startWeb(state: AppState): void {
       res.json({ reply });
     } catch (err) {
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Streaming LLM test (SSE)
+  app.post("/api/llm/test/stream", async (req, res) => {
+    const message = req.body?.message;
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ error: "message is required" });
+      return;
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    let closed = false;
+    req.on("close", () => { closed = true; });
+
+    try {
+      const reply = await getLLMOneShot(message, (token) => {
+        if (!closed) {
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+      });
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
+      }
+    } catch (err) {
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
+      }
+    } finally {
+      res.end();
     }
   });
 
@@ -186,6 +334,11 @@ export function startWeb(state: AppState): void {
     }
 
     res.json({ name, enabled: result.enabled });
+  });
+
+  // Session analytics
+  app.get("/api/sessions", (_req, res) => {
+    res.json(getAllSessions());
   });
 
   // Heartbeat status

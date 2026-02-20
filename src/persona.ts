@@ -2,28 +2,29 @@ import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 import { parse as parseYaml } from "yaml";
 
-export type SoulFileMeta = {
+export type PersonaFileMeta = {
   order: number;
   enabled: boolean;
   label: string;
   section: string;
 };
 
-export type SoulFile = {
-  /** Relative path from soul directory, e.g. "skills/creative-writing.md" */
+export type PersonaFile = {
+  /** Relative path from persona directory, e.g. "skills/creative-writing.md" */
   path: string;
-  meta: SoulFileMeta;
+  meta: PersonaFileMeta;
   /** Markdown content below frontmatter, before template substitution */
   rawContent: string;
 };
 
-export type SoulState = {
-  files: SoulFile[];
+export type PersonaState = {
+  files: PersonaFile[];
   composedPrompt: string;
+  activeMode: string;
   loadedAt: Date;
 };
 
-export type SoulVariables = {
+export type PersonaVariables = {
   botName: string;
   [key: string]: string;
 };
@@ -46,7 +47,7 @@ function parseFrontmatter(raw: string): { meta: Record<string, unknown>; content
   try {
     meta = parseYaml(yamlBlock) ?? {};
   } catch {
-    console.warn("Soul: failed to parse frontmatter, using defaults");
+    console.warn("Persona: failed to parse frontmatter, using defaults");
   }
 
   return { meta, content };
@@ -70,18 +71,40 @@ function discoverFiles(dir: string, basePath = ""): string[] {
   return results;
 }
 
-function substituteVariables(content: string, variables: SoulVariables): string {
+function substituteVariables(content: string, variables: PersonaVariables): string {
   return content.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
     return key in variables ? variables[key] : match;
   });
 }
 
-export function loadSoul(soulDir: string, variables: SoulVariables): SoulState {
-  const filePaths = discoverFiles(soulDir);
-  const files: SoulFile[] = [];
+export function discoverModes(personaDir: string): string[] {
+  const modesDir = join(personaDir, "modes");
+  if (!existsSync(modesDir)) return [];
+
+  return readdirSync(modesDir).filter((entry) =>
+    statSync(join(modesDir, entry)).isDirectory(),
+  );
+}
+
+export function loadPersona(
+  personaDir: string,
+  variables: PersonaVariables,
+  activeMode = "default",
+): PersonaState {
+  const allPaths = discoverFiles(personaDir);
+
+  // Shared files + only the active mode's folder
+  const filePaths = allPaths.filter((relPath) => {
+    if (relPath.startsWith("modes/")) {
+      return relPath.startsWith(`modes/${activeMode}/`);
+    }
+    return true;
+  });
+
+  const files: PersonaFile[] = [];
 
   for (const relPath of filePaths) {
-    const fullPath = join(soulDir, relPath);
+    const fullPath = join(personaDir, relPath);
     const raw = readFileSync(fullPath, "utf-8");
     const { meta, content } = parseFrontmatter(raw);
 
@@ -110,8 +133,8 @@ export function loadSoul(soulDir: string, variables: SoulVariables): SoulState {
 
   const enabled = files.filter((f) => f.meta.enabled).length;
   console.log(
-    `Soul: loaded ${files.length} files (${enabled} enabled), prompt: ${composedPrompt.length} chars`,
+    `Persona: loaded ${files.length} files (${enabled} enabled), mode: "${activeMode}", prompt: ${composedPrompt.length} chars`,
   );
 
-  return { files, composedPrompt, loadedAt: new Date() };
+  return { files, composedPrompt, activeMode, loadedAt: new Date() };
 }

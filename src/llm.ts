@@ -10,6 +10,9 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
 type UserContent = string | ContentPart[];
 
+/** Called for each text token during streaming. */
+export type OnTokenCallback = (token: string) => void;
+
 // --- System state provider (avoids circular deps with discord/cron/heartbeat) ---
 
 export type SystemState = {
@@ -49,6 +52,10 @@ export function initLLM(cfg: Config): void {
   });
 }
 
+export function clearHistory(channelId: string): void {
+  conversations.delete(channelId);
+}
+
 function getHistory(channelId: string): ChatMessage[] {
   if (!conversations.has(channelId)) {
     conversations.set(channelId, []);
@@ -69,6 +76,7 @@ function trimHistory(history: ChatMessage[]): void {
 export async function getLLMResponse(
   channelId: string,
   userMessage: UserContent,
+  onToken?: OnTokenCallback,
 ): Promise<string> {
   const history = getHistory(channelId);
 
@@ -83,7 +91,7 @@ export async function getLLMResponse(
   ];
 
   try {
-    const result = await runCompletionLoop(messages, tools, channelId);
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken);
 
     history.push({ role: "assistant", content: result });
     trimHistory(history);
@@ -99,7 +107,7 @@ export async function getLLMResponse(
 /**
  * Stateless one-shot LLM call with tool/agent support (for cron, heartbeat, dashboard).
  */
-export async function getLLMOneShot(prompt: string): Promise<string> {
+export async function getLLMOneShot(prompt: string, onToken?: OnTokenCallback): Promise<string> {
   const tools = getAllDefinitions();
 
   const messages: ChatMessage[] = [
@@ -107,7 +115,7 @@ export async function getLLMOneShot(prompt: string): Promise<string> {
     { role: "user", content: prompt },
   ];
 
-  return await runCompletionLoop(messages, tools, null);
+  return await runCompletionLoop(messages, tools, null, undefined, undefined, true, onToken);
 }
 
 // --- Agent loop support ---
@@ -259,29 +267,78 @@ async function runCompletionLoop(
   maxIterations = MAX_TOOL_ITERATIONS,
   model?: string,
   allowAgentDispatch = true,
+  onToken?: OnTokenCallback,
 ): Promise<string> {
+  const baseParams = {
+    model: model ?? config.llm.model,
+    messages,
+    max_completion_tokens: config.llm.maxTokens || undefined,
+    ...(tools.length > 0 ? { tools } : {}),
+  };
+
   for (let i = 0; i < maxIterations; i++) {
-    const completion = await client.chat.completions.create({
-      model: model ?? config.llm.model,
-      messages,
-      max_completion_tokens: config.llm.maxTokens || undefined,
-      ...(tools.length > 0 ? { tools } : {}),
-    });
+    let content: string | null;
+    let toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined;
 
-    const choice = completion.choices[0];
-    if (!choice) return "(no response)";
+    if (onToken) {
+      // --- Streaming path ---
+      const stream = await client.chat.completions.create({ ...baseParams, stream: true });
 
-    const msg = choice.message;
+      let contentAccum = "";
+      const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (!delta) continue;
+
+        if (delta.content) {
+          contentAccum += delta.content;
+          onToken(delta.content);
+        }
+
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            if (!toolCallAccum.has(tc.index)) {
+              toolCallAccum.set(tc.index, { id: "", name: "", arguments: "" });
+            }
+            const accum = toolCallAccum.get(tc.index)!;
+            if (tc.id) accum.id = tc.id;
+            if (tc.function?.name) accum.name += tc.function.name;
+            if (tc.function?.arguments) accum.arguments += tc.function.arguments;
+          }
+        }
+      }
+
+      content = contentAccum || null;
+
+      if (toolCallAccum.size > 0) {
+        toolCalls = [...toolCallAccum.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, tc]) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          }));
+      }
+    } else {
+      // --- Non-streaming path (unchanged) ---
+      const completion = await client.chat.completions.create(baseParams);
+      const choice = completion.choices[0];
+      if (!choice) return "(no response)";
+
+      content = choice.message.content;
+      toolCalls = choice.message.tool_calls ?? undefined;
+    }
 
     // If the model wants to call tools/agents
-    if (msg.tool_calls && msg.tool_calls.length > 0) {
+    if (toolCalls && toolCalls.length > 0) {
       messages.push({
         role: "assistant",
-        content: msg.content ?? null,
-        tool_calls: msg.tool_calls,
+        content: content ?? null,
+        tool_calls: toolCalls,
       });
 
-      for (const toolCall of msg.tool_calls) {
+      for (const toolCall of toolCalls) {
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(toolCall.function.arguments);
@@ -310,7 +367,7 @@ async function runCompletionLoop(
     }
 
     // No tool calls — final text response
-    return msg.content ?? "(no response)";
+    return content ?? "(no response)";
   }
 
   console.warn(`LLM: hit max tool iterations (${maxIterations})`);

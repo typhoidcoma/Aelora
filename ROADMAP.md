@@ -17,7 +17,7 @@ Interactive multi-step missions that Aelora can assign, track, and mark complete
 | **Tool** | `quest` tool — accept, submit, check progress, list active/completed quests |
 | **Agent** | `quest-master` agent — evaluates submissions using LLM judgment, gives feedback |
 | **Heartbeat** | Deadline reminders for active quests, nudges for stale quests |
-| **Soul** | Quest-related persona or skill file for tone when assigning/reviewing |
+| **Persona** | Quest-related persona or skill file for tone when assigning/reviewing |
 | **Notes** | Fallback persistence if quest store is unavailable |
 
 ### Data Model
@@ -93,7 +93,7 @@ Collaborative interactive fiction with persistent narrative state. Users can sta
 |--------|------|
 | **Tool** | `story` tool — start, continue, save, load, list sessions |
 | **Agent** | `narrator` agent — dedicated storytelling agent with world context |
-| **Soul** | `personas/storyteller.md` (already exists, currently disabled) |
+| **Persona** | `modes/storyteller/` mode (switch via `persona.activeMode`) |
 | **Cron** | Optional "story recap" scheduled messages for ongoing sessions |
 
 ### Data Model
@@ -154,9 +154,9 @@ session.json:
 - Produces narration that advances the scene and presents choices
 - `postProcess()` extracts narration text and any state updates
 
-**Soul integration:**
-- Enable `personas/storyteller.md` when a story session is active in the channel
-- Disable when session ends or is saved
+**Persona integration:**
+- Switch to storyteller mode (`persona.activeMode: "storyteller"`) when a story session is active
+- Switch back to default mode when session ends or is saved
 
 **Estimated complexity:** High. ~400 lines tool + ~80 lines agent + session state management.
 
@@ -305,7 +305,7 @@ Generate images from text prompts and send them as Discord attachments. Supports
 |--------|------|
 | **Tool** | `image` tool — generate from prompt, with style/size options |
 | **Discord** | Send generated images as message attachments |
-| **Soul** | Prompt enhancement — Aelora can refine user prompts before generation |
+| **Persona** | Prompt enhancement — Aelora can refine user prompts before generation |
 
 ### Configuration
 
@@ -381,7 +381,7 @@ Per-user memory, preferences, and interaction tracking. Aelora remembers user pr
 | System | Role |
 |--------|------|
 | **Tool** | `profile` tool — view, update preferences, clear |
-| **Soul** | `templates/user.md` — inject per-user context into system prompt |
+| **Persona** | `templates/user.md` — inject per-user context into system prompt |
 | **LLM** | Auto-inject user profile into conversation context |
 | **Discord** | Map Discord user IDs to profiles |
 
@@ -445,8 +445,8 @@ data/profiles.json
 - Update `lastSeen` timestamp
 - Track which tools the user triggers
 
-**Soul template:**
-- Enable `soul/templates/user.md` with instructions for how to use user context
+**Persona template:**
+- Enable `persona/templates/user.md` with instructions for how to use user context
 - Template guides Aelora on adapting tone, referencing user interests, and respecting preferences
 
 **Estimated complexity:** Medium. ~200 lines tool + ~30 lines LLM injection + user ID plumbing.

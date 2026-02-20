@@ -51,7 +51,7 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 |------|------|--------|
 | 1 | Install logger (patch console) | `logger.ts` |
 | 2 | Load config from `settings.yaml` | `config.ts` |
-| 3 | Load soul files → compose system prompt | `soul.ts` |
+| 3 | Load persona files → compose system prompt | `persona.ts` |
 | 4 | Initialize LLM client | `llm.ts` |
 | 5 | Auto-discover and load tools | `tool-registry.ts` |
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
@@ -79,7 +79,7 @@ Graceful shutdown on SIGINT: stops heartbeat, stops cron, exits.
 3. llm.ts: getLLMResponse(channelId, userContent)
    - Retrieves per-channel history from Map
    - Appends user message, trims to maxHistory
-   - buildSystemPrompt() — soul base + system status + tool/agent inventory
+   - buildSystemPrompt() — persona base + system status + tool/agent inventory
    - runCompletionLoop(messages, tools, channelId)
      Loop (up to 10 iterations):
        → client.chat.completions.create()
@@ -126,7 +126,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 `buildSystemPrompt()` assembles the prompt fresh on every request:
 
 ```
-[Soul composed prompt]
+[Persona composed prompt]
 
 ## System Status
 - Bot: Aelora (Aelora#1234)
@@ -168,48 +168,55 @@ This gives the LLM live awareness of its environment.
 ### Agent Loop
 
 `runAgentLoop(options)` — sub-completion-loop with:
-- Agent's own system prompt (not the soul prompt)
+- Agent's own system prompt (not the persona prompt)
 - Tool allowlist: `undefined` = no tools, `["*"]` = all tools, `["a", "b"]` = specific tools
 - `allowAgentDispatch = false` — agents cannot call other agents (prevents recursion)
 - Optional model override (agents can use a different LLM)
 
 ---
 
-## Soul System
+## Persona System
 
-**Files:** [src/soul.ts](src/soul.ts), [soul/](soul/)
+**Files:** [src/persona.ts](src/persona.ts), [persona/](persona/)
 
 ### How It Works
 
-1. `loadSoul(dir, variables)` recursively discovers all `.md` files under the soul directory
-2. Each file's YAML frontmatter is parsed for metadata:
+1. `loadPersona(dir, variables, activeMode)` recursively discovers all `.md` files under the persona directory
+2. Files under `modes/` are filtered — only the active mode's folder is included (e.g. `modes/default/`). Shared files outside `modes/` are always loaded.
+3. Each file's YAML frontmatter is parsed for metadata:
    - `order` (number) — sort priority (lower = earlier in prompt)
    - `enabled` (boolean) — whether to include in composed prompt
    - `label` (string) — display name for dashboard
    - `section` (string) — grouping category
-3. Files are sorted by `order`, then alphabetically within the same order
-4. Enabled files are concatenated with `\n\n` separators
-5. Template variables (e.g. `{{botName}}`) are substituted from config
+4. Files are sorted by `order`, then alphabetically within the same order
+5. Enabled files are concatenated with `\n\n` separators
+6. Template variables (e.g. `{{botName}}`) are substituted from config
 
-### Current File Inventory
+### Mode System
+
+Each persona mode is a folder under `persona/modes/`. The active mode is controlled by `persona.activeMode` in `settings.yaml` (default: `"default"`). Each mode folder contains:
+
+- `mode.md` — persona description and behavioral framing
+- `soul.md` — the mode's behavioral core, directives, and personality traits
+
+Files in non-active mode folders are simply not loaded — no `enabled: false` needed.
+
+### Current File Inventory (default mode)
 
 | Order | File | Section | Enabled |
 |-------|------|---------|---------|
 | 5 | `bootstrap.md` | bootstrap | yes |
 | 10 | `identity.md` | identity | yes |
-| 20 | `soul.md` | soul | yes |
+| 20 | `modes/default/soul.md` | soul | yes |
 | 50 | `skills/creative-writing.md` | skill | yes |
 | 51 | `skills/worldbuilding.md` | skill | yes |
-| 52 | `skills/roleplay.md` | skill | yes |
 | 80 | `tools.md` | tools | yes |
-| 90 | `personas/default.md` | persona | yes |
-| 91 | `personas/storyteller.md` | persona | no |
-| 92 | `personas/worldbuilder.md` | persona | no |
+| 90 | `modes/default/mode.md` | persona | yes |
 | 200 | `templates/user.md` | template | no |
 
 ### Hot Reload
 
-`POST /api/soul/reload` re-reads all files from disk and updates the live system prompt. No restart needed. Available from the web dashboard.
+`POST /api/persona/reload` re-reads all files from disk and updates the live system prompt. No restart needed. Available from the web dashboard.
 
 ---
 
@@ -469,8 +476,8 @@ Express 5 server serving the dashboard frontend and REST API.
 |--------|-------|-------------|
 | `GET` | `/api/status` | Bot connection state, uptime, guild count |
 | `GET` | `/api/config` | Sanitized config (no secrets) |
-| `GET` | `/api/soul` | Soul file inventory + prompt stats |
-| `POST` | `/api/soul/reload` | Hot-reload soul files from disk |
+| `GET` | `/api/persona` | Persona file inventory, active mode + prompt stats |
+| `POST` | `/api/persona/reload` | Hot-reload persona files from disk |
 | `POST` | `/api/llm/test` | One-shot LLM test call |
 | `GET` | `/api/tools` | All tools with enabled status |
 | `POST` | `/api/tools/:name/toggle` | Enable/disable a tool |
@@ -517,7 +524,7 @@ type Config = {
   };
   cron: { jobs: CronJobConfig[] };
   web: { enabled: boolean; port: number };
-  soul: { enabled: boolean; dir: string; botName: string };
+  persona: { enabled: boolean; dir: string; botName: string; activeMode: string };
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
   tools: Record<string, Record<string, unknown>>;  // Free-form per-tool config
@@ -560,7 +567,7 @@ type Config = {
 | Cron job state | In-memory (rebuilt from config) | No |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
-| Soul files | Disk (`soul/` directory) | Yes |
+| Persona files | Disk (`persona/` directory) | Yes |
 
 ---
 
@@ -588,9 +595,9 @@ type Config = {
 2. Call `registerHeartbeatHandler()` before `startHeartbeat()` in `index.ts`
 3. Handler runs on every tick (default: 60s). Use `enabled` flag to toggle.
 
-### Adding a Soul File
+### Adding a Persona File
 
-1. Create a `.md` file anywhere under `soul/`
+1. Create a `.md` file anywhere under `persona/` (for shared content) or `persona/modes/<mode>/` (for mode-specific content)
 2. Add YAML frontmatter: `order`, `enabled`, `label`, `section`
 3. Hot-reload from dashboard or restart the bot
 4. File content is injected into the system prompt at the specified order position

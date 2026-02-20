@@ -11,6 +11,7 @@ import { chunkMessage } from "../utils.js";
 import { processAttachments } from "./attachments.js";
 import { setEmbedColor } from "./embeds.js";
 import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
+import { recordMessage } from "../sessions.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -50,6 +51,14 @@ export async function startDiscord(config: Config): Promise<Client> {
             console.log(
               `Discord: registered ${commands.length} slash command(s) (guild: ${guild.name})`,
             );
+            // Clear any stale global commands to prevent duplicates
+            const globalCount = (await readyClient.application.commands.fetch()).size;
+            if (globalCount > 0) {
+              await readyClient.application.commands.set([]);
+              console.log(`Discord: cleared ${globalCount} stale global command(s)`);
+            }
+          } else {
+            console.warn(`Discord: guild ${config.discord.guildId} not found in cache — commands not registered`);
           }
         } else {
           await readyClient.application.commands.set(commands);
@@ -115,6 +124,10 @@ export async function startDiscord(config: Config): Promise<Client> {
   return client;
 }
 
+const STREAM_EDIT_INTERVAL = 1200;
+const TYPING_INTERVAL = 8_000;
+const OVERFLOW_THRESHOLD = 1800;
+
 async function handleMessage(message: Message, config: Config): Promise<void> {
   let content = message.content;
   if (botUserId) {
@@ -124,32 +137,122 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
   // Allow messages with only attachments (no text)
   if (!content && message.attachments.size === 0) return;
 
+  // Track session analytics
+  const channelName = "name" in message.channel ? (message.channel.name as string) : "DM";
+  recordMessage({
+    channelId: message.channelId,
+    guildId: message.guild?.id ?? null,
+    channelName,
+    userId: message.author.id,
+    username: message.author.displayName ?? message.author.username,
+  });
+
+  const channel = message.channel;
+  if (!channel.isSendable()) return;
+
+  let replyMsg: Message | null = null;
+  let activeMsg: Message | null = null;
+  let editTimer: ReturnType<typeof setInterval> | null = null;
+  let typingTimer: ReturnType<typeof setInterval> | null = null;
+
   try {
-    const channel = message.channel;
-    if (!channel.isSendable()) return;
-
+    // Keep typing indicator alive throughout response generation
     await channel.sendTyping();
+    typingTimer = setInterval(() => {
+      channel.sendTyping().catch(() => {});
+    }, TYPING_INTERVAL);
 
-    // Process attachments (images → content parts, text files → inlined)
     const userContent = await processAttachments(message, content, config.llm.model);
 
-    const text = await getLLMResponse(message.channelId, userContent);
+    // Streaming state — no placeholder reply; typing indicator covers the wait
+    let buffer = "";
+    let lastEditTime = 0;
+    let activeOffset = 0;
+
+    const doEdit = async () => {
+      const pending = buffer.slice(activeOffset);
+      if (pending.length === 0) return;
+
+      const now = Date.now();
+      if (now - lastEditTime < STREAM_EDIT_INTERVAL) return;
+      lastEditTime = now;
+
+      if (!activeMsg) {
+        // First content — send as a reply to the user's message
+        try {
+          activeMsg = await message.reply(pending + " \u25CF");
+          replyMsg = activeMsg;
+        } catch {}
+        return;
+      }
+
+      // Overflow: finalize current message and continue in a new one
+      if (pending.length > OVERFLOW_THRESHOLD) {
+        let splitAt = pending.lastIndexOf("\n", OVERFLOW_THRESHOLD);
+        if (splitAt < OVERFLOW_THRESHOLD * 0.3) {
+          splitAt = pending.lastIndexOf(" ", OVERFLOW_THRESHOLD);
+        }
+        if (splitAt <= 0) splitAt = OVERFLOW_THRESHOLD;
+
+        try { await activeMsg.edit(pending.slice(0, splitAt)); } catch {}
+        activeOffset += splitAt;
+
+        const overflow = buffer.slice(activeOffset);
+        if (overflow.length > 0) {
+          try { activeMsg = await channel.send(overflow + " \u25CF"); } catch {}
+        }
+      } else {
+        try { await activeMsg.edit(pending + " \u25CF"); } catch {}
+      }
+    };
+
+    editTimer = setInterval(doEdit, STREAM_EDIT_INTERVAL);
+
+    const text = await getLLMResponse(message.channelId, userContent, (token) => {
+      buffer += token;
+    });
+
+    clearInterval(editTimer);
+    editTimer = null;
+    if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
 
     if (!text || text.trim().length === 0) {
-      await message.reply("_(no response)_");
+      if (activeMsg) {
+        await (activeMsg as Message).edit("_(no response)_");
+      } else {
+        await message.reply("_(no response)_");
+      }
       return;
     }
 
-    const chunks = chunkMessage(text);
-    await message.reply(chunks[0]);
+    // Finalize: properly chunk the remaining text
+    const remaining = text.slice(activeOffset);
+    const chunks = chunkMessage(remaining);
 
-    for (let i = 1; i < chunks.length; i++) {
-      await channel.send(chunks[i]);
+    if (activeMsg) {
+      await (activeMsg as Message).edit(chunks[0]);
+      for (let i = 1; i < chunks.length; i++) {
+        await channel.send(chunks[i]);
+      }
+    } else {
+      // No streaming content was sent yet — send final reply directly
+      replyMsg = await message.reply(chunks[0]);
+      activeMsg = replyMsg;
+      for (let i = 1; i < chunks.length; i++) {
+        await channel.send(chunks[i]);
+      }
     }
   } catch (err) {
+    if (editTimer) clearInterval(editTimer);
+    if (typingTimer) clearInterval(typingTimer);
     console.error("Discord handler error:", err);
     try {
-      await message.reply("Sorry, I encountered an error processing your message.");
+      const errorTarget = activeMsg ?? replyMsg;
+      if (errorTarget) {
+        await errorTarget.edit("Sorry, I encountered an error processing your message.");
+      } else {
+        await message.reply("Sorry, I encountered an error processing your message.");
+      }
     } catch {
       // swallow
     }

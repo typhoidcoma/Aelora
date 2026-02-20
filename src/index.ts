@@ -1,6 +1,6 @@
 import { installLogger } from "./logger.js";
 import { loadConfig } from "./config.js";
-import { loadSoul, type SoulState } from "./soul.js";
+import { loadPersona, type PersonaState } from "./persona.js";
 import { initLLM, getLLMOneShot, setSystemStateProvider } from "./llm.js";
 import { loadTools } from "./tool-registry.js";
 import { loadAgents } from "./agent-registry.js";
@@ -23,11 +23,11 @@ async function main(): Promise<void> {
   setToolConfigStore(config.tools);
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}`);
 
-  // 2. Load soul (compose system prompt from soul/ directory)
-  let soulState: SoulState | null = null;
-  if (config.soul.enabled) {
-    soulState = loadSoul(config.soul.dir, { botName: config.soul.botName });
-    config.llm.systemPrompt = soulState.composedPrompt;
+  // 2. Load persona (compose system prompt from persona/ directory)
+  let personaState: PersonaState | null = null;
+  if (config.persona.enabled) {
+    personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activeMode);
+    config.llm.systemPrompt = personaState.composedPrompt;
   }
 
   // 3. Initialize LLM client
@@ -62,14 +62,14 @@ async function main(): Promise<void> {
   }
 
   // 9. Start web dashboard
-  const appState: AppState = { config, soulState };
+  const appState: AppState = { config, personaState };
   startWeb(appState);
 
   // 10. Register live system state for LLM context
   setSystemStateProvider(() => {
     const hb = config.heartbeat.enabled ? getHeartbeatState() : null;
     return {
-      botName: config.soul.botName,
+      botName: config.persona.botName,
       discordTag: discordClient?.user?.tag ?? null,
       connected: discordClient?.isReady() ?? false,
       guildCount: discordClient?.guilds.cache.size ?? 0,

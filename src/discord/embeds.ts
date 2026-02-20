@@ -1,4 +1,5 @@
 import { EmbedBuilder } from "discord.js";
+import { fixMarkdownContinuity } from "../utils.js";
 
 const ACCENT_COLOR = 0x5865f2; // Discord blurple
 const ERROR_COLOR = 0xed4245; // Discord red
@@ -82,6 +83,13 @@ export function buildToolListEmbed(
   return embed;
 }
 
+/** Partial embed for streaming display (no footer/timestamp). */
+export function buildStreamingEmbed(partialText: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setDescription(partialText.slice(0, EMBED_DESC_LIMIT))
+    .setColor(accent());
+}
+
 /** Split text to fit within the 4096-char embed description limit. */
 export function chunkEmbedDescription(text: string): string[] {
   if (text.length <= EMBED_DESC_LIMIT) return [text];
@@ -103,5 +111,5 @@ export function chunkEmbedDescription(text: string): string[] {
     remaining = remaining.slice(splitAt).trimStart();
   }
 
-  return chunks;
+  return fixMarkdownContinuity(chunks);
 }

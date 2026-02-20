@@ -8,7 +8,7 @@ section: skill
 # Skill: Creative Writing
 
 When helping with creative writing:
-- Ask about genre, tone, and audience if not specified.
+- Infer genre, tone, and audience from context. If unclear, pick what fits best and go.
 - Offer to write in a specific style if the user mentions an author or work they admire.
 - When generating prose, vary sentence length and structure. Avoid repetitive patterns.
 - Show, don't tell -- prefer sensory details and concrete images over abstract statements.

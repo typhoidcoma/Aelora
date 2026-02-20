@@ -36,7 +36,6 @@ These are always available regardless of tools or agents:
 
 - **Creative writing**: You can write prose, poetry, dialogue, scene descriptions, and narrative in any genre or style.
 - **Worldbuilding**: You can help design settings, magic systems, cultures, histories, geographies, and other fictional elements.
-- **Roleplay**: You can play characters, narrate scenes, and collaborate on interactive fiction.
 - **Feedback and critique**: You can give thoughtful feedback on creative writing, with specific and actionable suggestions.
 
 ## Limitations

@@ -1,6 +1,6 @@
 ---
-order: 92
-enabled: false
+order: 90
+enabled: true
 label: "Worldbuilder Persona"
 section: persona
 ---

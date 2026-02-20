@@ -58,20 +58,25 @@ cron:
       prompt: "Generate a short, interesting piece of wisdom or trivia. Keep it under 200 words."
       enabled: true
 
-# --- Soul / Agent Identity ---
-# The soul system composes the bot's system prompt from markdown files in a directory.
+# --- Persona ---
+# The persona system composes the bot's system prompt from markdown files in a directory.
 # Each file has YAML frontmatter (order, enabled, label, section) and markdown content.
 # If disabled, falls back to llm.systemPrompt above.
-soul:
+persona:
   enabled: true
-  dir: "soul"          # Path to soul directory (relative to project root)
-  botName: "Aelora"    # Used for {{botName}} substitution in soul files
+  dir: "persona"          # Path to persona directory (relative to project root)
+  botName: "Aelora"       # Used for {{botName}} substitution in persona files
+  activeMode: "default"   # Which modes/ subfolder to load (default, storyteller, worldbuilder)
 
 # --- Tool Configuration ---
 # API keys and secrets for tools that need them.
 # Each tool declares which keys it needs via its `config` field.
 # See src/tools/_example-gmail.ts for a complete example.
 tools:
+  # Brave Web Search (https://brave.com/search/api/)
+  # brave:
+  #   apiKey: "YOUR_BRAVE_API_KEY"
+
   # CalDAV calendar (Radicale, Nextcloud, Baikal, iCloud, etc.)
   # caldav:
   #   serverUrl: "http://localhost:5232"

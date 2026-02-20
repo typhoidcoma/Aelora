@@ -1,5 +1,9 @@
 import {
   SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import { getLLMResponse, clearHistory } from "../llm.js";
@@ -65,6 +69,10 @@ export function getSlashCommandDefinitions() {
     new SlashCommandBuilder()
       .setName("reboot")
       .setDescription("Restart the bot process"),
+
+    new SlashCommandBuilder()
+      .setName("play")
+      .setDescription("Launch the Activity in this channel"),
   ];
 }
 
@@ -90,6 +98,9 @@ export async function handleSlashCommand(
       break;
     case "reboot":
       await handleReboot(interaction);
+      break;
+    case "play":
+      await handlePlay(interaction);
       break;
     default:
       await interaction.reply({
@@ -218,4 +229,38 @@ async function handleReboot(
     embeds: [buildSuccessEmbed("Rebooting... I'll be back in a moment.")],
   });
   setTimeout(() => reboot(), 500);
+}
+
+async function handlePlay(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  const applicationId = interaction.client.application?.id;
+
+  if (!applicationId) {
+    await interaction.reply({
+      embeds: [buildErrorEmbed("Activity not available: could not determine application ID.")],
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const activityUrl = `https://discord.com/activities/${applicationId}`;
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel("Launch Activity")
+      .setStyle(ButtonStyle.Link)
+      .setURL(activityUrl),
+  );
+
+  const embed = new EmbedBuilder()
+    .setTitle("Launch Activity")
+    .setDescription("Click the button below to launch the Activity!")
+    .setColor(0xa78bfa)
+    .setTimestamp();
+
+  await interaction.reply({
+    embeds: [embed],
+    components: [row],
+  });
 }

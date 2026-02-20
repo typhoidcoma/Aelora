@@ -597,6 +597,56 @@ export function startWeb(state: AppState): void {
     addSSEClient(res);
   });
 
+  // --- Discord Activity support ---
+  if (config.activity.enabled) {
+    const activityDir = path.join(__dirname, "..", "activity");
+
+    // Serve Unity WebGL build and wrapper from /activity/
+    app.use("/activity", express.static(activityDir));
+
+    // Activity config (exposes clientId only, never the secret)
+    app.get("/api/activity/config", (_req, res) => {
+      res.json({ clientId: config.activity.clientId, enabled: true });
+    });
+
+    // OAuth2 token exchange for Discord Activity SDK
+    app.post("/api/activity/token", async (req, res) => {
+      const { code } = req.body ?? {};
+      if (!code || typeof code !== "string") {
+        res.status(400).json({ error: "code is required" });
+        return;
+      }
+
+      try {
+        const response = await fetch("https://discord.com/api/oauth2/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: config.activity.clientId,
+            client_secret: config.activity.clientSecret,
+            grant_type: "authorization_code",
+            code,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("Activity: token exchange failed:", response.status, errorText);
+          res.status(response.status).json({ error: "Token exchange failed" });
+          return;
+        }
+
+        const data = (await response.json()) as { access_token: string };
+        res.json({ access_token: data.access_token });
+      } catch (err) {
+        console.error("Activity: token exchange error:", err);
+        res.status(500).json({ error: "Internal token exchange error" });
+      }
+    });
+
+    console.log(`Web: Activity enabled (serving ${activityDir})`);
+  }
+
   app.listen(config.web.port, () => {
     console.log(`Web: dashboard at http://localhost:${config.web.port}`);
   });

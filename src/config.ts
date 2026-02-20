@@ -52,6 +52,11 @@ export type Config = {
     maxIterations: number;
   };
   tools: Record<string, Record<string, unknown>>;
+  activity: {
+    enabled: boolean;
+    clientId: string;
+    clientSecret: string;
+  };
 };
 
 export function loadConfig(path = "settings.yaml"): Config {
@@ -127,5 +132,10 @@ export function loadConfig(path = "settings.yaml"): Config {
       maxIterations: parsed.agents?.maxIterations ?? 5,
     },
     tools: parsed.tools ?? {},
+    activity: {
+      enabled: parsed.activity?.enabled ?? false,
+      clientId: parsed.activity?.clientId ?? "",
+      clientSecret: parsed.activity?.clientSecret ?? "",
+    },
   };
 }

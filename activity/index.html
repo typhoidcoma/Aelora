@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Aelora Activity</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #0c0c0e; }
+
+    #loading {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #a78bfa; font-family: system-ui, sans-serif;
+      z-index: 100;
+    }
+    #loading.hidden { display: none; }
+    #loading .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid rgba(167, 139, 250, 0.2);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    #loading .status { margin-top: 16px; font-size: 14px; opacity: 0.9; }
+    #loading .progress { margin-top: 8px; font-size: 12px; opacity: 0.6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #unity-container { width: 100%; height: 100%; }
+    #unity-canvas { width: 100%; height: 100%; background: #0c0c0e; }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div class="status" id="status-text">Connecting to Discord...</div>
+    <div class="progress" id="progress-text"></div>
+  </div>
+
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+  </div>
+
+  <script type="module">
+    import { DiscordSDK } from "https://esm.sh/@discord/embedded-app-sdk@2";
+
+    // ── State ──────────────────────────────────────────────────
+    let discordSdk = null;
+    let discordUser = null;
+    let unityInstance = null;
+
+    // ── Helpers ────────────────────────────────────────────────
+    function setStatus(text) {
+      const el = document.getElementById("status-text");
+      if (el) el.textContent = text;
+    }
+    function setProgress(text) {
+      const el = document.getElementById("progress-text");
+      if (el) el.textContent = text;
+    }
+
+    // ── 1. Discord SDK Init & OAuth ───────────────────────────
+    async function initDiscord() {
+      setStatus("Initializing Discord SDK...");
+
+      // Fetch client ID from our server (avoids hardcoding)
+      let clientId;
+      try {
+        const resp = await fetch("/.proxy/api/activity/config");
+        if (resp.ok) {
+          const data = await resp.json();
+          clientId = data.clientId;
+        }
+      } catch (e) {
+        console.warn("Activity: could not fetch config", e);
+      }
+
+      if (!clientId) {
+        setStatus("Error: No client ID. Check activity config in settings.yaml.");
+        throw new Error("Missing Discord client ID");
+      }
+
+      // SDK handshake
+      discordSdk = new DiscordSDK(clientId);
+      setStatus("Waiting for Discord client...");
+      await discordSdk.ready();
+
+      // Authorize (OAuth2 code flow)
+      setStatus("Authorizing...");
+      const { code } = await discordSdk.commands.authorize({
+        client_id: clientId,
+        response_type: "code",
+        state: "",
+        prompt: "none",
+        scope: ["identify", "guilds"],
+      });
+
+      // Exchange code for access token via our backend
+      setStatus("Authenticating...");
+      const tokenResp = await fetch("/.proxy/api/activity/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+
+      if (!tokenResp.ok) {
+        setStatus("Error: Token exchange failed");
+        throw new Error("Token exchange failed");
+      }
+
+      const { access_token } = await tokenResp.json();
+
+      // Authenticate with Discord
+      const auth = await discordSdk.commands.authenticate({ access_token });
+      discordUser = auth.user;
+
+      setStatus(`Welcome, ${discordUser.global_name || discordUser.username}!`);
+      console.log("Activity: Discord authenticated", discordUser);
+    }
+
+    // ── 2. Unity WebGL Loader ─────────────────────────────────
+    //
+    // Unity build files go in activity/Build/ with these names:
+    //   Build.loader.js, Build.data, Build.framework.js, Build.wasm
+    //
+    // If your build uses different names (e.g. MyGame.loader.js),
+    // update the paths below to match.
+
+    async function loadUnity() {
+      setStatus("Loading game...");
+
+      // Load the Unity loader script
+      const loaderScript = document.createElement("script");
+      loaderScript.src = "/.proxy/activity/Build/Builds.loader.js";
+
+      await new Promise((resolve, reject) => {
+        loaderScript.onload = resolve;
+        loaderScript.onerror = () => reject(new Error("Failed to load Unity loader — check Build/ files"));
+        document.body.appendChild(loaderScript);
+      });
+
+      if (typeof createUnityInstance !== "function") {
+        throw new Error("createUnityInstance not found — check Unity build output");
+      }
+
+      const canvas = document.getElementById("unity-canvas");
+
+      unityInstance = await createUnityInstance(canvas, {
+        dataUrl:            "/.proxy/activity/Build/Builds.data",
+        frameworkUrl:       "/.proxy/activity/Build/Builds.framework.js",
+        codeUrl:            "/.proxy/activity/Build/Builds.wasm",
+        streamingAssetsUrl: "/.proxy/activity/StreamingAssets",
+        companyName:        "Aeveon",
+        productName:        "AeloraActivity",
+        productVersion:     "1.0",
+      }, (progress) => {
+        setProgress(`${Math.round(progress * 100)}%`);
+      });
+
+      // Hide loading overlay
+      document.getElementById("loading").classList.add("hidden");
+    }
+
+    // ── 3. Discord ↔ Unity Bridge ─────────────────────────────
+    //
+    // Unity C# scripts can call these via a .jslib plugin.
+    // See the README for the Unity-side setup.
+
+    window.discordBridge = {
+      getUser: () => JSON.stringify({
+        id:         discordUser?.id ?? "",
+        username:   discordUser?.username ?? "",
+        globalName: discordUser?.global_name ?? "",
+        avatar:     discordUser?.avatar ?? "",
+      }),
+
+      getContext: () => JSON.stringify({
+        guildId:    discordSdk?.guildId ?? "",
+        channelId:  discordSdk?.channelId ?? "",
+        instanceId: discordSdk?.instanceId ?? "",
+      }),
+    };
+
+    function sendToUnity(gameObject, method, data) {
+      if (!unityInstance) return;
+      const payload = typeof data === "string" ? data : JSON.stringify(data);
+      unityInstance.SendMessage(gameObject, method, payload);
+    }
+
+    // ── Main ──────────────────────────────────────────────────
+    async function main() {
+      try {
+        await initDiscord();
+        await loadUnity();
+
+        // Notify Unity that Discord is ready
+        sendToUnity("DiscordManager", "OnDiscordReady", JSON.stringify({
+          user: {
+            id:         discordUser.id,
+            username:   discordUser.username,
+            globalName: discordUser.global_name,
+            avatar:     discordUser.avatar,
+          },
+          context: {
+            guildId:    discordSdk.guildId,
+            channelId:  discordSdk.channelId,
+            instanceId: discordSdk.instanceId,
+          },
+        }));
+      } catch (err) {
+        console.error("Activity: init failed", err);
+        setStatus(`Error: ${err.message}`);
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>

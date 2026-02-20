@@ -103,3 +103,13 @@ heartbeat:
 web:
   enabled: true
   port: 3000
+
+# --- Discord Activity ---
+# Host a web app (e.g. Unity WebGL build) as an embedded Discord Activity.
+# Requires Activities enabled in the Discord Developer Portal.
+# Place your build files in the activity/ directory at project root.
+# clientId = your Application ID. clientSecret = OAuth2 Client Secret.
+activity:
+  enabled: false
+  clientId: "YOUR_APPLICATION_ID"
+  clientSecret: "YOUR_CLIENT_SECRET"

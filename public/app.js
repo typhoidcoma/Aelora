@@ -250,45 +250,263 @@ async function clearMemoryScope(scope) {
 
 // --- Persona ---
 
-async function fetchModes() {
+// --- Persona Card Grid ---
+
+async function fetchPersonas() {
   try {
-    const res = await fetch("/api/persona/modes");
+    const res = await fetch("/api/personas");
     const data = await res.json();
-    const select = document.getElementById("persona-mode-select");
-    select.innerHTML = data.modes
-      .map((m) => `<option value="${m}"${m === data.activeMode ? " selected" : ""}>${m}</option>`)
-      .join("");
+    const grid = document.getElementById("persona-cards");
+
+    let html = "";
+    for (const p of data.personas) {
+      const isActive = p.name === data.activePersona;
+      const displayName = p.botName || p.name;
+      const showSlug = p.botName && p.botName.toLowerCase() !== p.name;
+      html += `
+        <div class="persona-card${isActive ? " active" : ""}" onclick="switchPersona('${esc(p.name)}')">
+          ${isActive ? '<div class="persona-card-badge">Active</div>' : ""}
+          <div class="persona-card-name">${esc(displayName)}</div>
+          ${showSlug ? `<div class="persona-card-id muted">${esc(p.name)}</div>` : ""}
+          <div class="persona-card-desc">${esc(p.description) || '<span class="muted">No description</span>'}</div>
+          <div class="persona-card-meta">${p.fileCount} file(s)</div>
+          <div class="persona-card-actions">
+            <button class="btn btn-xs" onclick="event.stopPropagation(); editPersona('${esc(p.name)}')">Edit</button>
+            ${!isActive && p.name !== "default" ? `<button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deletePersona('${esc(p.name)}')">Delete</button>` : ""}
+          </div>
+        </div>`;
+    }
+
+    // "+ New Persona" card
+    html += `
+      <div class="persona-card persona-card-new" onclick="showCreatePersonaForm()">
+        <div class="persona-card-plus">+</div>
+        <div class="persona-card-desc">New Persona</div>
+      </div>`;
+
+    grid.innerHTML = html;
   } catch {
     /* ignore */
   }
 }
 
-async function switchMode(mode) {
-  const select = document.getElementById("persona-mode-select");
-  select.disabled = true;
-
+async function switchPersona(name) {
   try {
-    const res = await fetch("/api/persona/mode", {
+    const res = await fetch("/api/persona/switch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
+      body: JSON.stringify({ persona: name }),
     });
     const data = await res.json();
 
     if (data.success) {
-      showToast(`Switched to "${mode}" mode`);
+      showToast(`Switched to "${data.botName || name}"`);
+      fetchPersonas();
       fetchPersona();
     } else {
       showToast(`Switch failed: ${data.error}`, "error");
-      fetchModes();
     }
   } catch (err) {
     showToast(`Switch error: ${err.message}`, "error");
-    fetchModes();
-  } finally {
-    select.disabled = false;
   }
 }
+
+// --- Create Persona ---
+
+function showCreatePersonaForm() {
+  document.getElementById("persona-create-form").style.display = "";
+  document.getElementById("persona-create-botname").value = "";
+  document.getElementById("persona-create-name").value = "";
+  document.getElementById("persona-create-desc").value = "";
+  document.getElementById("persona-create-botname").focus();
+}
+
+function hideCreatePersonaForm() {
+  document.getElementById("persona-create-form").style.display = "none";
+}
+
+async function submitCreatePersona() {
+  const botName = document.getElementById("persona-create-botname").value.trim();
+  const name = document.getElementById("persona-create-name").value.trim();
+  const description = document.getElementById("persona-create-desc").value.trim();
+
+  if (!name) {
+    showToast("Folder name is required", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/personas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description, botName }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Created persona "${botName || name}"`);
+      hideCreatePersonaForm();
+      fetchPersonas();
+    } else {
+      showToast(data.error || "Create failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function deletePersona(name) {
+  if (!confirm(`Delete the "${name}" persona? This removes all its files.`)) return;
+
+  try {
+    const res = await fetch(`/api/personas/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Deleted persona "${name}"`);
+      fetchPersonas();
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+// --- Persona File Editor ---
+
+let editorCurrentPath = null;
+
+async function editPersona(name) {
+  // Open the editor for persona.md of this persona
+  openPersonaEditor(`${name}/persona.md`);
+}
+
+async function openPersonaEditor(relPath) {
+  try {
+    const res = await fetch(`/api/persona/file?path=${encodeURIComponent(relPath)}`);
+    if (!res.ok) {
+      showToast("File not found", "error");
+      return;
+    }
+    const file = await res.json();
+
+    editorCurrentPath = relPath;
+    document.getElementById("editor-file-path").textContent = relPath;
+    document.getElementById("editor-label").value = file.meta.label || "";
+    document.getElementById("editor-section").value = file.meta.section || "";
+    document.getElementById("editor-order").value = file.meta.order;
+    document.getElementById("editor-enabled").value = file.meta.enabled ? "true" : "false";
+    document.getElementById("editor-content").value = file.content;
+
+    // Show description and botName fields only for persona.md files
+    const isPersonaMd = relPath.endsWith("/persona.md");
+    document.getElementById("editor-desc-row").style.display = isPersonaMd ? "" : "none";
+    document.getElementById("editor-description").value = file.meta.description || "";
+    document.getElementById("editor-botname-row").style.display = isPersonaMd ? "" : "none";
+    document.getElementById("editor-botname").value = file.meta.botName || "";
+
+    document.getElementById("persona-editor").style.display = "";
+    document.getElementById("persona-editor").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+function hidePersonaEditor() {
+  document.getElementById("persona-editor").style.display = "none";
+  editorCurrentPath = null;
+}
+
+async function savePersonaFile() {
+  if (!editorCurrentPath) return;
+
+  const body = {
+    path: editorCurrentPath,
+    content: document.getElementById("editor-content").value,
+    meta: {
+      label: document.getElementById("editor-label").value,
+      section: document.getElementById("editor-section").value,
+      order: parseInt(document.getElementById("editor-order").value) || 100,
+      enabled: document.getElementById("editor-enabled").value === "true",
+      description: document.getElementById("editor-description").value,
+      botName: document.getElementById("editor-botname").value,
+    },
+  };
+
+  try {
+    const res = await fetch("/api/persona/file", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("File saved");
+      fetchPersona();
+      fetchPersonas();
+    } else {
+      showToast(data.error || "Save failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function deletePersonaFile() {
+  if (!editorCurrentPath) return;
+  if (!confirm(`Delete "${editorCurrentPath}"?`)) return;
+
+  try {
+    const res = await fetch("/api/persona/file", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: editorCurrentPath }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("File deleted");
+      hidePersonaEditor();
+      fetchPersona();
+      fetchPersonas();
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+function showNewFileForm() {
+  const path = prompt("File path (relative to persona dir, e.g. 'skills/my-skill.md'):");
+  if (!path) return;
+
+  // Create a blank file and open the editor
+  fetch("/api/persona/file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path,
+      content: "# " + path.replace(/\.md$/, "").split("/").pop() + "\n\nContent here.\n",
+      meta: { order: 100, enabled: true, label: path, section: "custom" },
+    }),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.success) {
+        showToast("File created");
+        fetchPersona();
+        openPersonaEditor(path);
+      } else {
+        showToast(data.error || "Create failed", "error");
+      }
+    })
+    .catch((err) => showToast(`Error: ${err.message}`, "error"));
+}
+
+// --- Persona Status & File Table ---
 
 async function fetchPersona() {
   try {
@@ -305,7 +523,9 @@ async function fetchPersona() {
 
     const enabledCount = data.files.filter((f) => f.enabled).length;
     statusEl.innerHTML =
-      `<span class="stat"><span class="label">Mode:</span> ${esc(data.activeMode)}</span>` +
+      `<span class="stat"><span class="label">Character:</span> ${esc(data.botName || data.activePersona)}</span>` +
+      `<span class="stat-sep">|</span>` +
+      `<span class="stat"><span class="label">Persona:</span> ${esc(data.activePersona)}</span>` +
       `<span class="stat-sep">|</span>` +
       `<span class="stat"><span class="label">Prompt:</span> ${data.promptLength.toLocaleString()} chars</span>` +
       `<span class="stat-sep">|</span>` +
@@ -321,6 +541,7 @@ async function fetchPersona() {
         <td>${f.order}</td>
         <td>${f.enabled ? '<span class="ok">Yes</span>' : '<span class="muted">No</span>'}</td>
         <td>${f.contentLength.toLocaleString()}</td>
+        <td><button class="btn btn-xs" onclick="openPersonaEditor('${esc(f.path)}')">Edit</button></td>
       </tr>`,
       )
       .join("");
@@ -341,6 +562,7 @@ async function reloadPersona() {
     if (data.success) {
       showToast(`Persona reloaded: ${data.enabledCount}/${data.fileCount} files, ${data.promptLength.toLocaleString()} chars`);
       fetchPersona();
+      fetchPersonas();
     } else {
       showToast(`Reload failed: ${data.error}`, "error");
     }
@@ -945,7 +1167,7 @@ fetchConfig();
 fetchSessions();
 fetchMemory();
 fetchCron();
-fetchModes();
+fetchPersonas();
 fetchPersona();
 fetchTools();
 fetchHeartbeat();

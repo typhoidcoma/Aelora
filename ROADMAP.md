@@ -93,7 +93,7 @@ Collaborative interactive fiction with persistent narrative state. Users can sta
 |--------|------|
 | **Tool** | `story` tool — start, continue, save, load, list sessions |
 | **Agent** | `narrator` agent — dedicated storytelling agent with world context |
-| **Persona** | `modes/storyteller/` mode (switch via `persona.activeMode`) |
+| **Persona** | `storyteller/` persona (switch via `persona.activePersona`) |
 | **Cron** | Optional "story recap" scheduled messages for ongoing sessions |
 
 ### Data Model
@@ -155,8 +155,8 @@ session.json:
 - `postProcess()` extracts narration text and any state updates
 
 **Persona integration:**
-- Switch to storyteller mode (`persona.activeMode: "storyteller"`) when a story session is active
-- Switch back to default mode when session ends or is saved
+- Switch to storyteller persona (`persona.activePersona: "storyteller"`) when a story session is active
+- Switch back to default persona when session ends or is saved
 
 **Estimated complexity:** High. ~400 lines tool + ~80 lines agent + session state management.
 

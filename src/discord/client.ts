@@ -168,8 +168,12 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     let buffer = "";
     let lastEditTime = 0;
     let activeOffset = 0;
+    let streamDone = false;
+    let inflightEdit: Promise<unknown> | null = null;
 
     const doEdit = async () => {
+      if (streamDone) return;
+
       const pending = buffer.slice(activeOffset);
       if (pending.length === 0) return;
 
@@ -179,10 +183,12 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
 
       if (!activeMsg) {
         // First content — send as a reply to the user's message
-        try {
-          activeMsg = await message.reply(pending + " \u25CF");
-          replyMsg = activeMsg;
-        } catch {}
+        const p = message.reply(pending + " \u25CF").then((msg) => {
+          activeMsg = msg;
+          replyMsg = msg;
+        }).catch(() => {});
+        inflightEdit = p;
+        await p;
         return;
       }
 
@@ -194,15 +200,23 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         }
         if (splitAt <= 0) splitAt = OVERFLOW_THRESHOLD;
 
-        try { await activeMsg.edit(pending.slice(0, splitAt)); } catch {}
+        const p = activeMsg.edit(pending.slice(0, splitAt)).catch(() => {});
+        inflightEdit = p;
+        await p;
         activeOffset += splitAt;
 
         const overflow = buffer.slice(activeOffset);
         if (overflow.length > 0) {
-          try { activeMsg = await channel.send(overflow + " \u25CF"); } catch {}
+          const p2 = channel.send(overflow + " \u25CF").then((msg) => {
+            activeMsg = msg;
+          }).catch(() => {});
+          inflightEdit = p2;
+          await p2;
         }
       } else {
-        try { await activeMsg.edit(pending + " \u25CF"); } catch {}
+        const p = activeMsg.edit(pending + " \u25CF").catch(() => {});
+        inflightEdit = p;
+        await p;
       }
     };
 
@@ -212,8 +226,11 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       buffer += token;
     }, message.author.id);
 
+    // Stop streaming edits and wait for any in-flight Discord API call to settle
+    streamDone = true;
     clearInterval(editTimer);
     editTimer = null;
+    if (inflightEdit) await inflightEdit;
     if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
 
     if (!text || text.trim().length === 0) {

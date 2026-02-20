@@ -89,32 +89,29 @@ You are **{{botName}}**, the embodiment layer of the Luminora Emotion Engine...
 
 Files are sorted by `order`, concatenated, and injected as the system prompt. Variables like `{{botName}}` are substituted from config. Persona files can be hot-reloaded from the web dashboard without restarting the bot.
 
-### Modes
+### Personas
 
-Each persona mode is a folder under `persona/modes/`. The active mode is set via `persona.activeMode` in `settings.yaml`. Shared files (identity, skills, tools, etc.) are always loaded; only the active mode's folder is included. Each mode has its own `mode.md` (persona description) and `soul.md` (behavioral core).
+Each persona is a **self-contained character** — a distinct named entity with its own identity, backstory, personality, bootstrap rules, and skills. Each persona lives in its own directory under `persona/`. The active persona is set via `persona.activePersona` in `settings.yaml`. Each persona's `persona.md` frontmatter includes a `botName` field — the character's display name — which is substituted into `{{botName}}` across all files.
 
 **Current persona structure:**
 
 ```
 persona/
-├── bootstrap.md              — Response format, behavioral rules, safety (order 5)
-├── identity.md               — Who Aelora is (order 10)
-├── skills/
-│   ├── creative-writing.md   — Prose craft rules (order 50)
-│   └── worldbuilding.md      — World design rules (order 51)
-├── tools.md                  — Tool/agent usage instructions (order 80)
-├── modes/
-│   ├── default/
-│   │   ├── mode.md           — Default persona (order 90)
-│   │   └── soul.md           — Default behavioral core (order 20)
-│   ├── storyteller/
-│   │   ├── mode.md           — Narrative persona (order 90)
-│   │   └── soul.md           — Storyteller behavioral core (order 20)
-│   └── worldbuilder/
-│       ├── mode.md           — Lore-building persona (order 90)
-│       └── soul.md           — Worldbuilder behavioral core (order 20)
-└── templates/
-    └── user.md               — Per-user preferences (disabled, placeholder)
+├── default/
+│   ├── persona.md            — Default persona manifest (order 90, botName: "Aelora")
+│   ├── bootstrap.md          — Response format, behavioral rules (order 5)
+│   ├── identity.md           — Character identity & backstory (order 10)
+│   ├── soul.md               — Behavioral core (order 20)
+│   ├── skills.md              — Character skills & competencies (order 50)
+│   ├── tools.md              — Tool/agent usage instructions (order 80)
+│   └── templates/
+│       └── user.md           — Per-user preferences (disabled, placeholder)
+├── storyteller/
+│   └── (same structure — narrative-focused persona)
+├── worldbuilder/
+│   └── (same structure — lore-building persona)
+└── wendy/
+    └── (same structure — separate character, botName: "Wendy")
 ```
 
 ## Tools & Agents
@@ -168,7 +165,7 @@ For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 Access at `http://localhost:3000` (configurable via `web.port`).
 
 - **Status** — Discord connection, uptime, guild count
-- **Persona** — File inventory, active mode switching, prompt size, hot-reload button
+- **Persona** — Character persona switching (card grid), file editor, botName, prompt size, hot-reload
 - **Tools & Agents** — Enable/disable at runtime
 - **Sessions** — Active conversations, message counts, clear/delete
 - **Memory** — Stored facts by scope, delete individual facts or clear scopes

@@ -41,7 +41,7 @@ export type Config = {
     enabled: boolean;
     dir: string;
     botName: string;
-    activeMode: string;
+    activePersona: string;
   };
   heartbeat: {
     enabled: boolean;
@@ -116,7 +116,7 @@ export function loadConfig(path = "settings.yaml"): Config {
       enabled: parsed.persona?.enabled ?? true,
       dir: parsed.persona?.dir ?? "persona",
       botName: parsed.persona?.botName ?? "Aelora",
-      activeMode: parsed.persona?.activeMode ?? "default",
+      activePersona: parsed.persona?.activePersona ?? parsed.persona?.activeMode ?? "default",
     },
     heartbeat: {
       enabled: parsed.heartbeat?.enabled ?? true,

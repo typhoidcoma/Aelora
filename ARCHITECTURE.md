@@ -202,38 +202,42 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### How It Works
 
-1. `loadPersona(dir, variables, activeMode)` recursively discovers all `.md` files under the persona directory
-2. Files under `modes/` are filtered — only the active mode's folder is included (e.g. `modes/default/`). Shared files outside `modes/` are always loaded.
-3. Each file's YAML frontmatter is parsed for metadata:
+1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/default/`)
+2. Each file's YAML frontmatter is parsed for metadata:
    - `order` (number) — sort priority (lower = earlier in prompt)
    - `enabled` (boolean) — whether to include in composed prompt
    - `label` (string) — display name for dashboard
    - `section` (string) — grouping category
-4. Files are sorted by `order`, then alphabetically within the same order
-5. Enabled files are concatenated with `\n\n` separators
-6. Template variables (e.g. `{{botName}}`) are substituted from config
+   - `botName` (string) — character name (used in `persona.md` to define the character's identity)
+3. Files are sorted by `order`, then alphabetically within the same order
+4. Enabled files are concatenated with `\n\n` separators
+5. `botName` is resolved from the active persona's `persona.md` frontmatter, falling back to `persona.botName` in config
+6. Template variables (e.g. `{{botName}}`) are substituted with the resolved character name
 
-### Mode System
+### Personas — Character Entities
 
-Each persona mode is a folder under `persona/modes/`. The active mode is controlled by `persona.activeMode` in `settings.yaml` (default: `"default"`). Each mode folder contains:
+Each persona is a **self-contained character** — a directory under `persona/` with its own identity, personality, bootstrap rules, skills, and tools. The active persona is controlled by `persona.activePersona` in `settings.yaml` (default: `"default"`). Only the active persona's directory is loaded — all other persona directories are ignored.
 
-- `mode.md` — persona description and behavioral framing
-- `soul.md` — the mode's behavioral core, directives, and personality traits
+Each persona directory contains:
 
-Files in non-active mode folders are simply not loaded — no `enabled: false` needed.
+- `persona.md` — persona description and behavioral framing; frontmatter includes `botName` (the character's display name) and `description`
+- `identity.md` — the character's identity, backstory, and lore
+- `soul.md` — the character's behavioral core, directives, and personality traits
+- `bootstrap.md` — response format rules and operating instructions
+- `tools.md` — tool/agent usage instructions
+- `skills.md` — the character's specialized skills and competencies
 
-### Current File Inventory (default mode)
+### Current File Inventory (default persona)
 
 | Order | File | Section | Enabled |
 |-------|------|---------|---------|
-| 5 | `bootstrap.md` | bootstrap | yes |
-| 10 | `identity.md` | identity | yes |
-| 20 | `modes/default/soul.md` | soul | yes |
-| 50 | `skills/creative-writing.md` | skill | yes |
-| 51 | `skills/worldbuilding.md` | skill | yes |
-| 80 | `tools.md` | tools | yes |
-| 90 | `modes/default/mode.md` | persona | yes |
-| 200 | `templates/user.md` | template | no |
+| 5 | `default/bootstrap.md` | bootstrap | yes |
+| 10 | `default/identity.md` | identity | yes |
+| 20 | `default/soul.md` | soul | yes |
+| 50 | `default/skills.md` | skill | yes |
+| 80 | `default/tools.md` | tools | yes |
+| 90 | `default/persona.md` | persona | yes |
+| 200 | `default/templates/user.md` | template | no |
 
 ### Hot Reload
 
@@ -518,10 +522,17 @@ Express 5 server serving the dashboard frontend and REST API.
 |--------|-------|-------------|
 | `GET` | `/api/status` | Bot connection state, uptime, guild count |
 | `GET` | `/api/config` | Sanitized config (no secrets) |
-| `GET` | `/api/persona` | Persona file inventory, active mode + prompt stats |
+| `GET` | `/api/persona` | Active persona state, file inventory, prompt stats |
 | `POST` | `/api/persona/reload` | Hot-reload persona files from disk |
-| `GET` | `/api/persona/modes` | List available persona modes |
-| `POST` | `/api/persona/mode` | Switch active persona mode |
+| `GET` | `/api/personas` | List all personas with descriptions |
+| `POST` | `/api/persona/switch` | Switch active persona |
+| `POST` | `/api/personas` | Create a new persona (with botName) |
+| `DELETE` | `/api/personas/:name` | Delete a persona |
+| `GET` | `/api/persona/files` | List all files with metadata |
+| `GET` | `/api/persona/file?path=...` | Get a file's content and metadata |
+| `POST` | `/api/persona/file` | Create a new persona file |
+| `PUT` | `/api/persona/file` | Update an existing persona file |
+| `DELETE` | `/api/persona/file?path=...` | Delete a persona file |
 | `POST` | `/api/llm/test` | One-shot LLM test call |
 | `POST` | `/api/llm/test/stream` | Streaming LLM test (SSE) |
 | `GET` | `/api/tools` | All tools with enabled status |
@@ -580,7 +591,7 @@ type Config = {
   };
   cron: { jobs: CronJobConfig[] };
   web: { enabled: boolean; port: number };
-  persona: { enabled: boolean; dir: string; botName: string; activeMode: string };
+  persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
   tools: Record<string, Record<string, unknown>>;  // Free-form per-tool config
@@ -657,10 +668,19 @@ type Config = {
 
 ### Adding a Persona File
 
-1. Create a `.md` file anywhere under `persona/` (for shared content) or `persona/modes/<mode>/` (for mode-specific content)
+1. Create a `.md` file inside the target persona's directory (e.g. `persona/default/my-file.md`)
 2. Add YAML frontmatter: `order`, `enabled`, `label`, `section`
 3. Hot-reload from dashboard or restart the bot
 4. File content is injected into the system prompt at the specified order position
+
+### Adding a New Character
+
+1. From the dashboard Persona section, click **+ Create** and fill in a Character Name, Folder Name, and Description
+2. Or via API: `POST /api/personas` with `{ "name": "my-char", "description": "...", "botName": "My Character" }`
+3. This creates a self-contained persona directory with template files: `persona.md`, `identity.md`, `soul.md`, `bootstrap.md`
+4. Edit the generated files to define the character's identity, backstory, and behavioral core
+5. Switch to the new character from the dashboard card grid or via `POST /api/persona/switch`
+6. The `{{botName}}` variable resolves to this character's name automatically
 
 ### Adding a Cron Job
 

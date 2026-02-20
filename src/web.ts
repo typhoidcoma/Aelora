@@ -2,7 +2,19 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Config } from "./config.js";
-import { loadPersona, discoverModes, type PersonaState } from "./persona.js";
+import {
+  loadPersona,
+  discoverPersonas,
+  discoverFiles,
+  getPersonaDescriptions,
+  getFileContent,
+  saveFile,
+  createFile,
+  deleteFile,
+  createPersona,
+  deletePersona,
+  type PersonaState,
+} from "./persona.js";
 import { getLLMOneShot } from "./llm.js";
 import { getAllTools, toggleTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
@@ -40,6 +52,12 @@ export function startWeb(state: AppState): void {
 
   app.use(express.json());
   app.use(express.static(publicDir));
+
+  // Prevent browser caching on API routes
+  app.use("/api", (_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
 
   // Bot status
   app.get("/api/status", (_req, res) => {
@@ -185,7 +203,8 @@ export function startWeb(state: AppState): void {
 
     res.json({
       enabled: true,
-      activeMode: state.personaState.activeMode,
+      activePersona: state.personaState.activePersona,
+      botName: state.personaState.botName,
       loadedAt: state.personaState.loadedAt.toISOString(),
       promptLength: state.personaState.composedPrompt.length,
       files: state.personaState.files.map((f) => ({
@@ -202,14 +221,15 @@ export function startWeb(state: AppState): void {
   // Reload persona from disk
   app.post("/api/persona/reload", (_req, res) => {
     try {
-      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activeMode);
+      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
 
       const enabledCount = newState.files.filter((f) => f.meta.enabled).length;
       res.json({
         success: true,
-        activeMode: newState.activeMode,
+        activePersona: newState.activePersona,
+        botName: newState.botName,
         promptLength: newState.composedPrompt.length,
         fileCount: newState.files.length,
         enabledCount,
@@ -219,32 +239,33 @@ export function startWeb(state: AppState): void {
     }
   });
 
-  // List available persona modes
-  app.get("/api/persona/modes", (_req, res) => {
-    const modes = discoverModes(config.persona.dir);
-    res.json({ modes, activeMode: config.persona.activeMode });
+  // List available personas (with descriptions for card grid)
+  app.get("/api/personas", (_req, res) => {
+    const personas = getPersonaDescriptions(config.persona.dir);
+    res.json({ personas, activePersona: config.persona.activePersona });
   });
 
-  // Switch active persona mode
-  app.post("/api/persona/mode", (req, res) => {
-    const { mode } = req.body ?? {};
-    const available = discoverModes(config.persona.dir);
+  // Switch active persona
+  app.post("/api/persona/switch", (req, res) => {
+    const { persona } = req.body ?? {};
+    const available = discoverPersonas(config.persona.dir);
 
-    if (!mode || !available.includes(mode)) {
-      res.status(400).json({ error: `Invalid mode "${mode}". Available: ${available.join(", ")}` });
+    if (!persona || !available.includes(persona)) {
+      res.status(400).json({ error: `Invalid persona "${persona}". Available: ${available.join(", ")}` });
       return;
     }
 
     try {
-      config.persona.activeMode = mode;
-      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, mode);
+      config.persona.activePersona = persona;
+      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, persona);
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
 
       const enabledCount = newState.files.filter((f) => f.meta.enabled).length;
       res.json({
         success: true,
-        activeMode: mode,
+        activePersona: persona,
+        botName: newState.botName,
         promptLength: newState.composedPrompt.length,
         fileCount: newState.files.length,
         enabledCount,
@@ -252,6 +273,144 @@ export function startWeb(state: AppState): void {
     } catch (err) {
       res.status(500).json({ success: false, error: String(err) });
     }
+  });
+
+  // --- Persona file CRUD ---
+
+  // Helper: reload persona after a file change and return updated state
+  function reloadPersonaState() {
+    const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
+    state.personaState = newState;
+    config.llm.systemPrompt = newState.composedPrompt;
+    return newState;
+  }
+
+  // List ALL persona files (across all modes) with content
+  app.get("/api/persona/files", (_req, res) => {
+    try {
+      const allPaths = discoverFiles(config.persona.dir);
+      const files = allPaths.map((relPath) => {
+        const file = getFileContent(config.persona.dir, relPath);
+        return file;
+      }).filter(Boolean);
+      res.json({ files });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Get a single persona file
+  app.get("/api/persona/file", (req, res) => {
+    const relPath = req.query.path as string;
+    if (!relPath) {
+      res.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+    const file = getFileContent(config.persona.dir, relPath);
+    if (!file) {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.json(file);
+  });
+
+  // Update an existing persona file
+  app.put("/api/persona/file", (req, res) => {
+    const { path: relPath, content, meta } = req.body ?? {};
+    if (!relPath || typeof relPath !== "string") {
+      res.status(400).json({ error: "path is required" });
+      return;
+    }
+    if (content === undefined || typeof content !== "string") {
+      res.status(400).json({ error: "content is required" });
+      return;
+    }
+
+    const result = saveFile(config.persona.dir, relPath, content, meta ?? {});
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    try {
+      reloadPersonaState();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err) });
+    }
+  });
+
+  // Create a new persona file
+  app.post("/api/persona/file", (req, res) => {
+    const { path: relPath, content, meta } = req.body ?? {};
+    if (!relPath || typeof relPath !== "string") {
+      res.status(400).json({ error: "path is required" });
+      return;
+    }
+
+    const result = createFile(config.persona.dir, relPath, content ?? "", meta ?? {});
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    try {
+      reloadPersonaState();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err) });
+    }
+  });
+
+  // Delete a persona file
+  app.delete("/api/persona/file", (req, res) => {
+    const relPath = (req.body?.path ?? req.query.path) as string;
+    if (!relPath) {
+      res.status(400).json({ error: "path is required" });
+      return;
+    }
+
+    const result = deleteFile(config.persona.dir, relPath);
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    try {
+      reloadPersonaState();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: String(err) });
+    }
+  });
+
+  // Create a new persona
+  app.post("/api/personas", (req, res) => {
+    const { name, description, botName } = req.body ?? {};
+    if (!name || typeof name !== "string") {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+
+    const result = createPersona(config.persona.dir, name, description, botName);
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ success: true, name });
+  });
+
+  // Delete a persona
+  app.delete("/api/personas/:name", (req, res) => {
+    const { name } = req.params;
+    const result = deletePersona(config.persona.dir, name, config.persona.activePersona);
+    if (!result.success) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ success: true });
   });
 
   // Test LLM with current persona prompt

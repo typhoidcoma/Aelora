@@ -187,12 +187,89 @@
         <div class="section-header" data-section="persona">
           <span class="chevron">&#9660;</span>
           <h2>Persona</h2>
-          <select id="persona-mode-select" onchange="switchMode(this.value)"></select>
           <button class="btn" id="persona-reload-btn" onclick="reloadPersona()">Reload</button>
         </div>
         <div class="section-body" data-section="persona">
-          <div id="persona-status" class="card">Loading...</div>
-          <table id="persona-table" style="display: none; margin-top: 0.5rem;">
+          <!-- Card Grid Selector -->
+          <div id="persona-cards" class="persona-grid">
+            <div class="card"><span class="muted">Loading...</span></div>
+          </div>
+
+          <!-- Create Mode Form (hidden) -->
+          <div id="persona-create-form" class="card" style="display: none; margin-top: 0.75rem;">
+            <h3 style="margin: 0 0 0.5rem 0;">New Persona</h3>
+            <div class="persona-create-grid">
+              <div class="form-row">
+                <label>Character Name</label>
+                <input type="text" id="persona-create-botname" placeholder="e.g. Kaelith, Veyra, Aelora">
+              </div>
+              <div class="form-row">
+                <label>Folder Name</label>
+                <input type="text" id="persona-create-name" placeholder="my-persona (lowercase, hyphens)">
+              </div>
+              <div class="form-row">
+                <label>Description</label>
+                <input type="text" id="persona-create-desc" placeholder="Short description for the card">
+              </div>
+            </div>
+            <div class="cron-form-actions">
+              <button class="btn btn-primary" onclick="submitCreatePersona()">Create</button>
+              <button class="btn" onclick="hideCreatePersonaForm()">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Persona Status -->
+          <div id="persona-status" class="card" style="margin-top: 0.75rem;">Loading...</div>
+
+          <!-- File Editor (hidden) -->
+          <div id="persona-editor" class="card" style="display: none; margin-top: 0.75rem;">
+            <div class="persona-editor-header">
+              <h3>Editing: <span id="editor-file-path"></span></h3>
+              <button class="btn btn-xs" onclick="hidePersonaEditor()">Close</button>
+            </div>
+            <div class="persona-editor-meta">
+              <div class="form-row">
+                <label>Label</label>
+                <input type="text" id="editor-label">
+              </div>
+              <div class="form-row">
+                <label>Section</label>
+                <input type="text" id="editor-section">
+              </div>
+              <div class="form-row">
+                <label>Order</label>
+                <input type="number" id="editor-order">
+              </div>
+              <div class="form-row">
+                <label>Enabled</label>
+                <select id="editor-enabled">
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </div>
+              <div class="form-row" id="editor-desc-row" style="display: none;">
+                <label>Description</label>
+                <input type="text" id="editor-description" placeholder="Card description...">
+              </div>
+              <div class="form-row" id="editor-botname-row" style="display: none;">
+                <label>Character Name</label>
+                <input type="text" id="editor-botname" placeholder="Character display name">
+              </div>
+            </div>
+            <textarea id="editor-content" class="persona-editor-textarea" rows="20"></textarea>
+            <div class="persona-editor-actions">
+              <button class="btn btn-primary" onclick="savePersonaFile()">Save</button>
+              <button class="btn" onclick="hidePersonaEditor()">Cancel</button>
+              <button class="btn btn-danger btn-xs" id="editor-delete-btn" onclick="deletePersonaFile()" style="margin-left: auto;">Delete File</button>
+            </div>
+          </div>
+
+          <!-- File Table -->
+          <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="margin: 0;">Files (active persona)</h3>
+            <button class="btn btn-primary btn-xs" onclick="showNewFileForm()">+ New File</button>
+          </div>
+          <table id="persona-table" style="margin-top: 0.5rem;">
             <thead>
               <tr>
                 <th>File</th>
@@ -200,6 +277,7 @@
                 <th>Order</th>
                 <th>Enabled</th>
                 <th>Size</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="persona-body"></tbody>

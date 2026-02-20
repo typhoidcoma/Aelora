@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   // 2. Load persona (compose system prompt from persona/ directory)
   let personaState: PersonaState | null = null;
   if (config.persona.enabled) {
-    personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activeMode);
+    personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
     config.llm.systemPrompt = personaState.composedPrompt;
   }
 
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   setSystemStateProvider(() => {
     const hb = config.heartbeat.enabled ? getHeartbeatState() : null;
     return {
-      botName: config.persona.botName,
+      botName: appState.personaState?.botName ?? config.persona.botName,
       discordTag: discordClient?.user?.tag ?? null,
       connected: discordClient?.isReady() ?? false,
       guildCount: discordClient?.guilds.cache.size ?? 0,

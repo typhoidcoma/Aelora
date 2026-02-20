@@ -3,6 +3,8 @@ order: 90
 enabled: true
 label: "Default Persona"
 section: persona
+description: "Standard operating mode — balanced, helpful, creative"
+botName: "Aelora"
 ---
 
 # Persona: Default

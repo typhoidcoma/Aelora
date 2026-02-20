@@ -3,3 +3,5 @@ dist/
 settings.yaml
 *.env
 .env*
+data/
+.claude/

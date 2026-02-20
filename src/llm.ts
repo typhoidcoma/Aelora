@@ -264,7 +264,7 @@ async function runCompletionLoop(
     const completion = await client.chat.completions.create({
       model: model ?? config.llm.model,
       messages,
-      max_tokens: config.llm.maxTokens || undefined,
+      max_completion_tokens: config.llm.maxTokens || undefined,
       ...(tools.length > 0 ? { tools } : {}),
     });
 

@@ -9,6 +9,7 @@ import { setToolConfigStore } from "./tools/types.js";
 import { startDiscord, sendToChannel, discordClient } from "./discord.js";
 import { startCron, stopCron, cronJobs } from "./cron.js";
 import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js";
+import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { startWeb, type AppState } from "./web.js";
 
 // Install logger first so all console output is captured
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
 
   // 8. Start heartbeat
   if (config.heartbeat.enabled) {
+    registerCalendarReminder();
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,

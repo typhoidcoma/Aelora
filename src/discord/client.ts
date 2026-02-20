@@ -9,7 +9,7 @@ import type { Config } from "../config.js";
 import { getLLMResponse } from "../llm.js";
 import { chunkMessage } from "../utils.js";
 import { processAttachments } from "./attachments.js";
-import { buildResponseEmbed, buildErrorEmbed, setEmbedColor } from "./embeds.js";
+import { setEmbedColor } from "./embeds.js";
 import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
 
 export let discordClient: Client | null = null;
@@ -135,20 +135,21 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
 
     const text = await getLLMResponse(message.channelId, userContent);
 
-    const embeds = buildResponseEmbed(text, config.llm.model);
+    if (!text || text.trim().length === 0) {
+      await message.reply("_(no response)_");
+      return;
+    }
 
-    await message.reply({ embeds: [embeds[0]] });
+    const chunks = chunkMessage(text);
+    await message.reply(chunks[0]);
 
-    // Overflow embeds
-    for (let i = 1; i < embeds.length; i++) {
-      await channel.send({ embeds: [embeds[i]] });
+    for (let i = 1; i < chunks.length; i++) {
+      await channel.send(chunks[i]);
     }
   } catch (err) {
     console.error("Discord handler error:", err);
     try {
-      await message.reply({
-        embeds: [buildErrorEmbed("Sorry, I encountered an error processing your message.")],
-      });
+      await message.reply("Sorry, I encountered an error processing your message.");
     } catch {
       // swallow
     }

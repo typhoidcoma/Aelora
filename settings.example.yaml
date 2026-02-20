@@ -71,13 +71,14 @@ soul:
 # API keys and secrets for tools that need them.
 # Each tool declares which keys it needs via its `config` field.
 # See src/tools/_example-gmail.ts for a complete example.
-tools: {}
-  # gmail:
-  #   clientId: "YOUR_GMAIL_CLIENT_ID"
-  #   clientSecret: "YOUR_GMAIL_CLIENT_SECRET"
-  #   refreshToken: "YOUR_GMAIL_REFRESH_TOKEN"
-  # notion:
-  #   apiKey: "YOUR_NOTION_API_KEY"
+tools:
+  # CalDAV calendar (Radicale, Nextcloud, Baikal, iCloud, etc.)
+  # caldav:
+  #   serverUrl: "http://localhost:5232"
+  #   username: "user"
+  #   password: "app-password"
+  #   authMethod: "Basic"        # "Basic", "Oauth", or "Bearer"
+  #   calendarName: ""           # Specific calendar name (empty = use first/default)
 
 # --- Agents ---
 # Sub-agents that can perform multi-step tasks using LLM reasoning + tools.

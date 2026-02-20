@@ -1,3 +1,10 @@
+---
+order: 80
+enabled: true
+label: "Tools & Agents"
+section: tools
+---
+
 # Tools & Agents
 
 You operate as the coordinating intelligence of the system.

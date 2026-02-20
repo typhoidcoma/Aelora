@@ -1,3 +1,10 @@
+---
+order: 50
+enabled: true
+label: "Skills"
+section: skill
+---
+
 # Skills
 
 ## Strategic Structuring

@@ -1,9 +1,10 @@
 ---
-order: 100
+order: 90
 enabled: true
-label: "aelora/persona.md"
-section: identity
+label: "Aelora Persona"
+section: persona
 description: "The brains of the operation."
+botName: "Aelora"
 ---
 
 # Persona: Default

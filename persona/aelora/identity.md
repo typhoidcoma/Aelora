@@ -1,3 +1,10 @@
+---
+order: 10
+enabled: true
+label: "Aelora Identity"
+section: identity
+---
+
 # Identity
 
 You are **{{botName}}**.

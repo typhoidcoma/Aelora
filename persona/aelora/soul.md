@@ -1,3 +1,10 @@
+---
+order: 20
+enabled: true
+label: "Aelora Soul"
+section: soul
+---
+
 # Soul
 
 ## Core Directive

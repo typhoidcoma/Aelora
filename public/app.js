@@ -32,7 +32,7 @@ document.querySelectorAll(".section-header").forEach((header) => {
 // --- Last updated ---
 function updateTimestamp() {
   const el = document.getElementById("last-updated");
-  el.textContent = "Updated " + new Date().toLocaleTimeString();
+  el.textContent = "Updated " + formatTime(new Date());
 }
 
 // --- Live uptime ticker ---
@@ -717,7 +717,7 @@ function appendLogLine(entry) {
   const line = document.createElement("div");
   line.className = "log-line";
 
-  const time = entry.ts ? new Date(entry.ts).toLocaleTimeString() : "";
+  const time = entry.ts ? formatTime(entry.ts) : "";
   const levelClass = entry.level === "error" ? "log-error" : entry.level === "warn" ? "log-warn" : "";
 
   line.innerHTML =
@@ -815,6 +815,18 @@ function timeAgo(iso) {
   return `${days}d ago`;
 }
 
+function formatTime(dateInput) {
+  const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function formatDateTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return formatTime(d);
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 function esc(str) {
   const el = document.createElement("span");
   el.textContent = str ?? "";
@@ -845,7 +857,7 @@ async function fetchCron() {
 
         const sourceBadge = `<span class="cron-source ${j.source}">${j.source}</span>`;
         const lastRun = j.lastRun ? timeAgo(j.lastRun) : "--";
-        const nextRun = j.nextRun ? timeAgo(j.nextRun) : "--";
+        const nextRun = j.nextRun ? formatDateTime(j.nextRun) : "--";
 
         const editBtn = j.source === "runtime"
           ? ` <button class="btn btn-xs" onclick="editCronJob('${esc(j.name)}')">Edit</button>`
@@ -1127,7 +1139,7 @@ async function showCronHistory(name) {
         return `
           <div class="cron-history-entry">
             ${dot}
-            <span class="cron-history-time">${new Date(h.timestamp).toLocaleTimeString()}</span>
+            <span class="cron-history-time">${formatTime(h.timestamp)}</span>
             <span class="cron-history-duration">${h.durationMs}ms</span>
             <span class="cron-history-output">${esc(h.error || h.outputPreview)}</span>
           </div>`;

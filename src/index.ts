@@ -4,6 +4,7 @@ import { initLLM, getLLMOneShot } from "./llm.js";
 import { loadTools } from "./tool-registry.js";
 import { loadAgents } from "./agent-registry.js";
 import { enableAgentDispatch } from "./llm.js";
+import { setToolConfigStore } from "./tools/types.js";
 import { startDiscord, sendToChannel } from "./discord.js";
 import { startCron, stopCron } from "./cron.js";
 import { startHeartbeat, stopHeartbeat } from "./heartbeat.js";
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
 
   // 1. Load config
   const config = loadConfig();
+  setToolConfigStore(config.tools);
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}`);
 
   // 2. Load soul (compose system prompt from soul/ directory)

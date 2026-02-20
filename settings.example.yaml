@@ -62,6 +62,18 @@ soul:
   dir: "soul"          # Path to soul directory (relative to project root)
   botName: "Aelora"    # Used for {{botName}} substitution in soul files
 
+# --- Tool Configuration ---
+# API keys and secrets for tools that need them.
+# Each tool declares which keys it needs via its `config` field.
+# See src/tools/_example-gmail.ts for a complete example.
+tools: {}
+  # gmail:
+  #   clientId: "YOUR_GMAIL_CLIENT_ID"
+  #   clientSecret: "YOUR_GMAIL_CLIENT_SECRET"
+  #   refreshToken: "YOUR_GMAIL_REFRESH_TOKEN"
+  # notion:
+  #   apiKey: "YOUR_NOTION_API_KEY"
+
 # --- Agents ---
 # Sub-agents that can perform multi-step tasks using LLM reasoning + tools.
 # Agents are auto-discovered from src/agents/ — drop a .ts file, it loads on startup.

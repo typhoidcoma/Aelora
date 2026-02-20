@@ -48,6 +48,7 @@ export type Config = {
     enabled: boolean;
     maxIterations: number;
   };
+  tools: Record<string, Record<string, unknown>>;
 };
 
 export function loadConfig(path = "settings.yaml"): Config {
@@ -117,5 +118,6 @@ export function loadConfig(path = "settings.yaml"): Config {
       enabled: parsed.agents?.enabled ?? true,
       maxIterations: parsed.agents?.maxIterations ?? 5,
     },
+    tools: parsed.tools ?? {},
   };
 }

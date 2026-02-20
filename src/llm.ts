@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import type { Config } from "./config.js";
-import { getToolDefinitionsForOpenAI, executeTool } from "./tool-registry.js";
+import {
+  getToolDefinitionsForOpenAI,
+  getEnabledTools,
+  executeTool,
+} from "./tool-registry.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -48,7 +52,7 @@ export async function getLLMResponse(
   const tools = getAllDefinitions();
 
   const messages: ChatMessage[] = [
-    { role: "system", content: config.llm.systemPrompt },
+    { role: "system", content: buildSystemPrompt() },
     ...history,
   ];
 
@@ -73,7 +77,7 @@ export async function getLLMOneShot(prompt: string): Promise<string> {
   const tools = getAllDefinitions();
 
   const messages: ChatMessage[] = [
-    { role: "system", content: config.llm.systemPrompt },
+    { role: "system", content: buildSystemPrompt() },
     { role: "user", content: prompt },
   ];
 
@@ -115,6 +119,43 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
 
   // Agent sub-loops: allowAgentDispatch=false (tools only, no recursive agents)
   return runCompletionLoop(messages, tools, channelId, max, model, false);
+}
+
+// --- System prompt with dynamic tool/agent inventory ---
+
+/**
+ * Build the system prompt fresh each request.
+ * Appends a live inventory of enabled tools and agents so the LLM always
+ * knows exactly what's available right now.
+ */
+function buildSystemPrompt(): string {
+  const base = config.llm.systemPrompt;
+
+  const tools = getEnabledTools();
+  const agents = agentRegistryCache
+    ? agentRegistryCache.getEnabledAgents()
+    : [];
+
+  // Nothing loaded — don't append an empty section
+  if (tools.length === 0 && agents.length === 0) return base;
+
+  const lines: string[] = ["\n\n## Currently Available"];
+
+  if (tools.length > 0) {
+    lines.push("\n### Tools");
+    for (const t of tools) {
+      lines.push(`- **${t.name}** — ${t.description}`);
+    }
+  }
+
+  if (agents.length > 0) {
+    lines.push("\n### Agents");
+    for (const a of agents) {
+      lines.push(`- **${a.name}** — ${a.description}`);
+    }
+  }
+
+  return base + lines.join("\n");
 }
 
 // --- Internal helpers ---

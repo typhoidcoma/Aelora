@@ -169,6 +169,85 @@ async function clearAllSessions() {
   }
 }
 
+// --- Memory ---
+
+async function fetchMemory() {
+  try {
+    const res = await fetch("/api/memory");
+    const data = await res.json();
+    const container = document.getElementById("memory-content");
+    const scopes = Object.keys(data);
+
+    if (scopes.length === 0) {
+      container.innerHTML = '<span class="muted">No memories stored yet</span>';
+      return;
+    }
+
+    container.innerHTML = scopes
+      .map((scope) => {
+        const facts = data[scope];
+        const label = scope.startsWith("user:") ? `User ${scope.slice(5)}` : scope.startsWith("channel:") ? `Channel ${scope.slice(8)}` : scope;
+        const factRows = facts
+          .map(
+            (f, i) =>
+              `<div class="memory-fact">
+                <span class="memory-fact-text">${esc(f.fact)}</span>
+                <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
+                <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(scope)}', ${i})">&times;</button>
+              </div>`,
+          )
+          .join("");
+
+        return `
+          <div class="memory-scope">
+            <div class="memory-scope-header">
+              <code>${esc(label)}</code>
+              <span class="muted">${facts.length} fact(s)</span>
+              <button class="btn btn-danger btn-xs" onclick="clearMemoryScope('${esc(scope)}')">Clear</button>
+            </div>
+            ${factRows}
+          </div>`;
+      })
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function deleteMemoryFact(scope, index) {
+  try {
+    const res = await fetch(`/api/memory/${encodeURIComponent(scope)}/${index}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Fact deleted");
+      fetchMemory();
+    } else {
+      showToast(`Delete failed: ${data.error}`, "error");
+    }
+  } catch (err) {
+    showToast(`Delete error: ${err.message}`, "error");
+  }
+}
+
+async function clearMemoryScope(scope) {
+  if (!confirm(`Clear all facts for "${scope}"?`)) return;
+
+  try {
+    const res = await fetch(`/api/memory/${encodeURIComponent(scope)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Cleared ${data.deleted} fact(s)`);
+      fetchMemory();
+    } else {
+      showToast("Clear failed", "error");
+    }
+  } catch (err) {
+    showToast(`Clear error: ${err.message}`, "error");
+  }
+}
+
 // --- Persona ---
 
 async function fetchModes() {
@@ -864,6 +943,7 @@ async function rebootBot() {
 fetchStatus();
 fetchConfig();
 fetchSessions();
+fetchMemory();
 fetchCron();
 fetchModes();
 fetchPersona();
@@ -873,6 +953,7 @@ initConsole();
 
 setInterval(fetchStatus, 5000);
 setInterval(fetchSessions, 10000);
+setInterval(fetchMemory, 10000);
 setInterval(fetchCron, 10000);
 setInterval(fetchTools, 10000);
 setInterval(fetchHeartbeat, 10000);

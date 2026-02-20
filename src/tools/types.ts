@@ -17,6 +17,7 @@ export type ToolDefinition = {
 
 export type ToolContext = {
   channelId: string | null;
+  userId: string | null;
   sendToChannel: (channelId: string, text: string) => Promise<void>;
 };
 

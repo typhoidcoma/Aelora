@@ -19,6 +19,7 @@ import {
 import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
 import { getAllSessions, deleteSession, clearAllSessions } from "./sessions.js";
+import { getAllMemory, deleteFact, clearScope } from "./memory.js";
 
 export type AppState = {
   config: Config;
@@ -376,6 +377,36 @@ export function startWeb(state: AppState): void {
   // Clear all sessions
   app.delete("/api/sessions", (_req, res) => {
     const count = clearAllSessions();
+    res.json({ success: true, deleted: count });
+  });
+
+  // Memory — list all facts
+  app.get("/api/memory", (_req, res) => {
+    res.json(getAllMemory());
+  });
+
+  // Memory — delete a single fact
+  app.delete("/api/memory/:scope/:index", (req, res) => {
+    const { scope, index } = req.params;
+    const idx = parseInt(index, 10);
+    if (isNaN(idx)) {
+      res.status(400).json({ error: "index must be a number" });
+      return;
+    }
+
+    const ok = deleteFact(scope, idx);
+    if (!ok) {
+      res.status(404).json({ error: "Fact not found (invalid scope or index)" });
+      return;
+    }
+
+    res.json({ success: true });
+  });
+
+  // Memory — clear all facts in a scope
+  app.delete("/api/memory/:scope", (req, res) => {
+    const { scope } = req.params;
+    const count = clearScope(scope);
     res.json({ success: true, deleted: count });
   });
 

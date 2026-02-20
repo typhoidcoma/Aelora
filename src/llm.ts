@@ -5,6 +5,7 @@ import {
   getEnabledTools,
   executeTool,
 } from "./tool-registry.js";
+import { getMemoryForPrompt } from "./memory.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -77,6 +78,7 @@ export async function getLLMResponse(
   channelId: string,
   userMessage: UserContent,
   onToken?: OnTokenCallback,
+  userId?: string,
 ): Promise<string> {
   const history = getHistory(channelId);
 
@@ -86,12 +88,12 @@ export async function getLLMResponse(
   const tools = getAllDefinitions();
 
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: buildSystemPrompt(userId, channelId) },
     ...history,
   ];
 
   try {
-    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken);
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId);
 
     history.push({ role: "assistant", content: result });
     trimHistory(history);
@@ -162,7 +164,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
  * Appends live system state and a live inventory of enabled tools/agents
  * so the LLM always knows the current state of its environment.
  */
-function buildSystemPrompt(): string {
+function buildSystemPrompt(userId?: string, channelId?: string): string {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
 
@@ -216,6 +218,10 @@ function buildSystemPrompt(): string {
     sections.push(lines.join("\n"));
   }
 
+  // --- Memory (per-user + per-channel facts) ---
+  const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
+  if (memoryBlock) sections.push("\n\n" + memoryBlock);
+
   if (sections.length === 0) return base;
   return base + sections.join("");
 }
@@ -268,6 +274,7 @@ async function runCompletionLoop(
   model?: string,
   allowAgentDispatch = true,
   onToken?: OnTokenCallback,
+  userId?: string,
 ): Promise<string> {
   const baseParams = {
     model: model ?? config.llm.model,
@@ -353,7 +360,7 @@ async function runCompletionLoop(
         if (allowAgentDispatch && agentRegistryCache?.isAgent(toolCall.function.name)) {
           result = await agentRegistryCache.executeAgent(toolCall.function.name, args, channelId);
         } else {
-          result = await executeTool(toolCall.function.name, args, channelId);
+          result = await executeTool(toolCall.function.name, args, channelId, userId);
         }
 
         messages.push({

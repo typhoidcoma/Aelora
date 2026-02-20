@@ -89,12 +89,13 @@ export async function executeTool(
   toolName: string,
   args: Record<string, unknown>,
   channelId: string | null,
+  userId?: string | null,
 ): Promise<string> {
   const tool = registry.get(toolName);
   if (!tool) return `Error: unknown tool "${toolName}"`;
   if (!tool.enabled) return `Error: tool "${toolName}" is currently disabled`;
 
-  const context: ToolContext = { channelId, sendToChannel };
+  const context: ToolContext = { channelId, userId: userId ?? null, sendToChannel };
 
   try {
     return await tool.handler(args, context);

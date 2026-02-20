@@ -410,6 +410,53 @@ section {
   white-space: nowrap;
 }
 
+/* --- Memory --- */
+
+.memory-scope {
+  margin-bottom: 0.75rem;
+}
+
+.memory-scope:last-child {
+  margin-bottom: 0;
+}
+
+.memory-scope-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.memory-scope-header code {
+  font-family: "Roboto Mono", monospace;
+  background: var(--bg-elevated);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.75em;
+  color: var(--brand-gold);
+}
+
+.memory-fact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0 0.2rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.memory-fact-text {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.memory-fact-time {
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
 /* --- Scheduled Tasks (Cron) --- */
 
 .cron-form-grid {

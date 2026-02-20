@@ -66,10 +66,15 @@ function loadPersistedJobs(): PersistedCronJob[] {
   return [];
 }
 
-function savePersistedJobs(): void {
-  const runtimeJobs: PersistedCronJob[] = cronJobs
-    .filter((j) => j.source === "runtime")
-    .map((j) => ({
+function savePersistedJobs(deletedName?: string): void {
+  // Merge with existing file to prevent data loss if the in-memory array
+  // is incomplete (can happen on Windows due to ESM module duplication).
+  const existing = loadPersistedJobs();
+  const merged = new Map(existing.map((j) => [j.name, j]));
+
+  // Update/add from in-memory runtime jobs
+  for (const j of cronJobs.filter((j) => j.source === "runtime")) {
+    merged.set(j.name, {
       name: j.name,
       schedule: j.schedule,
       timezone: j.timezone,
@@ -79,11 +84,19 @@ function savePersistedJobs(): void {
       prompt: j.prompt,
       enabled: j.enabled,
       history: j.history,
-    }));
+    });
+  }
+
+  // Remove explicitly deleted job
+  if (deletedName) {
+    merged.delete(deletedName);
+  }
+
+  const toSave = [...merged.values()];
 
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
-    writeFileSync(CRON_JOBS_FILE, JSON.stringify(runtimeJobs, null, 2), "utf-8");
+    writeFileSync(CRON_JOBS_FILE, JSON.stringify(toSave, null, 2), "utf-8");
   } catch (err) {
     console.error("Cron: failed to save runtime jobs:", err);
   }
@@ -347,7 +360,7 @@ export function deleteCronJob(name: string): { found: boolean; error?: string } 
 
   job.instance?.stop();
   cronJobs.splice(idx, 1);
-  savePersistedJobs();
+  savePersistedJobs(name);
 
   console.log(`Cron [${name}]: deleted runtime job`);
   return { found: true };

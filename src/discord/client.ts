@@ -210,7 +210,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
 
     const text = await getLLMResponse(message.channelId, userContent, (token) => {
       buffer += token;
-    });
+    }, message.author.id);
 
     clearInterval(editTimer);
     editTimer = null;

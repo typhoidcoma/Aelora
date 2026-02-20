@@ -372,6 +372,8 @@ Multiple providers behind a common interface. Selected by config.
 
 ## 6. User Profiles
 
+> **Simple Memory (implemented):** A lightweight fact-based memory system is now live as a stepping stone toward full User Profiles. The `memory` tool lets Aelora save/recall/forget short facts scoped per user (`user:<id>`) or per channel (`channel:<id>`). Facts are persisted to `data/memory.json` and automatically injected into the system prompt. The dashboard shows all stored facts with delete/clear controls. Future plans: auto-summarization, vector search, structured preference tracking, relationship context.
+
 ### Overview
 
 Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. The existing `soul/templates/user.md` placeholder supports per-user prompt injection.
@@ -543,7 +545,7 @@ docker run -d -p 8888:8080 searxng/searxng
 | Feature | Complexity | Dependencies | Priority |
 |---------|-----------|--------------|----------|
 | Mail | Low-medium | None | Short-term |
-| User Profiles | Medium | Requires userId plumbing to LLM | Short-term |
+| User Profiles | Medium | Simple memory done; full profiles next | Short-term |
 | Quests | Medium-high | Profiles (for per-user progress) | Medium-term |
 | Image Generation | Medium | External API key | Medium-term |
 | Storytelling Engine | High | Profiles, possibly quests | Medium-term |

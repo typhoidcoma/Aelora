@@ -19,6 +19,8 @@ export type Config = {
     allowedChannels: string[];
     allowDMs: boolean;
     status: string;
+    guildId?: string;
+    embedColor?: number;
   };
   llm: {
     baseURL: string;
@@ -80,6 +82,10 @@ export function loadConfig(path = "settings.yaml"): Config {
       allowedChannels: (parsed.discord.allowedChannels ?? []).map(String),
       allowDMs: parsed.discord.allowDMs ?? true,
       status: parsed.discord.status ?? "Online",
+      guildId: parsed.discord.guildId ?? undefined,
+      embedColor: parsed.discord.embedColor
+        ? parseInt(String(parsed.discord.embedColor).replace("#", ""), 16)
+        : undefined,
     },
     llm: {
       baseURL: parsed.llm.baseURL,

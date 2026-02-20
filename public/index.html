@@ -7,171 +7,183 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Top bar -->
   <header>
     <h1>Aelora</h1>
     <div id="status-badge" class="badge offline"><span class="pulse-dot"></span> Offline</div>
+    <div class="header-stats">
+      <span class="header-stat"><span class="label">Uptime:</span> <span id="uptime">--</span></span>
+      <span class="header-stat"><span class="label">Model:</span> <span id="model-name">--</span></span>
+      <span class="header-stat"><span class="label">Guilds:</span> <span id="guild-count">--</span></span>
+    </div>
     <span id="last-updated" class="last-updated"></span>
+    <button class="btn btn-danger" id="reboot-btn" onclick="rebootBot()">Reboot</button>
   </header>
 
-  <main>
-    <section>
-      <div class="section-header" data-section="status">
-        <span class="chevron">&#9660;</span>
-        <h2>Bot Status</h2>
-      </div>
-      <div class="section-body" data-section="status">
-        <div class="card">
-          <div class="stat"><span class="label">Connection:</span> <span id="conn-status">--</span></div>
-          <div class="stat"><span class="label">Username:</span> <span id="bot-username">--</span></div>
-          <div class="stat"><span class="label">Guilds:</span> <span id="guild-count">--</span></div>
-          <div class="stat"><span class="label">Uptime:</span> <span id="uptime">--</span></div>
+  <div class="layout">
+    <!-- Left: main panels -->
+    <main>
+      <section>
+        <div class="section-header" data-section="soul">
+          <span class="chevron">&#9660;</span>
+          <h2>Soul</h2>
+          <button class="btn" id="soul-reload-btn" onclick="reloadSoul()">Reload</button>
         </div>
-      </div>
-    </section>
+        <div class="section-body" data-section="soul">
+          <div id="soul-status" class="card">Loading...</div>
+          <table id="soul-table" style="display: none; margin-top: 0.5rem;">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Section</th>
+                <th>Label</th>
+                <th>Order</th>
+                <th>Enabled</th>
+                <th>Size</th>
+              </tr>
+            </thead>
+            <tbody id="soul-body"></tbody>
+          </table>
+        </div>
+      </section>
 
-    <section>
-      <div class="section-header" data-section="soul">
-        <span class="chevron">&#9660;</span>
-        <h2>Soul</h2>
-        <button class="btn" id="soul-reload-btn" onclick="reloadSoul()">Reload</button>
-      </div>
-      <div class="section-body" data-section="soul">
-        <div id="soul-status" class="card">Loading...</div>
-        <table id="soul-table" style="display: none; margin-top: 0.75rem;">
-          <thead>
-            <tr>
-              <th>File</th>
-              <th>Section</th>
-              <th>Label</th>
-              <th>Order</th>
-              <th>Enabled</th>
-              <th>Size</th>
-            </tr>
-          </thead>
-          <tbody id="soul-body"></tbody>
-        </table>
-      </div>
-    </section>
+      <section>
+        <div class="section-header" data-section="tools">
+          <span class="chevron">&#9660;</span>
+          <h2>Tools</h2>
+        </div>
+        <div class="section-body" data-section="tools">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Enabled</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="tools-body">
+              <tr><td colspan="4" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-    <section>
-      <div class="section-header" data-section="llm-test">
-        <span class="chevron">&#9660;</span>
-        <h2>LLM Test</h2>
-      </div>
-      <div class="section-body" data-section="llm-test">
-        <div class="llm-test">
-          <textarea id="llm-input" placeholder="Type a message to test the bot's personality..."></textarea>
-          <div class="actions">
-            <button class="btn btn-primary" id="llm-send-btn" onclick="testLLM()">Send</button>
-            <span id="llm-loading" style="display: none; color: #71717a; font-size: 0.85rem;">Thinking...</span>
+      <section>
+        <div class="section-header" data-section="agents">
+          <span class="chevron">&#9660;</span>
+          <h2>Agents</h2>
+        </div>
+        <div class="section-body" data-section="agents">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Tools</th>
+                <th>Enabled</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="agents-body">
+              <tr><td colspan="5" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header" data-section="cron">
+          <span class="chevron">&#9660;</span>
+          <h2>Cron Jobs</h2>
+        </div>
+        <div class="section-body" data-section="cron">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Schedule</th>
+                <th>Type</th>
+                <th>Enabled</th>
+                <th>Last Run</th>
+                <th>Next Run</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="cron-body">
+              <tr><td colspan="7" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header" data-section="heartbeat">
+          <span class="chevron">&#9660;</span>
+          <h2>Heartbeat</h2>
+        </div>
+        <div class="section-body" data-section="heartbeat">
+          <div id="heartbeat-status" class="card">Loading...</div>
+          <table id="heartbeat-table" style="display: none; margin-top: 0.5rem;">
+            <thead>
+              <tr>
+                <th>Handler</th>
+                <th>Description</th>
+                <th>Enabled</th>
+              </tr>
+            </thead>
+            <tbody id="heartbeat-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-header" data-section="llm-test">
+          <span class="chevron">&#9660;</span>
+          <h2>LLM Test</h2>
+        </div>
+        <div class="section-body" data-section="llm-test">
+          <div class="llm-test">
+            <textarea id="llm-input" placeholder="Type a message to test the bot's personality..."></textarea>
+            <div class="actions">
+              <button class="btn btn-primary" id="llm-send-btn" onclick="testLLM()">Send</button>
+              <span id="llm-loading" style="display: none; color: #71717a; font-size: 0.8rem;">Thinking...</span>
+            </div>
+          </div>
+          <div id="llm-response" class="llm-response" style="display: none;">
+            <pre class="card"></pre>
           </div>
         </div>
-        <div id="llm-response" class="llm-response" style="display: none;">
-          <pre class="card"></pre>
+      </section>
+    </main>
+
+    <div class="resize-handle" id="resize-handle"></div>
+
+    <!-- Right: sidebar -->
+    <aside>
+      <!-- Settings -->
+      <div class="sidebar-panel">
+        <h3>Settings</h3>
+        <div class="settings-grid" id="settings-display">
+          <div class="setting-row"><span class="label">Mode:</span> <span id="setting-mode">--</span></div>
+          <div class="setting-row"><span class="label">DMs:</span> <span id="setting-dms">--</span></div>
+          <div class="setting-row"><span class="label">Channels:</span> <span id="setting-channels">--</span></div>
+          <div class="setting-row"><span class="label">Max History:</span> <span id="setting-history">--</span></div>
+          <div class="setting-row"><span class="label">Max Tokens:</span> <span id="setting-tokens">--</span></div>
+          <div class="setting-row"><span class="label">Status:</span> <span id="setting-status">--</span></div>
         </div>
       </div>
-    </section>
 
-    <section>
-      <div class="section-header" data-section="cron">
-        <span class="chevron">&#9660;</span>
-        <h2>Cron Jobs</h2>
+      <!-- Console -->
+      <div class="sidebar-panel console-panel">
+        <div class="console-header">
+          <h3>Console</h3>
+          <button class="btn btn-xs" onclick="clearConsole()">Clear</button>
+        </div>
+        <div id="console-output" class="console-output"></div>
       </div>
-      <div class="section-body" data-section="cron">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Schedule</th>
-              <th>Type</th>
-              <th>Enabled</th>
-              <th>Last Run</th>
-              <th>Next Run</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="cron-body">
-            <tr><td colspan="7" class="muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-header" data-section="tools">
-        <span class="chevron">&#9660;</span>
-        <h2>Tools</h2>
-      </div>
-      <div class="section-body" data-section="tools">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Enabled</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="tools-body">
-            <tr><td colspan="4" class="muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-header" data-section="agents">
-        <span class="chevron">&#9660;</span>
-        <h2>Agents</h2>
-      </div>
-      <div class="section-body" data-section="agents">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Tools</th>
-              <th>Enabled</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody id="agents-body">
-            <tr><td colspan="5" class="muted">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-header" data-section="heartbeat">
-        <span class="chevron">&#9660;</span>
-        <h2>Heartbeat</h2>
-      </div>
-      <div class="section-body" data-section="heartbeat">
-        <div id="heartbeat-status" class="card">Loading...</div>
-        <table id="heartbeat-table" style="display: none; margin-top: 0.75rem;">
-          <thead>
-            <tr>
-              <th>Handler</th>
-              <th>Description</th>
-              <th>Enabled</th>
-            </tr>
-          </thead>
-          <tbody id="heartbeat-body"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-header" data-section="config">
-        <span class="chevron">&#9660;</span>
-        <h2>Configuration</h2>
-      </div>
-      <div class="section-body" data-section="config">
-        <pre id="config-display" class="card">Loading...</pre>
-      </div>
-    </section>
-  </main>
+    </aside>
+  </div>
 
   <div id="toast-container"></div>
   <script src="app.js"></script>

@@ -1,14 +1,18 @@
+import { installLogger } from "./logger.js";
 import { loadConfig } from "./config.js";
 import { loadSoul, type SoulState } from "./soul.js";
-import { initLLM, getLLMOneShot } from "./llm.js";
+import { initLLM, getLLMOneShot, setSystemStateProvider } from "./llm.js";
 import { loadTools } from "./tool-registry.js";
 import { loadAgents } from "./agent-registry.js";
 import { enableAgentDispatch } from "./llm.js";
 import { setToolConfigStore } from "./tools/types.js";
-import { startDiscord, sendToChannel } from "./discord.js";
-import { startCron, stopCron } from "./cron.js";
-import { startHeartbeat, stopHeartbeat } from "./heartbeat.js";
+import { startDiscord, sendToChannel, discordClient } from "./discord.js";
+import { startCron, stopCron, cronJobs } from "./cron.js";
+import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js";
 import { startWeb, type AppState } from "./web.js";
+
+// Install logger first so all console output is captured
+installLogger();
 
 async function main(): Promise<void> {
   console.log("Aelora starting...\n");
@@ -58,6 +62,25 @@ async function main(): Promise<void> {
   // 9. Start web dashboard
   const appState: AppState = { config, soulState };
   startWeb(appState);
+
+  // 10. Register live system state for LLM context
+  setSystemStateProvider(() => {
+    const hb = config.heartbeat.enabled ? getHeartbeatState() : null;
+    return {
+      botName: config.soul.botName,
+      discordTag: discordClient?.user?.tag ?? null,
+      connected: discordClient?.isReady() ?? false,
+      guildCount: discordClient?.guilds.cache.size ?? 0,
+      uptime: process.uptime(),
+      model: config.llm.model,
+      heartbeat: hb ? { running: hb.running, handlers: hb.handlers.length } : null,
+      cronJobs: cronJobs.map((j) => ({
+        name: j.name,
+        enabled: j.enabled,
+        nextRun: j.nextRun?.toISOString() ?? null,
+      })),
+    };
+  });
 
   console.log("\nAelora is ready.\n");
 }

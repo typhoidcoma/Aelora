@@ -1,4 +1,4 @@
-// Aelora Dashboard — live features & interactivity
+// Aelora Dashboard
 
 // --- State ---
 let uptimeSeconds = 0;
@@ -21,9 +21,7 @@ function showToast(message, type = "success") {
 // --- Collapsible sections ---
 document.querySelectorAll(".section-header").forEach((header) => {
   header.addEventListener("click", (e) => {
-    // Don't collapse when clicking buttons inside the header
     if (e.target.closest(".btn")) return;
-
     const section = header.dataset.section;
     const body = document.querySelector(`.section-body[data-section="${section}"]`);
     const isHidden = body.classList.toggle("hidden");
@@ -60,15 +58,31 @@ async function fetchStatus() {
     badge.innerHTML = `<span class="pulse-dot"></span> ${data.connected ? "Online" : "Offline"}`;
     badge.className = data.connected ? "badge online" : "badge offline";
 
-    document.getElementById("conn-status").textContent =
-      data.connected ? "Connected" : "Disconnected";
-    document.getElementById("bot-username").textContent = data.username ?? "--";
     document.getElementById("guild-count").textContent = data.guildCount ?? "--";
-
     startUptimeTicker(data.uptime);
     updateTimestamp();
   } catch {
-    /* ignore fetch errors */
+    /* ignore */
+  }
+}
+
+async function fetchConfig() {
+  try {
+    const res = await fetch("/api/config");
+    const cfg = await res.json();
+
+    document.getElementById("model-name").textContent = cfg.llm?.model ?? "--";
+    document.getElementById("setting-mode").textContent = cfg.discord?.guildMode ?? "--";
+    document.getElementById("setting-dms").textContent = cfg.discord?.allowDMs ? "Yes" : "No";
+    document.getElementById("setting-channels").textContent =
+      cfg.discord?.allowedChannels?.length > 0
+        ? cfg.discord.allowedChannels.join(", ")
+        : "All";
+    document.getElementById("setting-history").textContent = cfg.llm?.maxHistory ?? "--";
+    document.getElementById("setting-tokens").textContent = cfg.llm?.maxTokens ?? "--";
+    document.getElementById("setting-status").textContent = cfg.discord?.status ?? "--";
+  } catch {
+    /* ignore */
   }
 }
 
@@ -97,16 +111,6 @@ async function fetchCron() {
       </tr>`,
       )
       .join("");
-  } catch {
-    /* ignore */
-  }
-}
-
-async function fetchConfig() {
-  try {
-    const res = await fetch("/api/config");
-    const cfg = await res.json();
-    document.getElementById("config-display").textContent = JSON.stringify(cfg, null, 2);
   } catch {
     /* ignore */
   }
@@ -210,28 +214,11 @@ async function testLLM() {
   }
 }
 
-// Allow Ctrl+Enter to send
 document.getElementById("llm-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     testLLM();
   }
 });
-
-// --- Utilities ---
-
-function formatUptime(seconds) {
-  if (!seconds) return "--";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  return `${h}h ${m}m ${s}s`;
-}
-
-function esc(str) {
-  const el = document.createElement("span");
-  el.textContent = str ?? "";
-  return el.innerHTML;
-}
 
 // --- Tools ---
 
@@ -362,6 +349,136 @@ async function fetchHeartbeat() {
   }
 }
 
+// --- Console / Log stream ---
+
+const MAX_CONSOLE_LINES = 200;
+const seenEntries = new Set();
+
+function entryKey(entry) {
+  return `${entry.ts}|${entry.level}|${entry.message}`;
+}
+
+function appendLogLine(entry) {
+  const key = entryKey(entry);
+  if (seenEntries.has(key)) return;
+  seenEntries.add(key);
+
+  const output = document.getElementById("console-output");
+  const line = document.createElement("div");
+  line.className = "log-line";
+
+  const time = entry.ts ? new Date(entry.ts).toLocaleTimeString() : "";
+  const levelClass = entry.level === "error" ? "log-error" : entry.level === "warn" ? "log-warn" : "";
+
+  line.innerHTML =
+    `<span class="log-time">${esc(time)}</span>` +
+    `<span class="${levelClass}">${esc(entry.message)}</span>`;
+
+  output.appendChild(line);
+
+  while (output.children.length > MAX_CONSOLE_LINES) {
+    output.removeChild(output.firstChild);
+  }
+
+  output.scrollTop = output.scrollHeight;
+}
+
+function clearConsole() {
+  document.getElementById("console-output").innerHTML = "";
+  seenEntries.clear();
+}
+
+async function initConsole() {
+  try {
+    const res = await fetch("/api/logs");
+    const logs = await res.json();
+    for (const entry of logs) {
+      appendLogLine(entry);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const evtSource = new EventSource("/api/logs/stream");
+  evtSource.onmessage = (event) => {
+    try {
+      const entry = JSON.parse(event.data);
+      appendLogLine(entry);
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
+// --- Resizable panels ---
+
+(function initResize() {
+  const handle = document.getElementById("resize-handle");
+  const aside = document.querySelector("aside");
+  if (!handle || !aside) return;
+
+  const saved = localStorage.getItem("sidebar-width");
+  if (saved) aside.style.width = saved + "px";
+
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    handle.classList.add("active");
+    document.body.classList.add("resizing");
+  });
+
+  handle.addEventListener("pointermove", (e) => {
+    if (!handle.hasPointerCapture(e.pointerId)) return;
+    const newWidth = window.innerWidth - e.clientX - 2;
+    const clamped = Math.max(180, Math.min(newWidth, 600));
+    aside.style.width = clamped + "px";
+  });
+
+  handle.addEventListener("pointerup", (e) => {
+    if (handle.hasPointerCapture(e.pointerId)) {
+      handle.releasePointerCapture(e.pointerId);
+    }
+    handle.classList.remove("active");
+    document.body.classList.remove("resizing");
+    localStorage.setItem("sidebar-width", parseInt(aside.style.width));
+  });
+})();
+
+// --- Utilities ---
+
+function formatUptime(seconds) {
+  if (!seconds) return "--";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${h}h ${m}m ${s}s`;
+}
+
+function esc(str) {
+  const el = document.createElement("span");
+  el.textContent = str ?? "";
+  return el.innerHTML;
+}
+
+// --- Reboot ---
+
+async function rebootBot() {
+  if (!confirm("Reboot the bot? This will disconnect and restart the process.")) return;
+
+  const btn = document.getElementById("reboot-btn");
+  btn.disabled = true;
+  btn.textContent = "Rebooting...";
+
+  try {
+    await fetch("/api/reboot", { method: "POST" });
+    showToast("Reboot initiated — reconnecting...", "success");
+  } catch (err) {
+    showToast(`Reboot failed: ${err.message}`, "error");
+    btn.disabled = false;
+    btn.textContent = "Reboot";
+  }
+}
+
 // --- Init ---
 fetchStatus();
 fetchCron();
@@ -370,6 +487,8 @@ fetchSoul();
 fetchTools();
 fetchAgents();
 fetchHeartbeat();
+initConsole();
+
 setInterval(fetchStatus, 5000);
 setInterval(fetchCron, 10000);
 setInterval(fetchTools, 10000);

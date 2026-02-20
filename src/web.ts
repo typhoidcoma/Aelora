@@ -9,6 +9,8 @@ import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
 import { cronJobs } from "./cron.js";
+import { getRecentLogs, addSSEClient } from "./logger.js";
+import { reboot } from "./lifecycle.js";
 
 export type AppState = {
   config: Config;
@@ -189,6 +191,29 @@ export function startWeb(state: AppState): void {
   // Heartbeat status
   app.get("/api/heartbeat", (_req, res) => {
     res.json(getHeartbeatState());
+  });
+
+  // Recent logs (for initial load)
+  app.get("/api/logs", (_req, res) => {
+    res.json(getRecentLogs());
+  });
+
+  // Reboot the bot process
+  app.post("/api/reboot", (_req, res) => {
+    res.json({ success: true, message: "Rebooting..." });
+    // Small delay so the response is sent before process exits
+    setTimeout(() => reboot(), 200);
+  });
+
+  // SSE stream for live logs
+  app.get("/api/logs/stream", (req, res) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    res.write("\n");
+    addSSEClient(res);
   });
 
   app.listen(config.web.port, () => {

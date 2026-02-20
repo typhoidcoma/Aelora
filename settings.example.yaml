@@ -16,6 +16,11 @@ discord:
   allowDMs: true
   # Status message shown under the bot's name
   status: "Watching the void"
+  # Guild ID for instant slash command registration (dev mode).
+  # Leave blank for global registration (takes up to 1 hour to propagate).
+  # guildId: "YOUR_GUILD_ID"
+  # Custom embed accent color (hex). Defaults to Discord blurple (#5865F2).
+  # embedColor: "#5865F2"
 
 # --- LLM ---
 # Any OpenAI-compatible endpoint works:

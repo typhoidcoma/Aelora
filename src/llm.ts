@@ -7,6 +7,31 @@ import {
 } from "./tool-registry.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
+type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
+type UserContent = string | ContentPart[];
+
+// --- System state provider (avoids circular deps with discord/cron/heartbeat) ---
+
+export type SystemState = {
+  botName: string;
+  discordTag: string | null;
+  connected: boolean;
+  guildCount: number;
+  uptime: number;
+  model: string;
+  heartbeat: { running: boolean; handlers: number } | null;
+  cronJobs: { name: string; enabled: boolean; nextRun: string | null }[];
+};
+
+let getSystemState: (() => SystemState) | null = null;
+
+/**
+ * Register a function that returns live system state.
+ * Called from index.ts after all subsystems are initialized.
+ */
+export function setSystemStateProvider(provider: () => SystemState): void {
+  getSystemState = provider;
+}
 
 let client: OpenAI;
 let config: Config;
@@ -39,14 +64,15 @@ function trimHistory(history: ChatMessage[]): void {
 
 /**
  * Get an LLM response with per-channel conversation memory and tool/agent support.
+ * Accepts string or ContentPart[] (for multimodal messages with images).
  */
 export async function getLLMResponse(
   channelId: string,
-  userMessage: string,
+  userMessage: UserContent,
 ): Promise<string> {
   const history = getHistory(channelId);
 
-  history.push({ role: "user", content: userMessage });
+  history.push({ role: "user", content: userMessage as string });
   trimHistory(history);
 
   const tools = getAllDefinitions();
@@ -57,12 +83,12 @@ export async function getLLMResponse(
   ];
 
   try {
-    const reply = await runCompletionLoop(messages, tools, channelId);
+    const result = await runCompletionLoop(messages, tools, channelId);
 
-    history.push({ role: "assistant", content: reply });
+    history.push({ role: "assistant", content: result });
     trimHistory(history);
 
-    return reply;
+    return result;
   } catch (err) {
     // Remove the failed user message so history stays clean
     history.pop();
@@ -81,7 +107,7 @@ export async function getLLMOneShot(prompt: string): Promise<string> {
     { role: "user", content: prompt },
   ];
 
-  return runCompletionLoop(messages, tools, null);
+  return await runCompletionLoop(messages, tools, null);
 }
 
 // --- Agent loop support ---
@@ -118,44 +144,72 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   ];
 
   // Agent sub-loops: allowAgentDispatch=false (tools only, no recursive agents)
-  return runCompletionLoop(messages, tools, channelId, max, model, false);
+  return await runCompletionLoop(messages, tools, channelId, max, model, false);
 }
 
 // --- System prompt with dynamic tool/agent inventory ---
 
 /**
  * Build the system prompt fresh each request.
- * Appends a live inventory of enabled tools and agents so the LLM always
- * knows exactly what's available right now.
+ * Appends live system state and a live inventory of enabled tools/agents
+ * so the LLM always knows the current state of its environment.
  */
 function buildSystemPrompt(): string {
   const base = config.llm.systemPrompt;
+  const sections: string[] = [];
 
+  // --- System state ---
+  const state = getSystemState?.();
+  if (state) {
+    const lines: string[] = ["\n\n## System Status"];
+    lines.push(`- **Bot**: ${state.botName}${state.discordTag ? ` (${state.discordTag})` : ""}`);
+    lines.push(`- **Discord**: ${state.connected ? "connected" : "disconnected"}, ${state.guildCount} guild(s)`);
+    lines.push(`- **Model**: ${state.model}`);
+
+    const h = Math.floor(state.uptime / 3600);
+    const m = Math.floor((state.uptime % 3600) / 60);
+    lines.push(`- **Uptime**: ${h}h ${m}m`);
+
+    if (state.heartbeat) {
+      lines.push(`- **Heartbeat**: ${state.heartbeat.running ? "running" : "stopped"}, ${state.heartbeat.handlers} handler(s)`);
+    }
+
+    const enabledCron = state.cronJobs.filter((j) => j.enabled);
+    if (enabledCron.length > 0) {
+      lines.push(`- **Cron**: ${enabledCron.length} active job(s)`);
+    }
+
+    sections.push(lines.join("\n"));
+  }
+
+  // --- Tool/agent inventory ---
   const tools = getEnabledTools();
   const agents = agentRegistryCache
     ? agentRegistryCache.getEnabledAgents()
     : [];
 
-  // Nothing loaded — don't append an empty section
-  if (tools.length === 0 && agents.length === 0) return base;
+  if (tools.length > 0 || agents.length > 0) {
+    const lines: string[] = ["\n\n## Currently Available"];
 
-  const lines: string[] = ["\n\n## Currently Available"];
-
-  if (tools.length > 0) {
-    lines.push("\n### Tools");
-    for (const t of tools) {
-      lines.push(`- **${t.name}** — ${t.description}`);
+    if (tools.length > 0) {
+      lines.push("\n### Tools");
+      for (const t of tools) {
+        lines.push(`- **${t.name}** — ${t.description}`);
+      }
     }
+
+    if (agents.length > 0) {
+      lines.push("\n### Agents");
+      for (const a of agents) {
+        lines.push(`- **${a.name}** — ${a.description}`);
+      }
+    }
+
+    sections.push(lines.join("\n"));
   }
 
-  if (agents.length > 0) {
-    lines.push("\n### Agents");
-    for (const a of agents) {
-      lines.push(`- **${a.name}** — ${a.description}`);
-    }
-  }
-
-  return base + lines.join("\n");
+  if (sections.length === 0) return base;
+  return base + sections.join("");
 }
 
 // --- Internal helpers ---

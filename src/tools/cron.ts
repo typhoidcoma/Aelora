@@ -2,6 +2,7 @@ import { defineTool, param } from "./types.js";
 import {
   getCronJobsForAPI,
   createCronJob,
+  updateCronJob,
   toggleCronJob,
   triggerCronJob,
   deleteCronJob,
@@ -10,18 +11,18 @@ import {
 export default defineTool({
   name: "cron",
   description:
-    "Manage scheduled cron jobs. List all jobs, create new scheduled tasks, " +
+    "Manage scheduled cron jobs. List all jobs, create or edit scheduled tasks, " +
     "toggle jobs on/off, manually trigger a job, or delete runtime jobs. " +
     "Jobs can send static messages or LLM-generated content to a Discord channel on a schedule.",
 
   params: {
     action: param.enum(
       "The cron action to perform.",
-      ["list", "create", "toggle", "trigger", "delete"] as const,
+      ["list", "create", "edit", "toggle", "trigger", "delete"] as const,
       { required: true },
     ),
     name: param.string(
-      "Job name. Required for create, toggle, trigger, and delete.",
+      "Job name. Required for create, edit, toggle, trigger, and delete.",
       { maxLength: 100 },
     ),
     schedule: param.string(
@@ -96,6 +97,24 @@ export default defineTool({
         return `Cron job "${name}" created. Schedule: \`${schedule}\` | Type: ${type} | Channel: ${targetChannel}`;
       }
 
+      case "edit": {
+        if (!name) return "Error: name is required for edit.";
+
+        const updates: Record<string, unknown> = {};
+        if (schedule !== undefined) updates.schedule = schedule;
+        if (timezone !== undefined) updates.timezone = timezone;
+        if (channelId !== undefined) updates.channelId = channelId;
+        if (type !== undefined) updates.type = type;
+        if (message !== undefined) updates.message = message;
+        if (prompt !== undefined) updates.prompt = prompt;
+        if (enabled !== undefined) updates.enabled = enabled;
+
+        const result = updateCronJob(name, updates);
+        if (!result.found) return `Error: job "${name}" not found.`;
+        if (result.error) return `Error: ${result.error}`;
+        return `Cron job "${name}" updated successfully.`;
+      }
+
       case "toggle": {
         if (!name) return "Error: name is required for toggle.";
 
@@ -123,7 +142,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use list, create, toggle, trigger, or delete.`;
+        return `Unknown action "${action}". Use list, create, edit, toggle, trigger, or delete.`;
     }
   },
 });

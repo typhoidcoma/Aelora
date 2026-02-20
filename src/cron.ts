@@ -117,6 +117,9 @@ async function executeJob(state: CronJobState): Promise<{ success: boolean; outp
 
   try {
     output = await resolveCronPayload(state);
+    if (!output.trim()) {
+      throw new Error("LLM returned empty response — nothing to send");
+    }
     await sendToChannel(state.channelId, output);
     console.log(`Cron [${state.name}]: sent to ${state.channelId}`);
   } catch (err) {
@@ -347,6 +350,56 @@ export function deleteCronJob(name: string): { found: boolean; error?: string } 
   savePersistedJobs();
 
   console.log(`Cron [${name}]: deleted runtime job`);
+  return { found: true };
+}
+
+export function updateCronJob(
+  name: string,
+  updates: {
+    schedule?: string;
+    timezone?: string;
+    channelId?: string;
+    type?: "static" | "llm";
+    message?: string;
+    prompt?: string;
+    enabled?: boolean;
+  },
+): { found: boolean; error?: string } {
+  const job = cronJobs.find((j) => j.name === name);
+  if (!job) return { found: false, error: "Job not found" };
+  if (job.source === "config") return { found: true, error: "Cannot edit config-based jobs. Modify settings.yaml instead." };
+
+  // Validate new schedule if provided
+  if (updates.schedule) {
+    try {
+      const test = new Cron(updates.schedule);
+      test.stop();
+    } catch {
+      return { found: true, error: `Invalid schedule: "${updates.schedule}"` };
+    }
+  }
+
+  // Apply updates
+  if (updates.schedule !== undefined) job.schedule = updates.schedule;
+  if (updates.timezone !== undefined) job.timezone = updates.timezone;
+  if (updates.channelId !== undefined) job.channelId = updates.channelId;
+  if (updates.type !== undefined) job.type = updates.type;
+  if (updates.message !== undefined) job.message = updates.message;
+  if (updates.prompt !== undefined) job.prompt = updates.prompt;
+  if (updates.enabled !== undefined) job.enabled = updates.enabled;
+
+  // Validate type/content consistency
+  if (job.type === "llm" && !job.prompt) return { found: true, error: 'Type "llm" requires a prompt' };
+  if (job.type === "static" && !job.message) return { found: true, error: 'Type "static" requires a message' };
+
+  // Re-schedule
+  job.instance?.stop();
+  job.instance = null;
+  job.nextRun = null;
+  if (job.enabled) scheduleJob(job);
+
+  savePersistedJobs();
+  console.log(`Cron [${job.name}]: updated runtime job`);
   return { found: true };
 }
 

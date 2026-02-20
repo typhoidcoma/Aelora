@@ -104,5 +104,25 @@ export function getSession(channelId: string): ChannelSession | null {
   return store[channelId] ?? null;
 }
 
+/**
+ * Delete a session by channel ID.
+ */
+export function deleteSession(channelId: string): boolean {
+  if (!store[channelId]) return false;
+  delete store[channelId];
+  save();
+  return true;
+}
+
+/**
+ * Delete all sessions.
+ */
+export function clearAllSessions(): number {
+  const count = Object.keys(store).length;
+  store = {};
+  save();
+  return count;
+}
+
 // Load from disk on module init
 load();

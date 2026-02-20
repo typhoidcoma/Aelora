@@ -367,7 +367,7 @@ async function runCompletionLoop(
     }
 
     // No tool calls — final text response
-    return content ?? "(no response)";
+    return content?.trim() || "(no response)";
   }
 
   console.warn(`LLM: hit max tool iterations (${maxIterations})`);

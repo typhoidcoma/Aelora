@@ -29,6 +29,7 @@
         <div class="section-header" data-section="sessions">
           <span class="chevron">&#9660;</span>
           <h2>Sessions</h2>
+          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All</button>
         </div>
         <div class="section-body" data-section="sessions">
           <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
@@ -112,7 +113,7 @@
               </div>
             </div>
             <div class="cron-form-actions">
-              <button class="btn btn-primary" onclick="submitCronJob()">Create</button>
+              <button class="btn btn-primary" id="cron-f-submit-btn" onclick="submitCronJob()">Create</button>
               <button class="btn" onclick="hideCronForm()">Cancel</button>
             </div>
           </div>

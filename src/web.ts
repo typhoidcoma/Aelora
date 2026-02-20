@@ -11,13 +11,14 @@ import { discordClient, botUserId } from "./discord.js";
 import {
   getCronJobsForAPI,
   createCronJob,
+  updateCronJob,
   toggleCronJob,
   triggerCronJob,
   deleteCronJob,
 } from "./cron.js";
 import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
-import { getAllSessions } from "./sessions.js";
+import { getAllSessions, deleteSession, clearAllSessions } from "./sessions.js";
 
 export type AppState = {
   config: Config;
@@ -133,6 +134,24 @@ export function startWeb(state: AppState): void {
     }
 
     res.json({ success: true });
+  });
+
+  // Update a runtime cron job
+  app.put("/api/cron/:name", (req, res) => {
+    const { name } = req.params;
+    const result = updateCronJob(name, req.body ?? {});
+
+    if (!result.found) {
+      res.status(404).json({ error: result.error ?? `Job "${name}" not found` });
+      return;
+    }
+
+    if (result.error) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+
+    res.json({ success: true, name });
   });
 
   // Sanitized config (no secrets)
@@ -339,6 +358,25 @@ export function startWeb(state: AppState): void {
   // Session analytics
   app.get("/api/sessions", (_req, res) => {
     res.json(getAllSessions());
+  });
+
+  // Delete a single session
+  app.delete("/api/sessions/:channelId", (req, res) => {
+    const { channelId } = req.params;
+    const found = deleteSession(channelId);
+
+    if (!found) {
+      res.status(404).json({ error: `Session "${channelId}" not found` });
+      return;
+    }
+
+    res.json({ success: true });
+  });
+
+  // Clear all sessions
+  app.delete("/api/sessions", (_req, res) => {
+    const count = clearAllSessions();
+    res.json({ success: true, deleted: count });
   });
 
   // Heartbeat status

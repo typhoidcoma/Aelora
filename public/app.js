@@ -126,11 +126,46 @@ async function fetchSessions() {
             </div>
             <div class="session-users">${userList}</div>
             <div class="session-time">Last active ${ago}</div>
+            <button class="btn btn-danger btn-xs" onclick="deleteSession('${esc(s.channelId)}')">&times;</button>
           </div>`;
       })
       .join("");
   } catch {
     /* ignore */
+  }
+}
+
+async function deleteSession(channelId) {
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(channelId)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Session deleted");
+      fetchSessions();
+    } else {
+      showToast(`Delete failed: ${data.error}`, "error");
+    }
+  } catch (err) {
+    showToast(`Delete error: ${err.message}`, "error");
+  }
+}
+
+async function clearAllSessions() {
+  if (!confirm("Clear all sessions?")) return;
+
+  try {
+    const res = await fetch("/api/sessions", { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Cleared ${data.deleted} session(s)`);
+      fetchSessions();
+    } else {
+      showToast("Clear failed", "error");
+    }
+  } catch (err) {
+    showToast(`Clear error: ${err.message}`, "error");
   }
 }
 
@@ -486,6 +521,7 @@ function esc(str) {
 }
 
 // --- Scheduled Tasks (Cron) ---
+let cronEditingName = null;
 
 async function fetchCron() {
   try {
@@ -510,6 +546,9 @@ async function fetchCron() {
         const lastRun = j.lastRun ? timeAgo(j.lastRun) : "--";
         const nextRun = j.nextRun ? timeAgo(j.nextRun) : "--";
 
+        const editBtn = j.source === "runtime"
+          ? ` <button class="btn btn-xs" onclick="editCronJob('${esc(j.name)}')">Edit</button>`
+          : "";
         const deleteBtn = j.source === "runtime"
           ? ` <button class="btn btn-danger btn-xs" onclick="deleteCronJob('${esc(j.name)}')">Delete</button>`
           : "";
@@ -526,7 +565,7 @@ async function fetchCron() {
             <td>
               <button class="btn btn-xs" onclick="toggleCronJob('${esc(j.name)}')">${j.enabled ? "Disable" : "Enable"}</button>
               <button class="btn btn-xs" onclick="triggerCronJob('${esc(j.name)}')">Run</button>
-              <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>${deleteBtn}
+              <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>${editBtn}${deleteBtn}
             </td>
           </tr>`;
       })
@@ -589,6 +628,41 @@ async function deleteCronJob(name) {
   }
 }
 
+async function editCronJob(name) {
+  try {
+    const res = await fetch("/api/cron");
+    const jobs = await res.json();
+    const job = jobs.find((j) => j.name === name);
+
+    if (!job) {
+      showToast(`Job "${name}" not found`, "error");
+      return;
+    }
+
+    cronEditingName = name;
+
+    // Populate form fields
+    document.getElementById("cron-f-name").value = job.name;
+    document.getElementById("cron-f-name").disabled = true;
+    document.getElementById("cron-f-schedule").value = job.schedule;
+    document.getElementById("cron-f-timezone").value = job.timezone || "";
+    document.getElementById("cron-f-channel").value = job.channelId;
+    document.getElementById("cron-f-type").value = job.type;
+    document.getElementById("cron-f-prompt").value = job.prompt || "";
+    document.getElementById("cron-f-message").value = job.message || "";
+    document.getElementById("cron-f-submit-btn").textContent = "Save";
+
+    // Set schedule builder to custom mode (show raw cron expression)
+    document.getElementById("cron-f-freq").value = "custom";
+    updateCronSchedule();
+    toggleCronFormFields();
+
+    document.getElementById("cron-form").style.display = "";
+  } catch (err) {
+    showToast(`Edit error: ${err.message}`, "error");
+  }
+}
+
 // --- Cron form ---
 
 function showCronForm() {
@@ -596,14 +670,17 @@ function showCronForm() {
 }
 
 function hideCronForm() {
+  cronEditingName = null;
   document.getElementById("cron-form").style.display = "none";
   document.getElementById("cron-f-name").value = "";
+  document.getElementById("cron-f-name").disabled = false;
   document.getElementById("cron-f-schedule").value = "";
   document.getElementById("cron-f-timezone").value = "";
   document.getElementById("cron-f-channel").value = "";
   document.getElementById("cron-f-type").value = "llm";
   document.getElementById("cron-f-prompt").value = "";
   document.getElementById("cron-f-message").value = "";
+  document.getElementById("cron-f-submit-btn").textContent = "Create";
   // Reset schedule builder
   document.getElementById("cron-f-freq").value = "daily";
   document.getElementById("cron-f-hour").value = "9";
@@ -666,6 +743,7 @@ function updateCronSchedule() {
 }
 
 async function submitCronJob() {
+  const isEdit = cronEditingName !== null;
   const body = {
     name: document.getElementById("cron-f-name").value.trim(),
     schedule: document.getElementById("cron-f-schedule").value.trim(),
@@ -680,28 +758,35 @@ async function submitCronJob() {
     body.message = document.getElementById("cron-f-message").value.trim();
   }
 
-  if (!body.name || !body.schedule || !body.channelId) {
+  if (!isEdit && (!body.name || !body.schedule || !body.channelId)) {
     showToast("Name, schedule, and channel ID are required", "error");
+    return;
+  }
+  if (isEdit && (!body.schedule || !body.channelId)) {
+    showToast("Schedule and channel ID are required", "error");
     return;
   }
 
   try {
-    const res = await fetch("/api/cron", {
-      method: "POST",
+    const url = isEdit
+      ? `/api/cron/${encodeURIComponent(cronEditingName)}`
+      : "/api/cron";
+    const res = await fetch(url, {
+      method: isEdit ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const data = await res.json();
 
     if (data.success) {
-      showToast(`Task "${body.name}" created`);
+      showToast(`Task "${isEdit ? cronEditingName : body.name}" ${isEdit ? "updated" : "created"}`);
       hideCronForm();
       fetchCron();
     } else {
-      showToast(`Create failed: ${data.error}`, "error");
+      showToast(`${isEdit ? "Update" : "Create"} failed: ${data.error}`, "error");
     }
   } catch (err) {
-    showToast(`Create error: ${err.message}`, "error");
+    showToast(`${isEdit ? "Update" : "Create"} error: ${err.message}`, "error");
   }
 }
 

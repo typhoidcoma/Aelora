@@ -41,13 +41,19 @@ Technical reference for the Aelora bot. Covers every system, how they connect, a
                      │  data/*.json                  │
                      └───────────────────────────────┘
 
-  ┌────────────┐    ┌────────────┐    ┌────────────────────┐
-  │  cron.ts   │    │ heartbeat  │    │      web.ts        │
-  │  Scheduled │    │  Periodic  │    │  REST API + SSE    │
-  │  messages  │    │  handlers  │    │  Dashboard UI      │
-  └──────┬─────┘    └─────┬──────┘    └──────┬─────────────┘
+  ┌────────────┐    ┌────────────┐    ┌─────────────────────┐
+  │  cron.ts   │    │ heartbeat  │    │       web.ts        │
+  │  Scheduled │    │  Periodic  │    │  REST API + SSE     │
+  │  messages  │    │  handlers  │    │  Dashboard + Activity│
+  └──────┬─────┘    └─────┬──────┘    └──────┬──────────────┘
          │                │                  │
          └───── sendToChannel / getLLMOneShot ┘
+
+  ┌───────────────────────────────────────────────────────┐
+  │              Discord Activity (optional)              │
+  │  activity/index.html → SDK + OAuth2 + Unity WebGL    │
+  │  /.proxy/ routing │ token exchange │ bridge API       │
+  └───────────────────────────────────────────────────────┘
 ```
 
 ## Startup Sequence
@@ -111,6 +117,7 @@ Graceful shutdown on SIGINT: stops heartbeat, stops cron, exits.
    /clear            → clearHistory(channelId) → buildSuccessEmbed()
    /websearch [query]→ executeTool("brave-search") → buildResponseEmbed()
    /reboot           → reply embed → setTimeout(500ms) → reboot()
+   /play             → embed + Link button → discord.com/activities/{appId}
 ```
 
 Chat messages respond with **streaming plain text**. Slash commands respond with **rich embeds**.
@@ -142,7 +149,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 ## System Status
 - Bot: Aelora (Aelora#1234)
 - Discord: connected, 1 guild(s)
-- Model: gpt-5-mini-2025-08-07
+- Model: gpt-5.1-chat-latest
 - Uptime: 2h 15m
 - Heartbeat: running, 1 handler(s)
 - Cron: 2 active job(s)
@@ -202,7 +209,7 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### How It Works
 
-1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/default/`)
+1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/aelora/`)
 2. Each file's YAML frontmatter is parsed for metadata:
    - `order` (number) — sort priority (lower = earlier in prompt)
    - `enabled` (boolean) — whether to include in composed prompt
@@ -216,7 +223,7 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### Personas — Character Entities
 
-Each persona is a **self-contained character** — a directory under `persona/` with its own identity, personality, bootstrap rules, skills, and tools. The active persona is controlled by `persona.activePersona` in `settings.yaml` (default: `"default"`). Only the active persona's directory is loaded — all other persona directories are ignored.
+Each persona is a **self-contained character** — a directory under `persona/` with its own identity, personality, bootstrap rules, skills, and tools. The active persona is controlled by `persona.activePersona` in `settings.yaml` (default: `"aelora"`). Only the active persona's directory is loaded — all other persona directories are ignored.
 
 Each persona directory contains:
 
@@ -227,17 +234,17 @@ Each persona directory contains:
 - `tools.md` — tool/agent usage instructions
 - `skills.md` — the character's specialized skills and competencies
 
-### Current File Inventory (default persona)
+### Current File Inventory (aelora persona)
 
 | Order | File | Section | Enabled |
 |-------|------|---------|---------|
-| 5 | `default/bootstrap.md` | bootstrap | yes |
-| 10 | `default/identity.md` | identity | yes |
-| 20 | `default/soul.md` | soul | yes |
-| 50 | `default/skills.md` | skill | yes |
-| 80 | `default/tools.md` | tools | yes |
-| 90 | `default/persona.md` | persona | yes |
-| 200 | `default/templates/user.md` | template | no |
+| 5 | `aelora/bootstrap.md` | bootstrap | yes |
+| 10 | `aelora/identity.md` | identity | yes |
+| 20 | `aelora/soul.md` | soul | yes |
+| 50 | `aelora/skills.md` | skill | yes |
+| 80 | `aelora/tools.md` | tools | yes |
+| 90 | `aelora/persona.md` | persona | yes |
+| 200 | `aelora/templates/user.md` | template | no |
 
 ### Hot Reload
 
@@ -476,12 +483,13 @@ Each job maintains `CronJobState`: name, schedule, last run, next run, last erro
 
 - Creates a `Client` with intents: Guilds, GuildMessages, MessageContent, DirectMessages
 - On ready: sets bot status, registers slash commands (guild-scoped if `guildId` set, otherwise global)
+- Preserves Discord-managed commands (e.g. Activity Entry Point) during bulk registration by fetching existing non-slash commands and including them in the update
 - Message routing filters: ignores bots, respects `allowedChannels`, `guildMode`, `allowDMs`
 - Exports `discordClient`, `botUserId`, `startDiscord()`, `sendToChannel()`
 
 ### commands.ts
 
-Six slash commands, registered on startup:
+Seven slash commands, registered on startup:
 
 | Command | Description |
 |---------|-------------|
@@ -491,6 +499,7 @@ Six slash commands, registered on startup:
 | `/clear` | Clear conversation history for this channel |
 | `/websearch [query]` | Search the web via Brave Search |
 | `/reboot` | Graceful restart |
+| `/play` | Launch the Discord Activity (embed with Link button) |
 
 ### attachments.ts
 
@@ -555,10 +564,22 @@ Express 5 server serving the dashboard frontend and REST API.
 | `GET` | `/api/logs` | Recent 200 log entries |
 | `GET` | `/api/logs/stream` | SSE live log stream |
 | `POST` | `/api/reboot` | Trigger graceful reboot |
+| `GET` | `/api/activity/config` | Activity client ID (no secret exposed) |
+| `POST` | `/api/activity/token` | OAuth2 code→token exchange for Activity SDK |
+
+### Routing
+
+When `activity.enabled` is true:
+- `/` serves `activity/index.html` with injected config (clientId, serverUrl) — this is what Discord's Activity iframe loads
+- `/dashboard` serves the web dashboard (`public/index.html`)
+- `/activity/*` serves Unity build files with CORS headers and gzip `Content-Encoding` for `.gz` files
+
+When `activity.enabled` is false:
+- `/` serves the web dashboard normally
 
 ### Frontend
 
-Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API.
+Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. Includes an **Activity Preview** panel that loads the Unity WebGL test page in an iframe (uses stub Discord data).
 
 ---
 
@@ -595,6 +616,12 @@ type Config = {
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
   tools: Record<string, Record<string, unknown>>;  // Free-form per-tool config
+  activity: {
+    enabled: boolean;           // Default: false
+    clientId: string;           // Discord Application ID
+    clientSecret: string;       // OAuth2 Client Secret
+    serverUrl: string;          // Optional direct server URL
+  };
 };
 ```
 
@@ -642,6 +669,71 @@ type Config = {
 
 ---
 
+## Discord Activity System
+
+**Files:** [activity/index.html](activity/index.html), [activity/test.html](activity/test.html), [src/web.ts](src/web.ts) (activity routes)
+
+### Overview
+
+Discord Activities are interactive web apps that run inside Discord voice channels via an iframe. Aelora can host a Unity WebGL build (or any web app) as an Activity.
+
+### Architecture
+
+```
+Discord voice channel
+  └→ Activity iframe loads https://your-app/.proxy/
+       └→ Express serves activity/index.html (with injected clientId)
+            ├→ Discord SDK init (DiscordSDK from esm.sh CDN)
+            ├→ OAuth2: authorize() → POST /.proxy/api/activity/token → authenticate()
+            ├→ Unity WebGL loader (Build/*.gz files via /.proxy/activity/)
+            └→ window.discordBridge (Unity ↔ JavaScript interop)
+```
+
+All requests from the Activity iframe go through Discord's `/.proxy/` prefix, which maps to the server URL configured in the Developer Portal's URL Mappings.
+
+### Server-Side Components
+
+**Root handler** (`GET /`): When Activity is enabled, serves `activity/index.html` with server-side template injection. Replaces `<!-- __ACTIVITY_CONFIG__ -->` with a `<script>` tag containing `window.__ACTIVITY_CONFIG__ = { clientId, serverUrl }`.
+
+**Static file serving** (`/activity/*`): Serves Unity build files with:
+- CORS headers (`Access-Control-Allow-Origin: *`)
+- Gzip `Content-Encoding` for `.wasm.gz`, `.js.gz`, `.data.gz` files
+- Appropriate `Content-Type` headers
+
+**Token exchange** (`POST /api/activity/token`): Receives an OAuth2 authorization code from the client, exchanges it with Discord's API using the client secret, and returns the access token.
+
+### Client-Side (activity/index.html)
+
+1. **Discord SDK**: Imported from `https://esm.sh/@discord/embedded-app-sdk@2` (no npm install needed)
+2. **Config injection**: Reads `window.__ACTIVITY_CONFIG__` (set by server), falls back to fetching `/.proxy/api/activity/config`
+3. **OAuth2 flow**: `sdk.commands.authorize()` → token exchange via backend → `sdk.commands.authenticate()`
+4. **Unity loader**: Dynamically loads `Builds.loader.js`, then calls `createUnityInstance()` with gzip-compressed build files
+5. **Discord bridge**: Exposes `window.discordBridge` with `getUser()` and `getContext()` for Unity C# interop
+6. **Ready notification**: Sends `OnDiscordReady` to Unity's `DiscordManager` game object once both SDK and Unity are initialized
+
+### Test Page (activity/test.html)
+
+A standalone page that loads Unity without the Discord SDK — uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
+
+### Unity Build Files
+
+Build files go in `activity/Build/`. The server expects gzip-compressed versions for large files:
+
+| File | Purpose |
+|------|---------|
+| `Builds.loader.js` | Unity loader script (~39KB, not compressed) |
+| `Builds.data.gz` | Game data (gzip compressed) |
+| `Builds.framework.js.gz` | Unity framework (gzip compressed) |
+| `Builds.wasm.gz` | WebAssembly binary (gzip compressed) |
+
+Compress with `gzip -k -9 Builds.data Builds.framework.js Builds.wasm` after each Unity build.
+
+### Entry Point Command
+
+Discord auto-creates an Entry Point command for applications with Activities enabled. The bot's command registration in [src/discord/client.ts](src/discord/client.ts) preserves these by fetching existing commands, filtering non-slash commands (`type !== 1`), and including them in the bulk `commands.set()` call.
+
+---
+
 ## Extension Guide
 
 ### Adding a Tool
@@ -668,7 +760,7 @@ type Config = {
 
 ### Adding a Persona File
 
-1. Create a `.md` file inside the target persona's directory (e.g. `persona/default/my-file.md`)
+1. Create a `.md` file inside the target persona's directory (e.g. `persona/aelora/my-file.md`)
 2. Add YAML frontmatter: `order`, `enabled`, `label`, `section`
 3. Hot-reload from dashboard or restart the bot
 4. File content is injected into the system prompt at the specified order position

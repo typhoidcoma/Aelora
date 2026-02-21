@@ -66,7 +66,7 @@ persona:
   enabled: true
   dir: "persona"          # Path to persona directory (relative to project root)
   botName: "Aelora"       # Used for {{botName}} substitution in persona files
-  activePersona: "default"   # Which persona folder to load (default, storyteller, worldbuilder, wendy)
+  activePersona: "aelora"    # Which persona folder to load (e.g. aelora, wendy, batperson)
 
 # --- Tool Configuration ---
 # API keys and secrets for tools that need them.

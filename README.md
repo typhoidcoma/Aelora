@@ -18,7 +18,8 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, runtime CRUD
 - **Sessions** — Conversation session tracking with metadata, persisted to disk
 - **Heartbeat** — Periodic handler system for proactive actions (e.g. calendar reminders)
-- **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing
+- **Discord Activity** — Host a Unity WebGL build (or any web app) as an embedded Discord Activity with OAuth2, SDK integration, and a `/play` command
+- **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, Activity preview
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
 
 ## Quick Start
@@ -63,12 +64,13 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 |---|---|
 | `discord` | Bot token, response mode (mention/all), allowed channels, DMs, status |
 | `llm` | API endpoint, model, max tokens, conversation history length |
-| `persona` | Personality system toggle, directory, bot name, active mode |
+| `persona` | Personality system toggle, directory, bot name, active persona |
 | `tools` | Per-tool config (API keys, CalDAV credentials, etc.) |
 | `agents` | Agent system toggle, max iterations |
 | `cron` | Scheduled jobs (static messages or LLM-generated) |
 | `heartbeat` | Periodic handler system interval |
 | `web` | Dashboard toggle and port |
+| `activity` | Discord Activity toggle, client ID/secret, server URL |
 
 ## Persona System
 
@@ -97,21 +99,19 @@ Each persona is a **self-contained character** — a distinct named entity with 
 
 ```
 persona/
-├── default/
-│   ├── persona.md            — Default persona manifest (order 90, botName: "Aelora")
+├── aelora/
+│   ├── persona.md            — Persona manifest (order 90, botName: "Aelora")
 │   ├── bootstrap.md          — Response format, behavioral rules (order 5)
 │   ├── identity.md           — Character identity & backstory (order 10)
 │   ├── soul.md               — Behavioral core (order 20)
-│   ├── skills.md              — Character skills & competencies (order 50)
+│   ├── skills.md             — Character skills & competencies (order 50)
 │   ├── tools.md              — Tool/agent usage instructions (order 80)
 │   └── templates/
 │       └── user.md           — Per-user preferences (disabled, placeholder)
-├── storyteller/
-│   └── (same structure — narrative-focused persona)
-├── worldbuilder/
-│   └── (same structure — lore-building persona)
-└── wendy/
-    └── (same structure — separate character, botName: "Wendy")
+├── wendy/
+│   └── (same structure — separate character, botName: "Wendy")
+└── batperson/
+    └── (same structure — separate character, botName: "Batperson")
 ```
 
 ## Tools & Agents
@@ -160,9 +160,53 @@ export default agent;
 
 For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Discord Activity
+
+Host a Unity WebGL build (or any web app) as an embedded [Discord Activity](https://discord.com/developers/docs/activities/overview) — a full-screen interactive app that runs inside Discord voice channels.
+
+### Setup
+
+1. Enable **Activities** in the [Discord Developer Portal](https://discord.com/developers/applications) for your application
+2. Under **Activities > URL Mappings**, add a prefix mapping: `/` → your server URL (e.g. a Tailscale Funnel or cloudflared tunnel)
+3. Copy your **Application ID** and **OAuth2 Client Secret** to `settings.yaml`:
+
+```yaml
+activity:
+  enabled: true
+  clientId: "YOUR_APPLICATION_ID"
+  clientSecret: "YOUR_CLIENT_SECRET"
+  serverUrl: "https://your-tunnel.example.com"  # optional, for direct file loading
+```
+
+4. Place your Unity WebGL build files in the `activity/Build/` directory
+5. Use `/play` in Discord to launch the Activity from a voice channel
+
+### How It Works
+
+```
+Discord Activity iframe → activity/index.html (wrapper)
+  ↓ Discord SDK init + OAuth2 handshake
+  ↓ POST /.proxy/api/activity/token → Express (code→token exchange)
+  ↓ Loads Unity WebGL build from /.proxy/activity/Build/*
+  ↓ Bridge: window.discordBridge ↔ Unity SendMessage()
+```
+
+The wrapper page handles the full Discord SDK lifecycle (init, authorize, authenticate), loads Unity, and exposes a `window.discordBridge` object for Unity C# ↔ JavaScript interop. All requests from inside the Activity iframe go through Discord's `/.proxy/` prefix.
+
+Pre-compressed (gzip) build files are served with appropriate `Content-Encoding` headers for efficient loading through Discord's proxy.
+
+### Unity ↔ Discord Bridge
+
+Unity C# scripts can call into JavaScript via a `.jslib` plugin:
+
+- `discordBridge.getUser()` → JSON with Discord user info (id, username, globalName, avatar)
+- `discordBridge.getContext()` → JSON with guildId, channelId, instanceId
+
+Once both the SDK and Unity are ready, the wrapper sends `OnDiscordReady` to Unity via `SendMessage("DiscordManager", "OnDiscordReady", jsonData)`.
+
 ## Web Dashboard
 
-Access at `http://localhost:3000` (configurable via `web.port`).
+Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`.
 
 - **Status** — Discord connection, uptime, guild count
 - **Persona** — Character persona switching (card grid), file editor, botName, prompt size, hot-reload
@@ -172,6 +216,7 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 - **Cron** — Create, edit, delete, trigger, toggle jobs; schedules, last/next run, errors
 - **Heartbeat** — Tick count, handler list
 - **LLM Test** — Send test prompts with streaming output
+- **Activity Preview** — Test Unity WebGL build locally without Discord (stub user data)
 - **Console** — Live log stream via SSE
 
 ## Project Structure
@@ -197,7 +242,7 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
 │   │   ├── client.ts         — Discord.js client, message routing, streaming
-│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /reboot)
+│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /reboot, /play)
 │   │   ├── attachments.ts    — Image vision + text file processing
 │   │   └── embeds.ts         — Embed builders
 │   ├── tools/
@@ -211,6 +256,10 @@ Access at `http://localhost:3000` (configurable via `web.port`).
 │   │   └── _example-gmail.ts — Example tool template (skipped on load)
 │   └── agents/
 │       └── types.ts          — Agent type definitions
+├── activity/                 — Discord Activity wrapper + Unity WebGL build
+│   ├── index.html            — Discord SDK + OAuth2 + Unity loader
+│   ├── test.html             — Local test page (no Discord SDK)
+│   └── Build/                — Unity WebGL build files (.gz compressed)
 ├── persona/                  — Personality files (see Persona System above)
 ├── public/                   — Web dashboard frontend
 │   ├── index.html

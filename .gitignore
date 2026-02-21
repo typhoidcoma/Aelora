@@ -7,3 +7,4 @@ data/
 .claude/
 *.log
 .DS_Store
+activity/Build/

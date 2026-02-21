@@ -56,6 +56,7 @@ export type Config = {
     enabled: boolean;
     clientId: string;
     clientSecret: string;
+    serverUrl: string;
   };
 };
 
@@ -136,6 +137,7 @@ export function loadConfig(path = "settings.yaml"): Config {
       enabled: parsed.activity?.enabled ?? false,
       clientId: parsed.activity?.clientId ?? "",
       clientSecret: parsed.activity?.clientSecret ?? "",
+      serverUrl: parsed.activity?.serverUrl ?? "",
     },
   };
 }

@@ -32,6 +32,7 @@
   </style>
 </head>
 <body>
+  <!-- __ACTIVITY_CONFIG__ -->
   <div id="loading">
     <div class="spinner"></div>
     <div class="status" id="status-text">Connecting to Discord...</div>
@@ -64,16 +65,18 @@
     async function initDiscord() {
       setStatus("Initializing Discord SDK...");
 
-      // Fetch client ID from our server (avoids hardcoding)
-      let clientId;
-      try {
-        const resp = await fetch("/.proxy/api/activity/config");
-        if (resp.ok) {
-          const data = await resp.json();
-          clientId = data.clientId;
+      // Get client ID from injected config (set by server) or fetch as fallback
+      let clientId = window.__ACTIVITY_CONFIG__?.clientId;
+      if (!clientId) {
+        try {
+          const resp = await fetch("/.proxy/api/activity/config");
+          if (resp.ok) {
+            const data = await resp.json();
+            clientId = data.clientId;
+          }
+        } catch (e) {
+          console.warn("Activity: could not fetch config", e);
         }
-      } catch (e) {
-        console.warn("Activity: could not fetch config", e);
       }
 
       if (!clientId) {
@@ -130,9 +133,12 @@
     async function loadUnity() {
       setStatus("Loading game...");
 
+      // All files go through /.proxy/ (gzip-compressed, small enough for Discord proxy)
+      const base = "/.proxy";
+
       // Load the Unity loader script
       const loaderScript = document.createElement("script");
-      loaderScript.src = "/.proxy/activity/Build/Builds.loader.js";
+      loaderScript.src = `${base}/activity/Build/Builds.loader.js`;
 
       await new Promise((resolve, reject) => {
         loaderScript.onload = resolve;
@@ -146,11 +152,12 @@
 
       const canvas = document.getElementById("unity-canvas");
 
+      // Gzip-compressed files (.data.gz ~8.5MB, .wasm.gz ~15MB)
       unityInstance = await createUnityInstance(canvas, {
-        dataUrl:            "/.proxy/activity/Build/Builds.data",
-        frameworkUrl:       "/.proxy/activity/Build/Builds.framework.js",
-        codeUrl:            "/.proxy/activity/Build/Builds.wasm",
-        streamingAssetsUrl: "/.proxy/activity/StreamingAssets",
+        dataUrl:            `${base}/activity/Build/Builds.data.gz`,
+        frameworkUrl:       `${base}/activity/Build/Builds.framework.js.gz`,
+        codeUrl:            `${base}/activity/Build/Builds.wasm.gz`,
+        streamingAssetsUrl: `${base}/activity/StreamingAssets`,
         companyName:        "Aeveon",
         productName:        "AeloraActivity",
         productVersion:     "1.0",

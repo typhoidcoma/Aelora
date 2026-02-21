@@ -51,7 +51,32 @@ export function startWeb(state: AppState): void {
   const publicDir = path.join(__dirname, "..", "public");
 
   app.use(express.json());
+
+  // If activity enabled, serve activity page at root (Discord Activity iframe loads /)
+  if (config.activity.enabled) {
+    const activityDir = path.join(__dirname, "..", "activity");
+    app.get("/", async (_req, res) => {
+      // Inject clientId into the HTML so the Activity doesn't need a separate fetch
+      const { readFile } = await import("node:fs/promises");
+      try {
+        let html = await readFile(path.join(activityDir, "index.html"), "utf-8");
+        html = html.replace(
+          "<!-- __ACTIVITY_CONFIG__ -->",
+          `<script>window.__ACTIVITY_CONFIG__ = { clientId: "${config.activity.clientId}", serverUrl: "${config.activity.serverUrl ?? ""}" };</script>`,
+        );
+        res.type("html").send(html);
+      } catch {
+        res.sendFile(path.join(activityDir, "index.html"));
+      }
+    });
+  }
+
   app.use(express.static(publicDir));
+
+  // Dashboard accessible at /dashboard when activity takes over root
+  app.get("/dashboard", (_req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
 
   // Prevent browser caching on API routes
   app.use("/api", (_req, res, next) => {
@@ -601,8 +626,30 @@ export function startWeb(state: AppState): void {
   if (config.activity.enabled) {
     const activityDir = path.join(__dirname, "..", "activity");
 
-    // Serve Unity WebGL build and wrapper from /activity/
-    app.use("/activity", express.static(activityDir));
+    // Serve Unity WebGL build with CORS and gzip Content-Encoding for .gz files
+    app.use("/activity", (req, res, next) => {
+      res.set("Access-Control-Allow-Origin", "*");
+      res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.set("Access-Control-Allow-Headers", "Content-Type, Range");
+      if (req.method === "OPTIONS") {
+        res.sendStatus(204);
+        return;
+      }
+
+      // Set Content-Encoding for pre-compressed Unity build files
+      if (req.path.endsWith(".wasm.gz")) {
+        res.set("Content-Encoding", "gzip");
+        res.set("Content-Type", "application/wasm");
+      } else if (req.path.endsWith(".js.gz")) {
+        res.set("Content-Encoding", "gzip");
+        res.set("Content-Type", "application/javascript");
+      } else if (req.path.endsWith(".data.gz")) {
+        res.set("Content-Encoding", "gzip");
+        res.set("Content-Type", "application/octet-stream");
+      }
+
+      next();
+    }, express.static(activityDir));
 
     // Activity config (exposes clientId only, never the secret)
     app.get("/api/activity/config", (_req, res) => {

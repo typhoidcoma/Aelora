@@ -1173,6 +1173,18 @@ async function rebootBot() {
   }
 }
 
+// --- Activity Preview ---
+
+function loadActivityPreview() {
+  const btn = document.getElementById("activity-load-btn");
+  const wrap = document.getElementById("activity-frame-wrap");
+  const frame = document.getElementById("activity-frame");
+
+  btn.style.display = "none";
+  wrap.style.display = "";
+  frame.src = "/activity/test.html";
+}
+
 // --- Init ---
 fetchStatus();
 fetchConfig();

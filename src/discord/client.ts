@@ -61,9 +61,14 @@ export async function startDiscord(config: Config): Promise<Client> {
             console.warn(`Discord: guild ${config.discord.guildId} not found in cache — commands not registered`);
           }
         } else {
-          await readyClient.application.commands.set(commands);
+          // Fetch existing commands to preserve Discord-managed ones (e.g. Activity Entry Point)
+          const existing = await readyClient.application.commands.fetch();
+          const entryPoints = existing.filter((cmd) => cmd.type !== 1).map((cmd) => cmd.toJSON());
+
+          const allCommands = [...commands.map((c) => c.toJSON()), ...entryPoints] as Parameters<typeof readyClient.application.commands.set>[0];
+          await readyClient.application.commands.set(allCommands);
           console.log(
-            `Discord: registered ${commands.length} slash command(s) (global)`,
+            `Discord: registered ${commands.length} slash command(s) (global, preserved ${entryPoints.length} entry point(s))`,
           );
         }
       } catch (err) {

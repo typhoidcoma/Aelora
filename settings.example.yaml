@@ -113,3 +113,5 @@ activity:
   enabled: false
   clientId: "YOUR_APPLICATION_ID"
   clientSecret: "YOUR_CLIENT_SECRET"
+  # Direct URL to your server (bypasses Discord proxy for large Unity files)
+  # serverUrl: "https://your-tunnel.example.com"

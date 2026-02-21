@@ -1,6 +1,5 @@
 import { Cron } from "croner";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import type { Config, CronJobConfig } from "./config.js";
 import { getLLMOneShot } from "./llm.js";
 import { sendToChannel } from "./discord.js";
 
@@ -23,7 +22,6 @@ export type CronJobState = {
   message?: string;
   prompt?: string;
   enabled: boolean;
-  source: "config" | "runtime";
   lastRun: Date | null;
   nextRun: Date | null;
   lastError: string | null;
@@ -72,8 +70,8 @@ function savePersistedJobs(deletedName?: string): void {
   const existing = loadPersistedJobs();
   const merged = new Map(existing.map((j) => [j.name, j]));
 
-  // Update/add from in-memory runtime jobs
-  for (const j of cronJobs.filter((j) => j.source === "runtime")) {
+  // Update/add from in-memory jobs
+  for (const j of cronJobs) {
     merged.set(j.name, {
       name: j.name,
       schedule: j.schedule,
@@ -155,7 +153,7 @@ async function executeJob(state: CronJobState): Promise<{ success: boolean; outp
     state.history = state.history.slice(-MAX_HISTORY);
   }
 
-  if (state.source === "runtime") savePersistedJobs();
+  savePersistedJobs();
 
   return { success, output: output.slice(0, OUTPUT_PREVIEW_LENGTH) };
 }
@@ -178,46 +176,10 @@ async function resolveCronPayload(
 
 // --- Startup ---
 
-export function startCron(config: Config): void {
-  // 1. Config-based jobs
-  for (const job of config.cron.jobs) {
-    const state: CronJobState = {
-      name: job.name,
-      schedule: job.schedule,
-      timezone: job.timezone,
-      channelId: job.channelId,
-      type: job.type,
-      message: job.message,
-      prompt: job.prompt,
-      enabled: job.enabled,
-      source: "config",
-      lastRun: null,
-      nextRun: null,
-      lastError: null,
-      history: [],
-      instance: null,
-    };
-
-    scheduleJob(state);
-    cronJobs.push(state);
-
-    if (state.enabled) {
-      console.log(
-        `Cron [${state.name}]: scheduled "${state.schedule}" -> ${state.channelId} (next: ${state.nextRun?.toISOString() ?? "none"})`,
-      );
-    }
-  }
-
-  // 2. Runtime-persisted jobs
+export function startCron(): void {
   const persisted = loadPersistedJobs();
-  const configNames = new Set(config.cron.jobs.map((j) => j.name));
 
   for (const job of persisted) {
-    if (configNames.has(job.name)) {
-      console.warn(`Cron: runtime job "${job.name}" skipped (name conflict with config job)`);
-      continue;
-    }
-
     const state: CronJobState = {
       name: job.name,
       schedule: job.schedule,
@@ -227,7 +189,6 @@ export function startCron(config: Config): void {
       message: job.message,
       prompt: job.prompt,
       enabled: job.enabled,
-      source: "runtime",
       lastRun: null,
       nextRun: null,
       lastError: null,
@@ -240,7 +201,7 @@ export function startCron(config: Config): void {
 
     if (state.enabled) {
       console.log(
-        `Cron [${state.name}]: restored runtime job "${state.schedule}" -> ${state.channelId}`,
+        `Cron [${state.name}]: scheduled "${state.schedule}" -> ${state.channelId} (next: ${state.nextRun?.toISOString() ?? "none"})`,
       );
     }
   }
@@ -298,7 +259,6 @@ export function createCronJob(params: {
     message: params.message,
     prompt: params.prompt,
     enabled: params.enabled ?? true,
-    source: "runtime",
     lastRun: null,
     nextRun: null,
     lastError: null,
@@ -328,7 +288,7 @@ export function toggleCronJob(name: string): { found: boolean; enabled: boolean 
     job.nextRun = null;
   }
 
-  if (job.source === "runtime") savePersistedJobs();
+  savePersistedJobs();
 
   console.log(`Cron [${job.name}]: ${job.enabled ? "enabled" : "disabled"}`);
   return { found: true, enabled: job.enabled };
@@ -354,10 +314,6 @@ export function deleteCronJob(name: string): { found: boolean; error?: string } 
 
   const job = cronJobs[idx];
 
-  if (job.source === "config") {
-    return { found: true, error: "Cannot delete config-based jobs. Disable them in settings.yaml." };
-  }
-
   job.instance?.stop();
   cronJobs.splice(idx, 1);
   savePersistedJobs(name);
@@ -380,7 +336,6 @@ export function updateCronJob(
 ): { found: boolean; error?: string } {
   const job = cronJobs.find((j) => j.name === name);
   if (!job) return { found: false, error: "Job not found" };
-  if (job.source === "config") return { found: true, error: "Cannot edit config-based jobs. Modify settings.yaml instead." };
 
   // Validate new schedule if provided
   if (updates.schedule) {
@@ -428,7 +383,6 @@ export function getCronJobsForAPI() {
     message: j.message ?? null,
     prompt: j.prompt ?? null,
     enabled: j.enabled,
-    source: j.source,
     lastRun: j.lastRun?.toISOString() ?? null,
     nextRun: j.nextRun?.toISOString() ?? null,
     lastError: j.lastError,

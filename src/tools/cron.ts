@@ -65,7 +65,7 @@ export default defineTool({
           const last = j.lastRun ? `last: ${j.lastRun}` : "never run";
           return (
             `**${j.name}** (${status})\n` +
-            `  Schedule: \`${j.schedule}\` | Type: ${j.type} | Source: ${j.source}\n` +
+            `  Schedule: \`${j.schedule}\` | Type: ${j.type}\n` +
             `  Channel: ${j.channelId} | ${next} | ${last}` +
             (j.lastError ? `\n  Last error: ${j.lastError}` : "")
           );

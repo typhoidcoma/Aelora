@@ -39,25 +39,6 @@ llm:
   # How many previous messages to keep in conversation history per channel
   maxHistory: 20
 
-# --- Cron Jobs ---
-cron:
-  jobs:
-    - name: "Good morning"
-      schedule: "0 9 * * *"
-      timezone: "America/New_York"
-      channelId: "DISCORD_CHANNEL_ID"
-      type: "static"
-      message: "Good morning everyone! Have a great day."
-      enabled: true
-
-    - name: "Daily wisdom"
-      schedule: "0 12 * * *"
-      timezone: "America/New_York"
-      channelId: "DISCORD_CHANNEL_ID"
-      type: "llm"
-      prompt: "Generate a short, interesting piece of wisdom or trivia. Keep it under 200 words."
-      enabled: true
-
 # --- Persona ---
 # The persona system composes the bot's system prompt from markdown files in a directory.
 # Each file has YAML frontmatter (order, enabled, label, section) and markdown content.

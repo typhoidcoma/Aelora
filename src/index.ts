@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   await startDiscord(config);
 
   // 7. Start cron scheduler
-  startCron(config);
+  startCron();
 
   // 8. Start heartbeat
   if (config.heartbeat.enabled) {

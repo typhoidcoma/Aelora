@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { getLLMOneShot } from "./llm.js";
 import { sendToChannel } from "./discord.js";
 
@@ -13,7 +13,7 @@ export type CronExecutionRecord = {
   error: string | null;
 };
 
-export type CronJobState = {
+export type PersistedCronJob = {
   name: string;
   schedule: string;
   timezone?: string;
@@ -22,122 +22,159 @@ export type CronJobState = {
   message?: string;
   prompt?: string;
   enabled: boolean;
-  lastRun: Date | null;
-  nextRun: Date | null;
-  lastError: string | null;
   history: CronExecutionRecord[];
-  instance: Cron | null;
 };
 
-type PersistedCronJob = {
+export type CronJobInfo = {
   name: string;
   schedule: string;
-  timezone?: string;
+  timezone: string | null;
   channelId: string;
   type: "static" | "llm";
-  message?: string;
-  prompt?: string;
+  message: string | null;
+  prompt: string | null;
   enabled: boolean;
+  lastRun: string | null;
+  nextRun: string | null;
+  lastError: string | null;
   history: CronExecutionRecord[];
 };
 
 // --- Constants ---
 
 const CRON_JOBS_FILE = "data/cron-jobs.json";
+const CRON_JOBS_TMP = "data/cron-jobs.tmp.json";
 const MAX_HISTORY = 10;
 const OUTPUT_PREVIEW_LENGTH = 300;
 
 // --- State ---
+// The ONLY module-level mutable state. Not exported.
+// Maps job name -> live Cron instance + schedule metadata for change detection.
 
-export const cronJobs: CronJobState[] = [];
+type SchedulerEntry = {
+  cron: Cron;
+  schedule: string;
+  timezone: string | undefined;
+};
 
-// --- Persistence ---
+const schedulers = new Map<string, SchedulerEntry>();
 
-function loadPersistedJobs(): PersistedCronJob[] {
+// --- File I/O ---
+
+function loadJobs(): PersistedCronJob[] {
   try {
     if (existsSync(CRON_JOBS_FILE)) {
       return JSON.parse(readFileSync(CRON_JOBS_FILE, "utf-8"));
     }
   } catch {
-    console.warn("Cron: failed to read persisted jobs, starting fresh");
+    console.warn("Cron: failed to read jobs file, starting fresh");
   }
   return [];
 }
 
-function savePersistedJobs(deletedName?: string): void {
-  // Merge with existing file to prevent data loss if the in-memory array
-  // is incomplete (can happen on Windows due to ESM module duplication).
-  const existing = loadPersistedJobs();
-  const merged = new Map(existing.map((j) => [j.name, j]));
-
-  // Update/add from in-memory jobs
-  for (const j of cronJobs) {
-    merged.set(j.name, {
-      name: j.name,
-      schedule: j.schedule,
-      timezone: j.timezone,
-      channelId: j.channelId,
-      type: j.type,
-      message: j.message,
-      prompt: j.prompt,
-      enabled: j.enabled,
-      history: j.history,
-    });
-  }
-
-  // Remove explicitly deleted job
-  if (deletedName) {
-    merged.delete(deletedName);
-  }
-
-  const toSave = [...merged.values()];
-
+function saveJobs(jobs: PersistedCronJob[]): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
-    writeFileSync(CRON_JOBS_FILE, JSON.stringify(toSave, null, 2), "utf-8");
+    writeFileSync(CRON_JOBS_TMP, JSON.stringify(jobs, null, 2), "utf-8");
+    renameSync(CRON_JOBS_TMP, CRON_JOBS_FILE);
   } catch (err) {
-    console.error("Cron: failed to save runtime jobs:", err);
+    console.error("Cron: failed to save jobs:", err);
   }
 }
 
-// --- Scheduling ---
+// --- Scheduler management ---
 
-function scheduleJob(state: CronJobState): void {
-  if (!state.enabled || !state.schedule) return;
+function createScheduler(job: PersistedCronJob): void {
+  const jobName = job.name; // capture name, not the object
 
   const cron = new Cron(
-    state.schedule,
-    { timezone: state.timezone },
+    job.schedule,
+    { timezone: job.timezone },
     async () => {
-      await executeJob(state);
-      state.nextRun = cron.nextRun() ?? null;
+      await executeJob(jobName);
     },
   );
 
-  state.instance = cron;
-  state.nextRun = cron.nextRun() ?? null;
+  schedulers.set(job.name, {
+    cron,
+    schedule: job.schedule,
+    timezone: job.timezone,
+  });
 }
 
-async function executeJob(state: CronJobState): Promise<{ success: boolean; output: string }> {
-  const startTime = Date.now();
-  state.lastRun = new Date();
-  state.lastError = null;
+function stopScheduler(name: string): void {
+  const entry = schedulers.get(name);
+  if (entry) {
+    entry.cron.stop();
+    schedulers.delete(name);
+  }
+}
 
+function syncSchedulers(jobs: PersistedCronJob[]): void {
+  const jobNames = new Set(jobs.map((j) => j.name));
+
+  // Stop schedulers for removed jobs
+  for (const name of schedulers.keys()) {
+    if (!jobNames.has(name)) {
+      stopScheduler(name);
+    }
+  }
+
+  // Start/restart/stop schedulers based on job state
+  for (const job of jobs) {
+    const existing = schedulers.get(job.name);
+
+    if (!job.enabled) {
+      if (existing) stopScheduler(job.name);
+      continue;
+    }
+
+    // Enabled job — check if scheduler needs creating or updating
+    if (existing && existing.schedule === job.schedule && existing.timezone === job.timezone) {
+      continue; // no change, leave running
+    }
+
+    // Stop old scheduler if schedule/timezone changed
+    if (existing) stopScheduler(job.name);
+
+    // Create new scheduler
+    try {
+      createScheduler(job);
+    } catch (err) {
+      console.error(`Cron [${job.name}]: failed to schedule "${job.schedule}":`, err);
+    }
+  }
+}
+
+// --- Job execution ---
+
+async function executeJob(name: string): Promise<{ success: boolean; output: string }> {
+  // Load latest job data from file
+  const jobs = loadJobs();
+  const job = jobs.find((j) => j.name === name);
+
+  if (!job) {
+    console.warn(`Cron [${name}]: job not found in file, skipping execution`);
+    return { success: false, output: "Job not found" };
+  }
+
+  const startTime = Date.now();
   let output = "";
   let success = true;
+  let error: string | null = null;
 
   try {
-    output = await resolveCronPayload(state);
+    output = await resolveCronPayload(job);
     if (!output.trim()) {
       throw new Error("LLM returned empty response — nothing to send");
     }
-    await sendToChannel(state.channelId, output);
-    console.log(`Cron [${state.name}]: sent to ${state.channelId}`);
+    await sendToChannel(job.channelId, output);
+    console.log(`Cron [${name}]: sent to ${job.channelId}`);
   } catch (err) {
-    state.lastError = String(err);
+    error = String(err);
     output = String(err);
     success = false;
-    console.error(`Cron [${state.name}] error:`, err);
+    console.error(`Cron [${name}] error:`, err);
   }
 
   const record: CronExecutionRecord = {
@@ -145,21 +182,26 @@ async function executeJob(state: CronJobState): Promise<{ success: boolean; outp
     success,
     durationMs: Date.now() - startTime,
     outputPreview: output.slice(0, OUTPUT_PREVIEW_LENGTH),
-    error: success ? null : state.lastError,
+    error,
   };
 
-  state.history.push(record);
-  if (state.history.length > MAX_HISTORY) {
-    state.history = state.history.slice(-MAX_HISTORY);
-  }
+  // Re-load file before saving history (another write may have happened during async execution)
+  const freshJobs = loadJobs();
+  const freshJob = freshJobs.find((j) => j.name === name);
 
-  savePersistedJobs();
+  if (freshJob) {
+    freshJob.history.push(record);
+    if (freshJob.history.length > MAX_HISTORY) {
+      freshJob.history = freshJob.history.slice(-MAX_HISTORY);
+    }
+    saveJobs(freshJobs);
+  }
 
   return { success, output: output.slice(0, OUTPUT_PREVIEW_LENGTH) };
 }
 
 async function resolveCronPayload(
-  job: Pick<CronJobState, "type" | "name" | "prompt" | "message">,
+  job: Pick<PersistedCronJob, "type" | "name" | "prompt" | "message">,
 ): Promise<string> {
   if (job.type === "llm") {
     if (!job.prompt) throw new Error(`Cron [${job.name}]: type is "llm" but no prompt defined`);
@@ -174,56 +216,64 @@ async function resolveCronPayload(
   return job.message;
 }
 
-// --- Startup ---
+// --- Startup / Shutdown ---
 
 export function startCron(): void {
-  const persisted = loadPersistedJobs();
+  const jobs = loadJobs();
+  syncSchedulers(jobs);
 
-  for (const job of persisted) {
-    const history = job.history ?? [];
-    const lastEntry = history.length > 0 ? history[history.length - 1] : null;
+  const total = jobs.length;
+  const enabled = jobs.filter((j) => j.enabled).length;
 
-    const state: CronJobState = {
-      name: job.name,
-      schedule: job.schedule,
-      timezone: job.timezone,
-      channelId: job.channelId,
-      type: job.type,
-      message: job.message,
-      prompt: job.prompt,
-      enabled: job.enabled,
-      lastRun: lastEntry ? new Date(lastEntry.timestamp) : null,
-      nextRun: null,
-      lastError: lastEntry?.error ?? null,
-      history,
-      instance: null,
-    };
-
-    scheduleJob(state);
-    cronJobs.push(state);
-
-    if (state.enabled) {
-      console.log(
-        `Cron [${state.name}]: scheduled "${state.schedule}" -> ${state.channelId} (next: ${state.nextRun?.toISOString() ?? "none"})`,
-      );
-    }
-  }
-
-  const total = cronJobs.length;
-  const enabled = cronJobs.filter((j) => j.enabled).length;
   if (total > 0) {
+    for (const job of jobs) {
+      if (job.enabled) {
+        const entry = schedulers.get(job.name);
+        const nextRun = entry?.cron.nextRun()?.toISOString() ?? "none";
+        console.log(
+          `Cron [${job.name}]: scheduled "${job.schedule}" -> ${job.channelId} (next: ${nextRun})`,
+        );
+      }
+    }
     console.log(`Cron: ${total} job(s) loaded, ${enabled} enabled`);
   }
 }
 
 export function stopCron(): void {
-  for (const state of cronJobs) {
-    state.instance?.stop();
+  for (const [, entry] of schedulers) {
+    entry.cron.stop();
   }
-  cronJobs.length = 0;
+  schedulers.clear();
 }
 
-// --- Runtime management ---
+// --- Public API ---
+
+export function getCronJobs(): CronJobInfo[] {
+  const jobs = loadJobs();
+  return jobs.map((j) => {
+    const lastEntry = j.history.length > 0 ? j.history[j.history.length - 1] : null;
+    const entry = schedulers.get(j.name);
+
+    return {
+      name: j.name,
+      schedule: j.schedule,
+      timezone: j.timezone ?? null,
+      channelId: j.channelId,
+      type: j.type,
+      message: j.message ?? null,
+      prompt: j.prompt ?? null,
+      enabled: j.enabled,
+      lastRun: lastEntry?.timestamp ?? null,
+      nextRun: entry?.cron.nextRun()?.toISOString() ?? null,
+      lastError: lastEntry?.error ?? null,
+      history: j.history,
+    };
+  });
+}
+
+export function getCronJobsForAPI(): CronJobInfo[] {
+  return getCronJobs();
+}
 
 export function createCronJob(params: {
   name: string;
@@ -235,7 +285,9 @@ export function createCronJob(params: {
   prompt?: string;
   enabled?: boolean;
 }): { success: boolean; error?: string } {
-  if (cronJobs.some((j) => j.name === params.name)) {
+  const jobs = loadJobs();
+
+  if (jobs.some((j) => j.name === params.name)) {
     return { success: false, error: `Job "${params.name}" already exists` };
   }
 
@@ -253,7 +305,7 @@ export function createCronJob(params: {
     return { success: false, error: 'Type "static" requires a message' };
   }
 
-  const state: CronJobState = {
+  const newJob: PersistedCronJob = {
     name: params.name,
     schedule: params.schedule,
     timezone: params.timezone,
@@ -262,66 +314,28 @@ export function createCronJob(params: {
     message: params.message,
     prompt: params.prompt,
     enabled: params.enabled ?? true,
-    lastRun: null,
-    nextRun: null,
-    lastError: null,
     history: [],
-    instance: null,
   };
 
-  scheduleJob(state);
-  cronJobs.push(state);
-  savePersistedJobs();
+  jobs.push(newJob);
+  saveJobs(jobs);
+  syncSchedulers(jobs);
 
-  console.log(`Cron [${state.name}]: created runtime job "${state.schedule}" -> ${state.channelId}`);
+  console.log(`Cron [${newJob.name}]: created "${newJob.schedule}" -> ${newJob.channelId}`);
   return { success: true };
 }
 
-export function toggleCronJob(name: string): { found: boolean; enabled: boolean } {
-  const job = cronJobs.find((j) => j.name === name);
-  if (!job) return { found: false, enabled: false };
-
-  job.enabled = !job.enabled;
-
-  if (job.enabled) {
-    scheduleJob(job);
-  } else {
-    job.instance?.stop();
-    job.instance = null;
-    job.nextRun = null;
-  }
-
-  savePersistedJobs();
-
-  console.log(`Cron [${job.name}]: ${job.enabled ? "enabled" : "disabled"}`);
-  return { found: true, enabled: job.enabled };
-}
-
-export async function triggerCronJob(
-  name: string,
-): Promise<{ found: boolean; error?: string; output?: string }> {
-  const job = cronJobs.find((j) => j.name === name);
-  if (!job) return { found: false, error: "Job not found" };
-
-  const result = await executeJob(job);
-
-  if (result.success) {
-    return { found: true, output: result.output };
-  }
-  return { found: true, error: job.lastError ?? "Unknown error" };
-}
-
 export function deleteCronJob(name: string): { found: boolean; error?: string } {
-  const idx = cronJobs.findIndex((j) => j.name === name);
+  const jobs = loadJobs();
+  const idx = jobs.findIndex((j) => j.name === name);
+
   if (idx === -1) return { found: false, error: "Job not found" };
 
-  const job = cronJobs[idx];
+  jobs.splice(idx, 1);
+  saveJobs(jobs);
+  stopScheduler(name);
 
-  job.instance?.stop();
-  cronJobs.splice(idx, 1);
-  savePersistedJobs(name);
-
-  console.log(`Cron [${name}]: deleted runtime job`);
+  console.log(`Cron [${name}]: deleted`);
   return { found: true };
 }
 
@@ -337,7 +351,9 @@ export function updateCronJob(
     enabled?: boolean;
   },
 ): { found: boolean; error?: string } {
-  const job = cronJobs.find((j) => j.name === name);
+  const jobs = loadJobs();
+  const job = jobs.find((j) => j.name === name);
+
   if (!job) return { found: false, error: "Job not found" };
 
   // Validate new schedule if provided
@@ -363,32 +379,39 @@ export function updateCronJob(
   if (job.type === "llm" && !job.prompt) return { found: true, error: 'Type "llm" requires a prompt' };
   if (job.type === "static" && !job.message) return { found: true, error: 'Type "static" requires a message' };
 
-  // Re-schedule
-  job.instance?.stop();
-  job.instance = null;
-  job.nextRun = null;
-  if (job.enabled) scheduleJob(job);
+  saveJobs(jobs);
+  syncSchedulers(jobs);
 
-  savePersistedJobs();
-  console.log(`Cron [${job.name}]: updated runtime job`);
+  console.log(`Cron [${job.name}]: updated`);
   return { found: true };
 }
 
-// --- API serialization ---
+export function toggleCronJob(name: string): { found: boolean; enabled: boolean } {
+  const jobs = loadJobs();
+  const job = jobs.find((j) => j.name === name);
 
-export function getCronJobsForAPI() {
-  return cronJobs.map((j) => ({
-    name: j.name,
-    schedule: j.schedule,
-    timezone: j.timezone ?? null,
-    channelId: j.channelId,
-    type: j.type,
-    message: j.message ?? null,
-    prompt: j.prompt ?? null,
-    enabled: j.enabled,
-    lastRun: j.lastRun?.toISOString() ?? null,
-    nextRun: j.nextRun?.toISOString() ?? null,
-    lastError: j.lastError,
-    history: j.history,
-  }));
+  if (!job) return { found: false, enabled: false };
+
+  job.enabled = !job.enabled;
+  saveJobs(jobs);
+  syncSchedulers(jobs);
+
+  console.log(`Cron [${job.name}]: ${job.enabled ? "enabled" : "disabled"}`);
+  return { found: true, enabled: job.enabled };
+}
+
+export async function triggerCronJob(
+  name: string,
+): Promise<{ found: boolean; error?: string; output?: string }> {
+  const jobs = loadJobs();
+  const job = jobs.find((j) => j.name === name);
+
+  if (!job) return { found: false, error: "Job not found" };
+
+  const result = await executeJob(name);
+
+  if (result.success) {
+    return { found: true, output: result.output };
+  }
+  return { found: true, error: result.output };
 }

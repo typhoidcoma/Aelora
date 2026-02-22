@@ -7,7 +7,7 @@ import { loadAgents } from "./agent-registry.js";
 import { enableAgentDispatch } from "./llm.js";
 import { setToolConfigStore } from "./tools/types.js";
 import { startDiscord, sendToChannel, discordClient } from "./discord.js";
-import { startCron, stopCron, cronJobs } from "./cron.js";
+import { startCron, stopCron, getCronJobs } from "./cron.js";
 import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js";
 import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
@@ -83,10 +83,10 @@ async function main(): Promise<void> {
       uptime: process.uptime(),
       model: config.llm.model,
       heartbeat: hb ? { running: hb.running, handlers: hb.handlers.length } : null,
-      cronJobs: cronJobs.map((j) => ({
+      cronJobs: getCronJobs().map((j) => ({
         name: j.name,
         enabled: j.enabled,
-        nextRun: j.nextRun?.toISOString() ?? null,
+        nextRun: j.nextRun,
       })),
     };
   });

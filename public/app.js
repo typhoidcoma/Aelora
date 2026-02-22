@@ -412,11 +412,13 @@ async function fetchPersonas() {
       const isActive = p.name === data.activePersona;
       const displayName = p.botName || p.name;
       const showSlug = p.botName && p.botName.toLowerCase() !== p.name;
-      const initial = (displayName.charAt(0) || "?").toUpperCase();
+      const emojis = ["🦋","🔮","🌙","✨","🎭","🌿","🐉","🦊","🎪","🌸","🦉","🎯","🧭","🪐","🌊","🍄","🦚","🔥","🧩","🎸","🐺","🌻","💎","🦅","🏔️","🫧","🪶","🐝","🎨","⚡"];
+      const hash = [...p.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+      const emoji = emojis[Math.abs(hash) % emojis.length];
       html += `
         <div class="persona-card${isActive ? " active" : ""}" onclick="switchPersona('${esc(p.name)}')">
           ${isActive ? '<div class="persona-card-badge">Active</div>' : ""}
-          <div class="persona-card-icon">${esc(initial)}</div>
+          <div class="persona-card-icon">${emoji}</div>
           <div class="persona-card-name">${esc(displayName)}</div>
           ${showSlug ? `<div class="persona-card-id muted">${esc(p.name)}</div>` : ""}
           <div class="persona-card-desc">${esc(p.description) || '<span class="muted">No description</span>'}</div>

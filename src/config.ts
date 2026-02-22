@@ -22,6 +22,7 @@ export type Config = {
   web: {
     enabled: boolean;
     port: number;
+    apiKey?: string;
   };
   persona: {
     enabled: boolean;
@@ -91,6 +92,7 @@ export function loadConfig(path = "settings.yaml"): Config {
     web: {
       enabled: parsed.web?.enabled ?? true,
       port: parsed.web?.port ?? 3000,
+      apiKey: parsed.web?.apiKey ?? undefined,
     },
     persona: {
       enabled: parsed.persona?.enabled ?? true,

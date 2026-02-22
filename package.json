@@ -4,7 +4,14 @@
   "description": "LLM-powered Discord bot with persona system, tools, agents, and web dashboard",
   "author": "Tyler Paul Esselstrom",
   "license": "MIT",
-  "keywords": ["discord", "bot", "llm", "ai", "openai", "persona"],
+  "keywords": [
+    "discord",
+    "bot",
+    "llm",
+    "ai",
+    "openai",
+    "persona"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -19,6 +26,7 @@
     "croner": "^10.0.1",
     "discord.js": "^14.18.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
     "openai": "^4.77.0",
     "tsdav": "^2.1.8",
     "yaml": "^2.7.0"

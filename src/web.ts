@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Config } from "./config.js";
@@ -84,7 +85,55 @@ export function startWeb(state: AppState): void {
     next();
   });
 
-  // Bot status
+  // --- Rate limiting ---
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later." },
+    skip: (req) => req.path === "/api/logs/stream", // don't count SSE connections
+  });
+
+  const llmLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "LLM rate limit exceeded. Max 10 requests per minute." },
+  });
+
+  app.use("/api", apiLimiter);
+  app.use("/api/llm/test", llmLimiter);
+
+  // --- Auth middleware ---
+  const PUBLIC_ROUTES = ["/api/status", "/api/activity/config", "/api/activity/token"];
+
+  if (config.web.apiKey) {
+    app.use("/api", (req, res, next) => {
+      if (PUBLIC_ROUTES.includes(req.path)) {
+        next();
+        return;
+      }
+
+      const authHeader = req.headers.authorization;
+      const queryToken = req.query.token as string | undefined;
+      const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : queryToken;
+
+      if (token === config.web.apiKey) {
+        next();
+        return;
+      }
+
+      res.status(401).json({ error: "Unauthorized. Provide Authorization: Bearer <key> header." });
+    });
+
+    console.log("Web: API key authentication enabled");
+  }
+
+  // Bot status (public — also tells dashboard if auth is required)
   app.get("/api/status", (_req, res) => {
     res.json({
       connected: discordClient?.isReady() ?? false,
@@ -92,6 +141,7 @@ export function startWeb(state: AppState): void {
       userId: botUserId,
       guildCount: discordClient?.guilds.cache.size ?? 0,
       uptime: process.uptime(),
+      authRequired: !!config.web.apiKey,
     });
   });
 

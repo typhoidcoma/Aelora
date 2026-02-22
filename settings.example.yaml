@@ -84,6 +84,11 @@ heartbeat:
 web:
   enabled: true
   port: 3000
+  # API key for authenticating dashboard and API requests.
+  # When set, all /api/* routes (except /api/status) require
+  # an Authorization: Bearer <key> header.
+  # Leave commented out for no auth (local dev).
+  # apiKey: "your-secret-api-key"
 
 # --- Discord Activity ---
 # Host a web app (e.g. Unity WebGL build) as an embedded Discord Activity.

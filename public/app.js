@@ -47,11 +47,71 @@ function startUptimeTicker(serverSeconds) {
   }, 1000);
 }
 
+// --- Auth ---
+
+function getApiKey() {
+  return localStorage.getItem("aelora-api-key") || "";
+}
+
+function setApiKey(key) {
+  localStorage.setItem("aelora-api-key", key);
+}
+
+function clearApiKey() {
+  localStorage.removeItem("aelora-api-key");
+  location.reload();
+}
+
+async function apiFetch(url, options = {}) {
+  const key = getApiKey();
+  if (key) {
+    options.headers = { ...options.headers, Authorization: `Bearer ${key}` };
+  }
+  const res = await window.fetch(url, options);
+  if (res.status === 401) {
+    promptForApiKey();
+    throw new Error("Unauthorized");
+  }
+  return res;
+}
+
+function apiEventSource(url) {
+  const key = getApiKey();
+  const separator = url.includes("?") ? "&" : "?";
+  const finalUrl = key ? `${url}${separator}token=${encodeURIComponent(key)}` : url;
+  return new EventSource(finalUrl);
+}
+
+async function checkAuth() {
+  try {
+    const res = await window.fetch("/api/status");
+    const data = await res.json();
+    if (data.authRequired) {
+      if (!getApiKey()) {
+        promptForApiKey();
+      } else {
+        const btn = document.getElementById("logout-btn");
+        if (btn) btn.style.display = "";
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function promptForApiKey() {
+  const key = prompt("This dashboard requires an API key.\nEnter your API key:");
+  if (key) {
+    setApiKey(key.trim());
+    location.reload();
+  }
+}
+
 // --- Fetchers ---
 
 async function fetchStatus() {
   try {
-    const res = await fetch("/api/status");
+    const res = await apiFetch("/api/status");
     const data = await res.json();
 
     const badge = document.getElementById("status-badge");
@@ -68,7 +128,7 @@ async function fetchStatus() {
 
 async function fetchConfig() {
   try {
-    const res = await fetch("/api/config");
+    const res = await apiFetch("/api/config");
     const cfg = await res.json();
     document.getElementById("model-name").textContent = cfg.llm?.model ?? "--";
   } catch {
@@ -78,7 +138,7 @@ async function fetchConfig() {
 
 async function fetchHeartbeat() {
   try {
-    const res = await fetch("/api/heartbeat");
+    const res = await apiFetch("/api/heartbeat");
     const data = await res.json();
     const el = document.getElementById("heartbeat-status-badge");
 
@@ -96,7 +156,7 @@ async function fetchHeartbeat() {
 
 async function fetchSessions() {
   try {
-    const res = await fetch("/api/sessions");
+    const res = await apiFetch("/api/sessions");
     const sessions = await res.json();
     const container = document.getElementById("sessions-content");
 
@@ -137,7 +197,7 @@ async function fetchSessions() {
 
 async function deleteSession(channelId) {
   try {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(channelId)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/sessions/${encodeURIComponent(channelId)}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -155,7 +215,7 @@ async function clearAllSessions() {
   if (!confirm("Clear all sessions?")) return;
 
   try {
-    const res = await fetch("/api/sessions", { method: "DELETE" });
+    const res = await apiFetch("/api/sessions", { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -173,7 +233,7 @@ async function clearAllSessions() {
 
 async function showSessionDetail(channelId) {
   try {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(channelId)}`);
+    const res = await apiFetch(`/api/sessions/${encodeURIComponent(channelId)}`);
     if (!res.ok) {
       showToast("Session no longer exists", "error");
       fetchSessions();
@@ -259,7 +319,7 @@ function hideSessionDetail() {
 
 async function fetchMemory() {
   try {
-    const res = await fetch("/api/memory");
+    const res = await apiFetch("/api/memory");
     const data = await res.json();
     const container = document.getElementById("memory-content");
     const scopes = Object.keys(data);
@@ -302,7 +362,7 @@ async function fetchMemory() {
 
 async function deleteMemoryFact(scope, index) {
   try {
-    const res = await fetch(`/api/memory/${encodeURIComponent(scope)}/${index}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/memory/${encodeURIComponent(scope)}/${index}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -320,7 +380,7 @@ async function clearMemoryScope(scope) {
   if (!confirm(`Clear all facts for "${scope}"?`)) return;
 
   try {
-    const res = await fetch(`/api/memory/${encodeURIComponent(scope)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/memory/${encodeURIComponent(scope)}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -340,7 +400,7 @@ async function clearMemoryScope(scope) {
 
 async function fetchPersonas() {
   try {
-    const res = await fetch("/api/personas");
+    const res = await apiFetch("/api/personas");
     const data = await res.json();
     const grid = document.getElementById("persona-cards");
 
@@ -380,7 +440,7 @@ async function fetchPersonas() {
 
 async function switchPersona(name) {
   try {
-    const res = await fetch("/api/persona/switch", {
+    const res = await apiFetch("/api/persona/switch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ persona: name }),
@@ -424,7 +484,7 @@ async function submitCreatePersona() {
   }
 
   try {
-    const res = await fetch("/api/personas", {
+    const res = await apiFetch("/api/personas", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, description, botName }),
@@ -447,7 +507,7 @@ async function deletePersona(name) {
   if (!confirm(`Delete the "${name}" persona? This removes all its files.`)) return;
 
   try {
-    const res = await fetch(`/api/personas/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/personas/${encodeURIComponent(name)}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -472,7 +532,7 @@ async function editPersona(name) {
 
 async function openPersonaEditor(relPath) {
   try {
-    const res = await fetch(`/api/persona/file?path=${encodeURIComponent(relPath)}`);
+    const res = await apiFetch(`/api/persona/file?path=${encodeURIComponent(relPath)}`);
     if (!res.ok) {
       showToast("File not found", "error");
       return;
@@ -523,7 +583,7 @@ async function savePersonaFile() {
   };
 
   try {
-    const res = await fetch("/api/persona/file", {
+    const res = await apiFetch("/api/persona/file", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -547,7 +607,7 @@ async function deletePersonaFile() {
   if (!confirm(`Delete "${editorCurrentPath}"?`)) return;
 
   try {
-    const res = await fetch("/api/persona/file", {
+    const res = await apiFetch("/api/persona/file", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: editorCurrentPath }),
@@ -572,7 +632,7 @@ function showNewFileForm() {
   if (!path) return;
 
   // Create a blank file and open the editor
-  fetch("/api/persona/file", {
+  apiFetch("/api/persona/file", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -598,7 +658,7 @@ function showNewFileForm() {
 
 async function fetchPersona() {
   try {
-    const res = await fetch("/api/persona");
+    const res = await apiFetch("/api/persona");
     const data = await res.json();
     const statusEl = document.getElementById("persona-status");
     const tableEl = document.getElementById("persona-table");
@@ -644,7 +704,7 @@ async function reloadPersona() {
   btn.textContent = "Reloading...";
 
   try {
-    const res = await fetch("/api/persona/reload", { method: "POST" });
+    const res = await apiFetch("/api/persona/reload", { method: "POST" });
     const data = await res.json();
 
     if (data.success) {
@@ -681,7 +741,7 @@ async function testLLM() {
   pre.textContent = "";
 
   try {
-    const res = await fetch("/api/llm/test/stream", {
+    const res = await apiFetch("/api/llm/test/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -746,7 +806,7 @@ document.getElementById("llm-input").addEventListener("keydown", (e) => {
 
 async function fetchTools() {
   try {
-    const res = await fetch("/api/tools");
+    const res = await apiFetch("/api/tools");
     const tools = await res.json();
     const tbody = document.getElementById("tools-body");
 
@@ -773,7 +833,7 @@ async function fetchTools() {
 
 async function toggleTool(name) {
   try {
-    const res = await fetch(`/api/tools/${encodeURIComponent(name)}/toggle`, { method: "POST" });
+    const res = await apiFetch(`/api/tools/${encodeURIComponent(name)}/toggle`, { method: "POST" });
     const data = await res.json();
 
     if (data.error) {
@@ -828,7 +888,7 @@ function clearConsole() {
 
 async function initConsole() {
   try {
-    const res = await fetch("/api/logs");
+    const res = await apiFetch("/api/logs");
     const logs = await res.json();
     for (const entry of logs) {
       appendLogLine(entry);
@@ -837,7 +897,7 @@ async function initConsole() {
     /* ignore */
   }
 
-  const evtSource = new EventSource("/api/logs/stream");
+  const evtSource = apiEventSource("/api/logs/stream");
   evtSource.onmessage = (event) => {
     try {
       const entry = JSON.parse(event.data);
@@ -1004,7 +1064,7 @@ let cronEditingName = null;
 
 async function fetchCron() {
   try {
-    const res = await fetch("/api/cron");
+    const res = await apiFetch("/api/cron");
     const jobs = await res.json();
     const tbody = document.getElementById("cron-body");
 
@@ -1050,7 +1110,7 @@ async function fetchCron() {
 
 async function toggleCronJob(name) {
   try {
-    const res = await fetch(`/api/cron/${encodeURIComponent(name)}/toggle`, { method: "POST" });
+    const res = await apiFetch(`/api/cron/${encodeURIComponent(name)}/toggle`, { method: "POST" });
     const data = await res.json();
 
     if (data.error) {
@@ -1068,7 +1128,7 @@ async function triggerCronJob(name) {
   showToast(`Running "${name}"...`);
 
   try {
-    const res = await fetch(`/api/cron/${encodeURIComponent(name)}/trigger`, { method: "POST" });
+    const res = await apiFetch(`/api/cron/${encodeURIComponent(name)}/trigger`, { method: "POST" });
     const data = await res.json();
 
     if (data.success) {
@@ -1086,7 +1146,7 @@ async function deleteCronJob(name) {
   if (!confirm(`Delete scheduled task "${name}"?`)) return;
 
   try {
-    const res = await fetch(`/api/cron/${encodeURIComponent(name)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/cron/${encodeURIComponent(name)}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -1103,7 +1163,7 @@ async function deleteCronJob(name) {
 
 async function editCronJob(name) {
   try {
-    const res = await fetch("/api/cron");
+    const res = await apiFetch("/api/cron");
     const jobs = await res.json();
     const job = jobs.find((j) => j.name === name);
 
@@ -1309,7 +1369,7 @@ async function submitCronJob() {
     const url = isEdit
       ? `/api/cron/${encodeURIComponent(cronEditingName)}`
       : "/api/cron";
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: isEdit ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -1332,7 +1392,7 @@ async function submitCronJob() {
 
 async function showCronHistory(name) {
   try {
-    const res = await fetch("/api/cron");
+    const res = await apiFetch("/api/cron");
     const jobs = await res.json();
     const job = jobs.find((j) => j.name === name);
 
@@ -1389,7 +1449,7 @@ async function rebootBot() {
   btn.textContent = "Rebooting...";
 
   try {
-    await fetch("/api/reboot", { method: "POST" });
+    await apiFetch("/api/reboot", { method: "POST" });
     showToast("Reboot initiated", "success");
   } catch (err) {
     showToast(`Reboot failed: ${err.message}`, "error");
@@ -1411,6 +1471,7 @@ function loadActivityPreview() {
 }
 
 // --- Init ---
+checkAuth();
 fetchStatus();
 fetchConfig();
 fetchSessions();

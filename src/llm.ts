@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import type { Config } from "./config.js";
 import {
   getToolDefinitionsForOpenAI,
@@ -43,6 +44,38 @@ let config: Config;
 // Per-channel conversation history
 const conversations = new Map<string, ChatMessage[]>();
 
+// --- Conversation summaries (compacted history) ---
+
+const SUMMARIES_FILE = "data/memory/summaries.json";
+const MAX_SUMMARY_LENGTH = 3000;
+
+type SummaryStore = Record<string, { summary: string; updatedAt: string }>;
+
+let summaries: SummaryStore = {};
+
+function loadSummaries(): void {
+  try {
+    if (existsSync(SUMMARIES_FILE)) {
+      summaries = JSON.parse(readFileSync(SUMMARIES_FILE, "utf-8"));
+    }
+  } catch {
+    summaries = {};
+  }
+}
+
+function saveSummaries(): void {
+  try {
+    const dir = "data/memory";
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(SUMMARIES_FILE, JSON.stringify(summaries, null, 2), "utf-8");
+  } catch (err) {
+    console.error("LLM: failed to save summaries:", err);
+  }
+}
+
+// Queue of messages trimmed from history, keyed by channelId
+const compactionQueue = new Map<string, ChatMessage[]>();
+
 const MAX_TOOL_ITERATIONS = 10;
 
 export function initLLM(cfg: Config): void {
@@ -51,6 +84,7 @@ export function initLLM(cfg: Config): void {
     baseURL: cfg.llm.baseURL,
     apiKey: cfg.llm.apiKey || undefined,
   });
+  loadSummaries();
 }
 
 export function clearHistory(channelId: string): void {
@@ -64,9 +98,13 @@ function getHistory(channelId: string): ChatMessage[] {
   return conversations.get(channelId)!;
 }
 
-function trimHistory(history: ChatMessage[]): void {
+function trimHistory(history: ChatMessage[], channelId?: string): void {
   while (history.length > config.llm.maxHistory) {
-    history.shift();
+    const removed = history.shift();
+    if (removed && channelId) {
+      if (!compactionQueue.has(channelId)) compactionQueue.set(channelId, []);
+      compactionQueue.get(channelId)!.push(removed);
+    }
   }
 }
 
@@ -83,7 +121,7 @@ export async function getLLMResponse(
   const history = getHistory(channelId);
 
   history.push({ role: "user", content: userMessage as string });
-  trimHistory(history);
+  trimHistory(history, channelId);
 
   const tools = getAllDefinitions();
 
@@ -96,7 +134,7 @@ export async function getLLMResponse(
     const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId);
 
     history.push({ role: "assistant", content: result });
-    trimHistory(history);
+    trimHistory(history, channelId);
 
     return result;
   } catch (err) {
@@ -218,12 +256,94 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     sections.push(lines.join("\n"));
   }
 
+  // --- Conversation summary (compacted history) ---
+  if (channelId && summaries[channelId]) {
+    sections.push(
+      "\n\n## Recent Conversation Context\n" + summaries[channelId].summary,
+    );
+  }
+
   // --- Memory (per-user + per-channel facts) ---
   const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
   if (memoryBlock) sections.push("\n\n" + memoryBlock);
 
   if (sections.length === 0) return base;
   return base + sections.join("");
+}
+
+// --- Conversation compaction ---
+
+/**
+ * Compact pending trimmed history for channels that have accumulated enough messages.
+ * Uses a direct LLM call (no tool dispatch) to avoid recursion.
+ * Only fires the LLM call when a channel has >= minQueueSize queued messages.
+ */
+export async function compactPendingHistory(minQueueSize = 10): Promise<number> {
+  let compacted = 0;
+
+  for (const [channelId, queue] of compactionQueue.entries()) {
+    if (queue.length < minQueueSize) continue;
+
+    // Drain the queue
+    const messages = queue.splice(0, queue.length);
+    if (queue.length === 0) compactionQueue.delete(channelId);
+
+    // Format the messages for summarization
+    const formatted = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => {
+        const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+        return `${m.role}: ${text.slice(0, 300)}`;
+      })
+      .join("\n");
+
+    if (!formatted) continue;
+
+    try {
+      const existing = summaries[channelId]?.summary ?? "";
+      const contextNote = existing
+        ? `Previous summary:\n${existing}\n\nNew messages to incorporate:\n`
+        : "Messages to summarize:\n";
+
+      const completion = await client.chat.completions.create({
+        model: config.llm.model,
+        max_completion_tokens: 500,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a conversation summarizer. Produce a concise summary of the conversation, " +
+              "preserving key topics, decisions, and any important context. " +
+              "Keep the summary under 2000 characters. Output ONLY the summary, no preamble.",
+          },
+          { role: "user", content: contextNote + formatted },
+        ],
+      });
+
+      const summary = completion.choices[0]?.message?.content?.trim();
+      if (summary) {
+        summaries[channelId] = {
+          summary: summary.slice(0, MAX_SUMMARY_LENGTH),
+          updatedAt: new Date().toISOString(),
+        };
+        saveSummaries();
+        compacted++;
+        console.log(`LLM: compacted ${messages.length} messages for channel ${channelId}`);
+      }
+    } catch (err) {
+      console.error(`LLM: compaction failed for channel ${channelId}:`, err);
+      // Put messages back so they aren't lost
+      if (!compactionQueue.has(channelId)) compactionQueue.set(channelId, []);
+      compactionQueue.get(channelId)!.unshift(...messages);
+    }
+  }
+
+  return compacted;
+}
+
+/** Get all conversation summaries (for dashboard API). */
+export function getConversationSummaries(): SummaryStore {
+  return { ...summaries };
 }
 
 // --- Internal helpers ---

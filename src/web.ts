@@ -618,6 +618,30 @@ export function startWeb(state: AppState): void {
     res.json({ success: true, deleted: count });
   });
 
+  // Memory — daily log dates
+  app.get("/api/memory/logs", async (_req, res) => {
+    const { listLogDates } = await import("./daily-log.js");
+    res.json(listLogDates());
+  });
+
+  // Memory — read a specific daily log
+  app.get("/api/memory/logs/:date", async (req, res) => {
+    const { date } = req.params;
+    const { readLog } = await import("./daily-log.js");
+    const content = readLog(date);
+    if (!content) {
+      res.status(404).json({ error: `No log found for ${date}` });
+      return;
+    }
+    res.json({ date, content });
+  });
+
+  // Memory — conversation summaries
+  app.get("/api/memory/summaries", async (_req, res) => {
+    const { getConversationSummaries } = await import("./llm.js");
+    res.json(getConversationSummaries());
+  });
+
   // Heartbeat status
   app.get("/api/heartbeat", (_req, res) => {
     res.json(getHeartbeatState());

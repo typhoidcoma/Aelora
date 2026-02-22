@@ -12,6 +12,7 @@ import { processAttachments } from "./attachments.js";
 import { setEmbedColor } from "./embeds.js";
 import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
 import { recordMessage } from "../sessions.js";
+import { appendLog } from "../daily-log.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -246,6 +247,18 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       }
       return;
     }
+
+    // Append to daily conversation log (best-effort, never breaks chat)
+    try {
+      const userSnippet = (typeof userContent === "string" ? userContent : content).slice(0, 200);
+      const botSnippet = text.slice(0, 200);
+      appendLog({
+        channelName,
+        userId: message.author.id,
+        username: message.author.displayName ?? message.author.username,
+        summary: `**User:** ${userSnippet}\n**Bot:** ${botSnippet}`,
+      });
+    } catch { /* swallow */ }
 
     // Finalize: properly chunk the remaining text
     const remaining = text.slice(activeOffset);

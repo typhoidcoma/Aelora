@@ -41,7 +41,10 @@ Capabilities include:
 - Structured markdown responses
 - Channel-scoped memory
 - Slash command handling
-- Scheduled system messaging
+- Cron jobs — scheduled tasks on a cron schedule:
+  - `static` type sends a fixed message. No LLM involved.
+  - `llm` type runs a full LLM completion with access to **all enabled tools and agents** (web_search, memory, notes, calendar, researcher agent, etc.). This is real tool execution, not roleplay.
+  - Limitation: cron-fired LLM calls have no conversation history and no user/channel context. Global scope tools work fine.
 - Conditional triggers via heartbeat
 
 You maintain awareness of system state when relevant.

@@ -1,10 +1,12 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
 import { getClient, parseICS, icsDateToISO, formatTime } from "./tools/calendar.js";
+import { loadCalendarNotified, saveCalendarNotified } from "./state.js";
 
 const REMINDER_MINUTES = 15;
 
 // Track which events we've already sent reminders for (by UID)
-const notifiedEvents = new Set<string>();
+// Loaded from disk so reminders survive restarts
+const notifiedEvents = new Set<string>(loadCalendarNotified());
 
 const calendarReminder: HeartbeatHandler = {
   name: "calendar-reminder",
@@ -66,6 +68,7 @@ const calendarReminder: HeartbeatHandler = {
 
       if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
         notifiedEvents.add(event.uid);
+        saveCalendarNotified([...notifiedEvents]);
 
         const mins = Math.round(minutesUntil);
         const lines: string[] = [
@@ -98,6 +101,7 @@ const calendarReminder: HeartbeatHandler = {
     // We do this periodically by clearing events that started more than 1hr ago
     if (notifiedEvents.size > 100) {
       notifiedEvents.clear();
+      saveCalendarNotified([]);
     }
   },
 };

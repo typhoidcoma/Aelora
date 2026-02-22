@@ -6,12 +6,14 @@
 
 import { stopHeartbeat } from "./heartbeat.js";
 import { stopCron } from "./cron.js";
+import { saveState } from "./state.js";
 
 const REBOOT_CODE = 100;
 
 /** Gracefully shut down all subsystems and exit with the reboot code. */
 export function reboot(): void {
   console.log("Reboot requested — shutting down...");
+  saveState("reboot");
   stopHeartbeat();
   stopCron();
   // The boot wrapper sees exit code 100 and restarts the process

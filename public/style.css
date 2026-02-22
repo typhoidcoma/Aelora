@@ -229,6 +229,10 @@ body.resizing {
   border-bottom: none;
 }
 
+.activity-panel {
+  flex-shrink: 0;
+}
+
 .console-header {
   display: flex;
   align-items: center;

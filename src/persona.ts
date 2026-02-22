@@ -124,7 +124,7 @@ export function discoverPersonas(personaDir: string): string[] {
   if (!existsSync(personaDir)) return [];
 
   return readdirSync(personaDir).filter((entry) =>
-    statSync(join(personaDir, entry)).isDirectory(),
+    !entry.startsWith("_") && statSync(join(personaDir, entry)).isDirectory(),
   );
 }
 
@@ -137,12 +137,19 @@ export function getPersonaDescriptions(personaDir: string): Array<{
   const personas = discoverPersonas(personaDir);
   return personas.map((name) => {
     const pDir = join(personaDir, name);
+    const soulMdPath = join(pDir, "soul.md");
     const personaMdPath = join(pDir, "persona.md");
     let description = "";
     let botName = "";
-    if (existsSync(personaMdPath)) {
-      const { meta } = parseFrontmatter(readFileSync(personaMdPath, "utf-8"));
+    if (existsSync(soulMdPath)) {
+      const { meta } = parseFrontmatter(readFileSync(soulMdPath, "utf-8"));
       description = (meta.description as string) ?? "";
+      botName = (meta.botName as string) ?? "";
+    }
+    // Fallback: legacy persona.md for older persona formats
+    if (!botName && existsSync(personaMdPath)) {
+      const { meta } = parseFrontmatter(readFileSync(personaMdPath, "utf-8"));
+      if (!description) description = (meta.description as string) ?? "";
       botName = (meta.botName as string) ?? "";
     }
     const fileCount = discoverFiles(pDir).length;
@@ -160,12 +167,23 @@ export function loadPersona(
   const personaPath = join(personaDir, activePersona);
   const rawPaths = discoverFiles(personaPath);
 
-  // Prefix with persona name for consistent addressing from persona root
-  const filePaths = rawPaths.map((p) => `${activePersona}/${p}`);
+  // Collect persona file basenames for override detection
+  const personaBasenames = new Set(rawPaths.map((p) => p.split("/").pop()));
+
+  // Discover shared files from _shared/ directory, skip if persona overrides by filename
+  const sharedPath = join(personaDir, "_shared");
+  const sharedRawPaths = discoverFiles(sharedPath);
+  const sharedFilePaths = sharedRawPaths
+    .filter((p) => !personaBasenames.has(p.split("/").pop()))
+    .map((p) => `_shared/${p}`);
+
+  // Prefix persona files with persona name for consistent addressing
+  const personaFilePaths = rawPaths.map((p) => `${activePersona}/${p}`);
+  const allFilePaths = [...sharedFilePaths, ...personaFilePaths];
 
   const files: PersonaFile[] = [];
 
-  for (const relPath of filePaths) {
+  for (const relPath of allFilePaths) {
     const fullPath = join(personaDir, relPath);
     const raw = readFileSync(fullPath, "utf-8");
     const { meta, content } = parseFrontmatter(raw);
@@ -183,9 +201,10 @@ export function loadPersona(
     return a.path.localeCompare(b.path);
   });
 
-  // Extract per-character botName from persona.md frontmatter
-  const personaFile = files.find((f) => f.path === `${activePersona}/persona.md`);
-  const resolvedBotName = personaFile?.meta.botName || variables.botName;
+  // Extract per-character botName from soul.md frontmatter (fallback: legacy persona.md)
+  const soulFile = files.find((f) => f.path === `${activePersona}/soul.md`);
+  const legacyPersonaFile = files.find((f) => f.path === `${activePersona}/persona.md`);
+  const resolvedBotName = soulFile?.meta.botName || legacyPersonaFile?.meta.botName || variables.botName;
   const resolvedVariables = { ...variables, botName: resolvedBotName };
 
   const composedPrompt = files
@@ -305,75 +324,58 @@ export function createPersona(
 
   mkdirSync(pDir, { recursive: true });
 
-  // Create persona.md (manifest)
-  const personaContent =
+  // Create soul.md (consolidated identity + soul + metadata)
+  const soulContent =
     buildFrontmatter({
-      order: 90,
+      order: 10,
       enabled: true,
-      label: `${charName} Persona`,
-      section: "persona",
+      label: `${charName} Soul`,
+      section: "soul",
       description: description || "",
       botName: charName,
     }) +
     "\n\n" +
-    `# Persona: ${charName}\n\nDescribe this persona's behavior and focus here.\n`;
-
-  writeFileSync(join(pDir, "persona.md"), personaContent, "utf-8");
-
-  // Create identity.md
-  const identityContent =
-    buildFrontmatter({
-      order: 10,
-      enabled: true,
-      label: `${charName} Identity`,
-      section: "identity",
-    }) +
-    "\n\n" +
-    `# Identity\n\n` +
+    `# Soul: ${charName}\n\n` +
+    `## Identity\n\n` +
     `You are **{{botName}}**.\n\n` +
     `- **Full Name**: ${charName}\n` +
     `- **Role**: Define this character's role\n` +
-    `- **Nature**: What makes this character distinct\n\n` +
-    `## Backstory\n\n` +
-    `Write this character's history and lore here.\n\n` +
-    `## Identity Statement\n\n` +
-    `A brief definitive statement of who ${charName} is.\n`;
-
-  writeFileSync(join(pDir, "identity.md"), identityContent, "utf-8");
-
-  // Create soul.md
-  const soulContent =
-    buildFrontmatter({
-      order: 20,
-      enabled: true,
-      label: `${charName} Soul`,
-      section: "soul",
-    }) +
-    "\n\n" +
-    `# Soul\n\n## Core Directive\n\nDefine the behavioral core for ${charName}.\n`;
+    `- **Nature**: One-line operational nature\n\n` +
+    `---\n\n` +
+    `## 1. Persona Classification\n\n` +
+    `- **Archetype**: Define archetype\n` +
+    `- **Emotional Amplitude**: Low / Medium / High\n` +
+    `- **Primary Bias**: What this persona optimizes for\n` +
+    `- **Intervention Threshold**: When this persona interrupts\n\n` +
+    `## 2. Decision Bias Profile\n\n` +
+    `- **Risk Tolerance**: Low / Medium / High\n` +
+    `- **Speed vs Quality**: Which is preferred\n` +
+    `- **Short-term vs Long-term**: Which is weighted\n` +
+    `- **Emotional Prioritization**: Stability / Validation / Intensity\n\n` +
+    `> "If forced to choose between X and Y, chooses ___"\n\n` +
+    `## 3. Cognitive Lens Definition\n\n` +
+    `**Primary Lens**: Systems / Tactical / Emotional synthesis / Pattern abstraction / Analytical decomposition\n\n` +
+    `## 4. Tone Constraints\n\n` +
+    `Define: sentence length target, forbidden phrases, humor ceiling, metaphor density, emotional escalation ceiling.\n\n` +
+    `## 5. Caring Protocol\n\n` +
+    `How care is expressed, maximum emotional engagement depth, recovery behavior.\n\n` +
+    `## 6. Stress Behavior Matrix\n\n` +
+    `| Scenario | Behavioral Adjustment |\n` +
+    `|---|---|\n` +
+    `| Angry User | Define response |\n` +
+    `| Overwhelmed User | Define response |\n\n` +
+    `## 7. Refusal Architecture\n\n` +
+    `1. Boundary statement\\n2. Brief reason\\n3. Alternative path\n\n` +
+    `## 8. Compression Rule\n\n` +
+    `Target verbosity, when expansion is allowed, filler word restrictions.\n\n` +
+    `## 9. Multi-Agent Alignment\n\n` +
+    `Role in system, deference rules, what this persona does NOT handle.\n\n` +
+    `## 10. Drift Indicators\n\n` +
+    `List explicit signs of persona degradation.\n`;
 
   writeFileSync(join(pDir, "soul.md"), soulContent, "utf-8");
 
-  // Create bootstrap.md (self-contained personas get their own bootstrap)
-  const bootstrapContent =
-    buildFrontmatter({
-      order: 5,
-      enabled: true,
-      label: "Bootstrap",
-      section: "bootstrap",
-    }) +
-    "\n\n" +
-    `# Operating Instructions\n\n` +
-    `## Response Format\n\n` +
-    `- You are speaking in a Discord server. Keep responses appropriate for Discord.\n` +
-    `- Default to concise. If it can be said in 3-6 sentences, do that.\n` +
-    `- When writing creative content, you can be longer and more detailed.\n\n` +
-    `## Behavioral Rules\n\n` +
-    `- Stay in character as **{{botName}}** at all times.\n` +
-    `- Do not hallucinate capabilities.\n` +
-    `- If something is ambiguous, make a smart assumption and move forward.\n`;
-
-  writeFileSync(join(pDir, "bootstrap.md"), bootstrapContent, "utf-8");
+  // Bootstrap is inherited from _shared/ — no per-persona bootstrap needed
 
   // Create skills.md
   const skillsContent =

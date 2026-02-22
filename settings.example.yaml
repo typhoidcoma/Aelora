@@ -1,103 +1,121 @@
 # =============================================================================
-# Aelora - settings.yaml
+# Aelora 🦋 — settings.yaml
 # Copy this file to settings.yaml and fill in your values.
 # =============================================================================
 
+# --- General ---
+
+# IANA timezone for the server. Affects cron jobs, logs, and date formatting.
+# Examples: America/New_York, America/Chicago, America/Los_Angeles,
+#           Europe/London, Asia/Tokyo, UTC
+timezone: "UTC"
+
 # --- Discord ---
+
 discord:
   token: "YOUR_DISCORD_BOT_TOKEN"
+
   # How the bot responds in guild (server) channels:
-  #   "mention" = only replies when @mentioned (recommended)
-  #   "all"     = replies to every message in allowed channels
+  #   "mention" — only replies when @mentioned (recommended)
+  #   "all"     — replies to every message in allowed channels
   guildMode: "mention"
-  # Restrict to specific channel IDs. Empty list = all channels.
+
+  # Restrict to specific channel IDs (empty = all channels).
   allowedChannels: []
-  # Whether to respond to DMs
+
+  # Whether to respond to direct messages.
   allowDMs: true
-  # Status message shown under the bot's name
+
+  # Status message shown under the bot's name in Discord.
   status: "Watching the void"
-  # Guild ID for instant slash command registration (dev mode).
-  # Leave blank for global registration (takes up to 1 hour to propagate).
+
+  # Guild ID for instant slash-command registration (dev only).
+  # Omit for global registration (propagates in ~1 hour).
   # guildId: "YOUR_GUILD_ID"
-  # Custom embed accent color (hex). Defaults to Discord blurple (#5865F2).
+
+  # Custom embed accent color (hex). Omit for Discord blurple.
   # embedColor: "#5865F2"
 
+  # Channel ID for crash/restart notifications. Omit to disable.
+  # statusChannelId: "YOUR_CHANNEL_ID"
+
 # --- LLM ---
-# Any OpenAI-compatible endpoint works:
-#   OpenAI:      https://api.openai.com/v1
-#   Ollama:      http://localhost:11434/v1
-#   OpenRouter:  https://openrouter.ai/api/v1
-#   Together:    https://api.together.xyz/v1
-#   Groq:        https://api.groq.com/openai/v1
-#   LM Studio:   http://localhost:1234/v1
+# Any OpenAI-compatible endpoint works (OpenAI, Ollama, OpenRouter,
+# Together, Groq, LM Studio, etc.).
+
 llm:
   baseURL: "https://api.openai.com/v1"
   apiKey: "sk-YOUR_API_KEY"
   model: "gpt-4o-mini"
+
+  # Fallback system prompt when the persona system is disabled.
   systemPrompt: "You are a helpful Discord bot. Be concise."
+
+  # Max tokens per LLM response.
   maxTokens: 1024
-  # How many previous messages to keep in conversation history per channel
+
+  # How many previous messages to keep in conversation history per channel.
   maxHistory: 20
 
 # --- Persona ---
-# The persona system composes the bot's system prompt from markdown files in a directory.
-# Each file has YAML frontmatter (order, enabled, label, section) and markdown content.
-# If disabled, falls back to llm.systemPrompt above.
+# Composes the bot's system prompt from markdown files in a persona directory.
+# Each file uses YAML frontmatter (order, enabled, label, section) + markdown body.
+# When enabled, overrides llm.systemPrompt above.
+
 persona:
   enabled: true
-  dir: "persona"          # Path to persona directory (relative to project root)
-  botName: "Aelora"       # Used for {{botName}} substitution in persona files
-  activePersona: "aelora"    # Which persona folder to load (e.g. aelora, wendy, batperson)
+  dir: "persona"            # Path to persona directory (relative to project root)
+  botName: "Aelora"         # Substituted into {{botName}} placeholders
+  activePersona: "aelora"   # Which subfolder to load (e.g. aelora, wendy, batperson)
 
-# --- Tool Configuration ---
-# API keys and secrets for tools that need them.
-# Each tool declares which keys it needs via its `config` field.
-# See src/tools/_example-gmail.ts for a complete example.
-tools:
-  # Brave Web Search (https://brave.com/search/api/)
+# --- Tools ---
+# API keys and config for tools. Each tool declares what it needs.
+
+tools: {}
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
-  # CalDAV calendar (Radicale, Nextcloud, Baikal, iCloud, etc.)
   # caldav:
   #   serverUrl: "http://localhost:5232"
   #   username: "user"
   #   password: "app-password"
-  #   authMethod: "Basic"        # "Basic", "Oauth", or "Bearer"
-  #   calendarName: ""           # Specific calendar name (empty = use first/default)
+  #   authMethod: "Basic"       # Basic, Oauth, or Bearer
+  #   calendarName: ""          # Empty = use first/default calendar
 
 # --- Agents ---
-# Sub-agents that can perform multi-step tasks using LLM reasoning + tools.
-# Agents are auto-discovered from src/agents/ — drop a .ts file, it loads on startup.
+# Sub-agents that perform multi-step tasks with LLM reasoning + tools.
+# Auto-discovered from src/agents/.
+
 agents:
   enabled: true
-  maxIterations: 5    # Default max LLM iterations per agent (individual agents can override)
+  maxIterations: 5          # Max LLM iterations per agent run
 
 # --- Heartbeat ---
-# Periodic pulse that runs registered handlers (separate from cron).
-# Handlers can check conditions and take proactive actions.
+# Periodic pulse that runs registered handlers (calendar reminders,
+# memory compaction, etc.). Separate from cron.
+
 heartbeat:
   enabled: true
-  intervalMs: 60000   # How often to tick, in milliseconds (default: 60s)
+  intervalMs: 60000         # Tick interval in ms (default: 60s)
 
 # --- Web Dashboard ---
+
 web:
   enabled: true
   port: 3000
-  # API key for authenticating dashboard and API requests.
-  # When set, all /api/* routes (except /api/status) require
+
+  # API key for authenticating dashboard/API requests.
+  # When set, /api/* routes (except /api/status) require
   # an Authorization: Bearer <key> header.
-  # Leave commented out for no auth (local dev).
   # apiKey: "your-secret-api-key"
 
 # --- Discord Activity ---
-# Host a web app (e.g. Unity WebGL build) as an embedded Discord Activity.
+# Embed a web app (e.g. Unity WebGL) as a Discord Activity.
 # Requires Activities enabled in the Discord Developer Portal.
-# Place your build files in the activity/ directory at project root.
-# clientId = your Application ID. clientSecret = OAuth2 Client Secret.
+# Place build files in the activity/ directory at project root.
+
 activity:
   enabled: false
   clientId: "YOUR_APPLICATION_ID"
   clientSecret: "YOUR_CLIENT_SECRET"
-  # Direct URL to your server (bypasses Discord proxy for large Unity files)
   # serverUrl: "https://your-tunnel.example.com"

@@ -1,0 +1,43 @@
+[Unit]
+Description=Aelora Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aelora
+Group=aelora
+
+# All paths (settings.yaml, persona/, data/, public/) are relative to this
+WorkingDirectory=/opt/aelora
+
+# Node 22+ required — update path if using nvm/fnm (run: which node)
+ExecStart=/usr/bin/node dist/boot.js
+
+# Environment
+Environment=NODE_ENV=production
+EnvironmentFile=-/etc/aelora/env
+
+# Shutdown — boot.ts forwards SIGTERM to the child, which saves state and exits cleanly
+KillMode=mixed
+TimeoutStopSec=15
+
+# Restart — boot.ts handles its own restarts (exit 100 = reboot, crash loop detection).
+# systemd Restart=on-failure is a safety net if boot.ts itself crashes.
+Restart=on-failure
+RestartSec=10
+
+# Logging — stdout/stderr go to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aelora
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aelora/data /opt/aelora/persona
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

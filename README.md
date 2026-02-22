@@ -8,19 +8,21 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 
 - **LLM Chat** — Works with any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
 - **Streaming Responses** — Token-by-token streaming to Discord messages and the dashboard LLM test
-- **Persona System** — Composable personality built from layered markdown files with switchable modes and hot-reload
+- **Persona System** — Composable personality built from layered markdown files with shared bootstrap, per-character souls, switchable personas, and hot-reload
 - **Tool Framework** — Drop a `.ts` file in `src/tools/`, it auto-loads. Typed params, config resolution, runtime toggle
 - **Agent Framework** — Sub-agents with their own system prompts, tool allowlists, and reasoning loops
 - **Memory** — Persistent per-user and per-channel fact storage, automatically injected into the system prompt
 - **Web Search** — Brave Search API integration for real-time web queries
 - **CalDAV Calendar** — Full CRUD for any CalDAV server (Radicale, Nextcloud, Baikal, iCloud)
 - **Notes** — Persistent note storage scoped to channels or global
-- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, runtime CRUD
+- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, file-based persistence, runtime CRUD
 - **Sessions** — Conversation session tracking with metadata, persisted to disk
-- **Heartbeat** — Periodic handler system for proactive actions (e.g. calendar reminders)
+- **Daily Log** — Automatic daily activity logging
+- **Heartbeat** — Periodic handler system for proactive actions (calendar reminders, memory compaction)
 - **Discord Activity** — Host a Unity WebGL build (or any web app) as an embedded Discord Activity with OAuth2, SDK integration, and a `/play` command
 - **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, Activity preview
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
+- **Configurable Timezone** — Global IANA timezone setting for cron, logs, and date formatting
 
 ## Quick Start
 
@@ -62,6 +64,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 
 | Section | What it controls |
 |---|---|
+| `timezone` | IANA timezone for the server (cron, logs, date formatting). Defaults to UTC |
 | `discord` | Bot token, response mode (mention/all), allowed channels, DMs, status |
 | `llm` | API endpoint, model, max tokens, conversation history length |
 | `persona` | Personality system toggle, directory, bot name, active persona |
@@ -79,39 +82,52 @@ Aelora's personality is composed from markdown files in the `persona/` directory
 ---
 order: 10
 enabled: true
-label: "Identity"
-section: identity
+label: "Aelora Soul"
+section: soul
+botName: "Aelora"
 ---
 
-# Identity
+# Soul: Aelora
 
 You are **{{botName}}**, the embodiment layer of the Luminora Emotion Engine...
 ```
 
 Files are sorted by `order`, concatenated, and injected as the system prompt. Variables like `{{botName}}` are substituted from config. Persona files can be hot-reloaded from the web dashboard without restarting the bot.
 
-### Personas
+### Shared + Per-Persona Architecture
 
-Each persona is a **self-contained character** — a distinct named entity with its own identity, backstory, personality, bootstrap rules, and skills. Each persona lives in its own directory under `persona/`. The active persona is set via `persona.activePersona` in `settings.yaml`. Each persona's `persona.md` frontmatter includes a `botName` field — the character's display name — which is substituted into `{{botName}}` across all files.
+The persona system uses a **shared inheritance** model:
 
-**Current persona structure:**
+- **`_shared/`** — Files shared across all personas (e.g. `bootstrap.md` for response format rules). Loaded first.
+- **Per-persona directories** — Each persona's own files (soul, skills, tools). If a persona has a file with the same basename as a shared file, the persona's version overrides the shared one.
 
 ```
 persona/
+├── _shared/
+│   └── bootstrap.md            — Shared response format & operating rules (order 5)
 ├── aelora/
-│   ├── persona.md            — Persona manifest (order 90, botName: "Aelora")
-│   ├── bootstrap.md          — Response format, behavioral rules (order 5)
-│   ├── identity.md           — Character identity & backstory (order 10)
-│   ├── soul.md               — Behavioral core (order 20)
-│   ├── skills.md             — Character skills & competencies (order 50)
-│   ├── tools.md              — Tool/agent usage instructions (order 80)
+│   ├── soul.md                 — Aelora's behavioral core (order 10, botName: "Aelora")
+│   ├── skills.md               — Character skills (order 50)
+│   ├── tools.md                — Tool usage instructions (order 80)
 │   └── templates/
-│       └── user.md           — Per-user preferences (disabled, placeholder)
+│       └── user.md             — Per-user preferences (disabled, placeholder)
 ├── wendy/
-│   └── (same structure — separate character, botName: "Wendy")
+│   ├── soul.md                 — Wendy's behavioral core (order 10, botName: "Wendy")
+│   ├── skills.md
+│   ├── tools.md
+│   └── templates/user.md
+├── arlo/
+│   ├── soul.md                 — Arlo's behavioral core (order 10, botName: "Arlo")
+│   ├── skills.md
+│   ├── tools.md
+│   └── templates/user.md
 └── batperson/
-    └── (same structure — separate character, botName: "Batperson")
+    ├── bootstrap.md            — Overrides _shared/bootstrap.md for BatPerson
+    ├── soul.md                 — BatPerson's behavioral core (order 10, botName: "BatPerson")
+    └── skills.md
 ```
+
+Each persona's `soul.md` frontmatter includes `botName` — the character's display name. This gets substituted into `{{botName}}` across all files.
 
 ## Tools & Agents
 
@@ -156,6 +172,8 @@ const agent: Agent = {
 
 export default agent;
 ```
+
+A `researcher` agent is included out of the box — it searches the web, synthesizes findings, and optionally saves results as notes.
 
 For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -205,7 +223,7 @@ Once both the SDK and Unity are ready, the wrapper sends `OnDiscordReady` to Uni
 
 ## Web Dashboard
 
-Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`.
+Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`. For remote access, use Tailscale Funnel or Serve — see [Deployment: Remote Access](deploy/DEPLOY.md#6-remote-access-with-tailscale).
 
 - **Status** — Discord connection, uptime, guild count, heartbeat
 - **Persona** — Character switching (card grid), file editor, botName, prompt size, hot-reload
@@ -228,11 +246,13 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── persona.ts            — Persona file discovery, parsing, composition
 │   ├── tool-registry.ts      — Tool auto-discovery + execution
 │   ├── agent-registry.ts     — Agent auto-discovery + execution
-│   ├── cron.ts               — Cron job scheduler + runtime CRUD
+│   ├── cron.ts               — Cron job scheduler (file-based persistence, atomic writes)
 │   ├── sessions.ts           — Conversation session tracking + persistence
 │   ├── memory.ts             — Per-user/channel fact memory store
+│   ├── daily-log.ts          — Daily activity logging
 │   ├── heartbeat.ts          — Periodic handler system
 │   ├── heartbeat-calendar.ts — Calendar reminder handler
+│   ├── heartbeat-memory.ts   — Memory compaction handler
 │   ├── web.ts                — Express dashboard + REST API
 │   ├── lifecycle.ts          — Graceful reboot
 │   ├── logger.ts             — Console capture + SSE broadcast
@@ -251,9 +271,11 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   │   ├── brave-search.ts   — Brave Search web queries
 │   │   ├── cron.ts           — Runtime cron job management
 │   │   ├── memory.ts         — Memory save/list/forget tool
-│   │   └── _example-gmail.ts — Example tool template (skipped on load)
+│   │   ├── _example-gmail.ts — Example tool template (skipped on load)
+│   │   └── _example-multi-action.ts — Multi-action tool template
 │   └── agents/
-│       └── types.ts          — Agent type definitions
+│       ├── types.ts          — Agent type definitions
+│       └── researcher.ts     — Web research agent (search + synthesize)
 ├── activity/                 — Discord Activity wrapper + Unity WebGL build
 │   ├── index.html            — Discord SDK + OAuth2 + Unity loader
 │   ├── test.html             — Local test page (no Discord SDK)
@@ -267,6 +289,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 ├── data/                     — Runtime data (gitignored)
 ├── settings.yaml             — Your config (gitignored)
 ├── settings.example.yaml     — Config template
+├── openapi.yaml              — OpenAPI 3.1 spec for the REST API
 ├── package.json
 └── tsconfig.json
 ```

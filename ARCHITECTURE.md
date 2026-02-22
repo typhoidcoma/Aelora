@@ -38,7 +38,7 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
                      ┌──────────────▼────────────────┐
                      │       Persistence layer       │
                      │  memory.ts · sessions.ts ·    │
-                     │  data/*.json                  │
+                     │  daily-log.ts · data/*.json   │
                      └───────────────────────────────┘
 
   ┌────────────┐    ┌────────────┐    ┌─────────────────────┐
@@ -63,17 +63,19 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 | Step | What | Module |
 |------|------|--------|
 | 1 | Install logger (patch console) | `logger.ts` |
-| 2 | Load config from `settings.yaml` | `config.ts` |
+| 2 | Load config from `settings.yaml`, set `process.env.TZ` | `config.ts` |
 | 3 | Load persona files → compose system prompt | `persona.ts` |
 | 4 | Initialize LLM client | `llm.ts` |
 | 5 | Auto-discover and load tools | `tool-registry.ts` |
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
-| 9 | Register heartbeat handlers, start ticker | `heartbeat.ts` |
+| 9 | Register heartbeat handlers (calendar, memory), start ticker | `heartbeat.ts` |
 | 10 | Start web dashboard, set system state provider | `web.ts`, `llm.ts` |
 
-Graceful shutdown on SIGINT: stops heartbeat, stops cron, exits.
+Graceful shutdown on SIGINT/SIGTERM: stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged but keep the process alive.
+
+Persona loading is wrapped in try-catch — if the active persona fails to load, the bot continues with the fallback `llm.systemPrompt` from config.
 
 ---
 
@@ -151,7 +153,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 - Discord: connected, 1 guild(s)
 - Model: gpt-5.1-chat-latest
 - Uptime: 2h 15m
-- Heartbeat: running, 1 handler(s)
+- Heartbeat: running, 2 handler(s)
 - Cron: 2 active job(s)
 
 ## Currently Available
@@ -165,7 +167,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 - **memory** — Remember and recall facts about users and channels
 
 ### Agents
-(none currently)
+- **researcher** — Research a topic using web search and notes
 
 ## Memory
 ### About this user
@@ -209,46 +211,56 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### How It Works
 
-1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/aelora/`)
-2. Each file's YAML frontmatter is parsed for metadata:
+1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/aelora/`) and the shared `persona/_shared/` directory
+2. Shared files are loaded first, then persona-specific files. If a persona has a file with the same basename as a shared file, the persona's version **overrides** the shared one
+3. Each file's YAML frontmatter is parsed for metadata:
    - `order` (number) — sort priority (lower = earlier in prompt)
    - `enabled` (boolean) — whether to include in composed prompt
    - `label` (string) — display name for dashboard
    - `section` (string) — grouping category
-   - `botName` (string) — character name (used in `persona.md` to define the character's identity)
-3. Files are sorted by `order`, then alphabetically within the same order
-4. Enabled files are concatenated with `\n\n` separators
-5. `botName` is resolved from the active persona's `persona.md` frontmatter, falling back to `persona.botName` in config
-6. Template variables (e.g. `{{botName}}`) are substituted with the resolved character name
+   - `botName` (string) — character name (used in soul.md to define the character's identity)
+4. Files are sorted by `order`, then alphabetically within the same order
+5. Enabled files are concatenated with `\n\n` separators
+6. `botName` is resolved from the active persona's `soul.md` frontmatter, falling back to `persona.botName` in config
+7. Template variables (e.g. `{{botName}}`) are substituted with the resolved character name
 
-### Personas — Character Entities
+### Shared + Per-Persona Architecture
 
-Each persona is a **self-contained character** — a directory under `persona/` with its own identity, personality, bootstrap rules, skills, and tools. The active persona is controlled by `persona.activePersona` in `settings.yaml` (default: `"aelora"`). Only the active persona's directory is loaded — all other persona directories are ignored.
+```
+persona/
+├── _shared/
+│   └── bootstrap.md            — Response format rules, operating instructions (order 5)
+│                                  Shared by all personas unless overridden
+├── aelora/
+│   ├── soul.md                 — Behavioral core, identity, personality (order 10, botName: "Aelora")
+│   ├── skills.md               — Character skills & competencies (order 50)
+│   ├── tools.md                — Tool/agent usage instructions (order 80)
+│   └── templates/user.md       — Per-user preferences (disabled, placeholder)
+├── wendy/
+│   ├── soul.md                 — Gen Z friend who has her life together (order 10, botName: "Wendy")
+│   ├── skills.md
+│   ├── tools.md
+│   └── templates/user.md
+├── arlo/
+│   ├── soul.md                 — Stoic-strategic advisor (order 10, botName: "Arlo")
+│   ├── skills.md
+│   ├── tools.md
+│   └── templates/user.md
+└── batperson/
+    ├── bootstrap.md            — Overrides _shared/bootstrap.md (custom format for BatPerson)
+    ├── soul.md                 — Absurdist hero (order 10, botName: "BatPerson")
+    └── skills.md
+```
 
-Each persona directory contains:
-
-- `persona.md` — persona description and behavioral framing; frontmatter includes `botName` (the character's display name) and `description`
-- `identity.md` — the character's identity, backstory, and lore
-- `soul.md` — the character's behavioral core, directives, and personality traits
-- `bootstrap.md` — response format rules and operating instructions
-- `tools.md` — tool/agent usage instructions
-- `skills.md` — the character's specialized skills and competencies
-
-### Current File Inventory (aelora persona)
-
-| Order | File | Section | Enabled |
-|-------|------|---------|---------|
-| 5 | `aelora/bootstrap.md` | bootstrap | yes |
-| 10 | `aelora/identity.md` | identity | yes |
-| 20 | `aelora/soul.md` | soul | yes |
-| 50 | `aelora/skills.md` | skill | yes |
-| 80 | `aelora/tools.md` | tools | yes |
-| 90 | `aelora/persona.md` | persona | yes |
-| 200 | `aelora/templates/user.md` | template | no |
+Each persona's `soul.md` follows the SOUL Authoring Blueprint — a 10-section behavioral contract covering identity, decision biases, cognitive lens, tone constraints, caring protocol, stress matrix, refusal architecture, compression rules, multi-agent alignment, and drift indicators.
 
 ### Hot Reload
 
 `POST /api/persona/reload` re-reads all files from disk and updates the live system prompt. No restart needed. Available from the web dashboard.
+
+### Persona Switching
+
+`POST /api/persona/switch` with `{ "persona": "wendy" }`. The switch endpoint loads the new persona before updating config — if loading fails, the previous persona is preserved and an error is returned. Switchable from the dashboard's persona card grid.
 
 ---
 
@@ -307,7 +319,7 @@ metadata: param.object("Task metadata.", {
     priority: param.enum("Priority level.", ["low", "medium", "high"] as const),
     tags: param.array("Tags.", { itemType: "string" }),
   },
-  requiredFields: ["priority"],  // Optional — defaults to inferring from _required flags
+  requiredFields: ["priority"],
 }),
 ```
 
@@ -407,13 +419,17 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 }
 ```
 
-No concrete agents exist yet — the framework is ready for use.
+### Current Agents
+
+| Agent | Description | Tools |
+|-------|-------------|-------|
+| `researcher` | Multi-step web research with synthesis and optional note saving | `web_search`, `notes` |
 
 ---
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 60 seconds).
 
@@ -436,14 +452,17 @@ type HeartbeatContext = {
 
 Handlers receive Discord send capability, LLM access, and full config. They run sequentially on each tick, with errors caught per-handler.
 
-### Calendar Reminder Handler
+### Built-in Handlers
 
-The built-in `calendar-reminder` handler ([src/heartbeat-calendar.ts](src/heartbeat-calendar.ts)):
-
+**Calendar Reminder** (`heartbeat-calendar.ts`):
 - Every tick: connects to CalDAV, fetches events starting within 15 minutes
 - Sends a formatted reminder to the guild's first text channel
 - Tracks notified events by UID to avoid duplicates
 - Silently skips if CalDAV is not configured
+
+**Memory Compaction** (`heartbeat-memory.ts`):
+- Periodically compacts memory facts for efficiency
+- Runs on the heartbeat tick cycle
 
 ### Adding a Handler
 
@@ -468,7 +487,18 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 **File:** [src/cron.ts](src/cron.ts)
 
-Schedules jobs from `data/cron-jobs.json`. Jobs are created via the `cron` tool, REST API, or web dashboard. Uses the `croner` library (cron expressions with timezone support).
+Schedules jobs using `data/cron-jobs.json` as the single source of truth. Jobs are created via the `cron` tool, REST API, or web dashboard. Uses the `croner` library (cron expressions with timezone support).
+
+### Architecture
+
+The cron system uses a **file-based** architecture to prevent data loss:
+
+- **Every read** loads from `data/cron-jobs.json`
+- **Every write** saves atomically (write to temp file, then rename)
+- **Only in-memory state** is a `Map<string, SchedulerEntry>` for live `Cron` timer instances — this is scheduling machinery only, never used as a data source
+- After any write, `syncSchedulers()` reconciles live timers with the file contents
+
+This design eliminates issues with ESM module duplication where multiple module instances could hold competing in-memory state.
 
 ### Job Types
 
@@ -477,7 +507,11 @@ Schedules jobs from `data/cron-jobs.json`. Jobs are created via the `cron` tool,
 | `static` | Sends `job.message` literally to the configured channel |
 | `llm` | Sends `job.prompt` to `getLLMOneShot()`, posts the LLM's response |
 
-LLM-type jobs have full tool support — the LLM can call tools while generating the response. LLM-type jobs use the active persona's system prompt.
+LLM-type jobs have full tool support — the LLM can call tools while generating the response.
+
+### Timezone Handling
+
+Jobs use the global `timezone` from `settings.yaml` by default (set via `process.env.TZ` at startup). Individual jobs can override with a per-job `timezone` field.
 
 ### Job Management
 
@@ -488,9 +522,15 @@ Jobs can be created, updated, toggled, triggered, and deleted through:
 
 Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job maintains up to 10 execution history records with timestamps, duration, output preview, and error status.
 
-### State Tracking
+### Execution Flow
 
-Each job maintains `CronJobState`: name, schedule, last run, next run, last error, execution history. Exposed via `GET /api/cron` and the web dashboard.
+1. Cron timer fires → `executeJob(name)`
+2. Load job from file by name (gets latest prompt/message)
+3. Resolve payload (static message or LLM call)
+4. Send to Discord channel
+5. Re-load file (in case changes happened during async LLM call)
+6. Append history record, cap at 10 entries
+7. Save atomically
 
 ---
 
@@ -512,7 +552,7 @@ Seven slash commands, registered on startup:
 
 | Command | Description |
 |---------|-------------|
-| `/ask [prompt]` | Ask Aelora with a rich embed response |
+| `/ask [prompt]` | Ask the bot with a rich embed response |
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
 | `/clear` | Clear conversation history for this channel |
@@ -550,7 +590,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Auth:** Optional bearer token via `web.apiKey` in `settings.yaml`. When set, all `/api/*` routes (except `/api/status`, `/api/activity/*`, and `/api/docs`) require `Authorization: Bearer <key>`. SSE endpoints accept `?token=<key>` instead. No key configured = no auth.
 
-**Rate limits:** 100 req/15 min general, 10 req/min on LLM endpoints.
+**Rate limits:** 1000 req/15 min general, 60 req/min on LLM endpoints.
 
 **Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Tools (2), Agents (2), System (4), Activity (2) — 42 endpoints total.
 
@@ -574,12 +614,13 @@ Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, pur
 
 **File:** [src/config.ts](src/config.ts)
 
-`loadConfig()` reads `settings.yaml`, validates required keys (`discord.token`, `llm.baseURL`, `llm.model`), and returns a typed `Config` object with defaults applied.
+`loadConfig()` reads `settings.yaml`, validates required keys (`discord.token`, `llm.baseURL`, `llm.model`), and returns a typed `Config` object with defaults applied. The `timezone` field sets `process.env.TZ` at startup, affecting all date/time operations globally.
 
 ### Config Type
 
 ```typescript
 type Config = {
+  timezone: string;            // IANA timezone, default: "UTC"
   discord: {
     token: string;
     guildMode: "mention" | "all";
@@ -593,11 +634,11 @@ type Config = {
     baseURL: string;
     apiKey: string;
     model: string;
-    systemPrompt: string;     // Overwritten by soul system at startup
+    systemPrompt: string;     // Overwritten by persona system at startup
     maxTokens: number;        // Default: 1024
     maxHistory: number;       // Default: 20
   };
-  web: { enabled: boolean; port: number };
+  web: { enabled: boolean; port: number; apiKey?: string };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
@@ -630,9 +671,17 @@ type Config = {
 2. Pushes a `LogEntry` into a 200-entry circular buffer
 3. Broadcasts the entry as an SSE event to all connected dashboard clients
 
+### daily-log.ts — Activity Logging
+
+Automatic daily activity logging, persisted to disk. Uses the configured timezone for date formatting.
+
 ### utils.ts — Shared Utilities
 
 `chunkMessage(text, maxLength = 2000)` — splits text into Discord-safe chunks, respecting newline boundaries where possible.
+
+### Process Error Handlers
+
+`index.ts` registers handlers for `uncaughtException` and `unhandledRejection` that log the error but keep the process alive, preventing silent crashes from unhandled async errors.
 
 ---
 
@@ -644,9 +693,10 @@ type Config = {
 | Notes | `data/notes.json` (disk) | Yes |
 | Calendar events | External CalDAV server | Yes |
 | Tool/agent enabled state | In-memory registry | No (resets to code defaults) |
-| Cron jobs + execution history | `data/cron-jobs.json` (disk) | Yes |
+| Cron jobs + execution history | `data/cron-jobs.json` (disk, atomic writes) | Yes |
 | Memory facts | `data/memory.json` (disk) | Yes |
 | Sessions | `data/sessions.json` (disk) | Yes |
+| Daily log | `data/daily-log/` (disk) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Persona files | Disk (`persona/` directory) | Yes |
@@ -776,10 +826,11 @@ For multi-action tools (the most common pattern), copy `src/tools/_example-multi
 
 1. From the dashboard Persona section, click **+ Create** and fill in a Character Name, Folder Name, and Description
 2. Or via API: `POST /api/personas` with `{ "name": "my-char", "description": "...", "botName": "My Character" }`
-3. This creates a self-contained persona directory with template files: `persona.md`, `identity.md`, `soul.md`, `bootstrap.md`
-4. Edit the generated files to define the character's identity, backstory, and behavioral core
-5. Switch to the new character from the dashboard card grid or via `POST /api/persona/switch`
-6. The `{{botName}}` variable resolves to this character's name automatically
+3. This creates a self-contained persona directory with template files: `soul.md`, `skills.md`, `tools.md`
+4. Bootstrap rules are inherited from `_shared/bootstrap.md` — no per-persona bootstrap needed (unless overriding)
+5. Edit the generated `soul.md` to define the character's behavioral core using the SOUL Authoring Blueprint
+6. Switch to the new character from the dashboard card grid or via `POST /api/persona/switch`
+7. The `{{botName}}` variable resolves to this character's name automatically
 
 ### Adding a Cron Job
 

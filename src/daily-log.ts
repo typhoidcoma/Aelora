@@ -96,6 +96,30 @@ export function searchLogs(
 }
 
 /**
+ * Append a system lifecycle event to today's daily log.
+ * Uses a [SYSTEM] heading so it's visually distinct from conversation entries.
+ */
+export function appendSystemEvent(event: string, detail?: string): void {
+  ensureDir();
+  const file = dateToFilename(todayDate());
+
+  const block = [
+    `## ${nowTime()} — [SYSTEM] ${event}`,
+    "",
+    ...(detail ? [detail, ""] : []),
+    "---",
+    "",
+  ].join("\n");
+
+  try {
+    const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
+    writeFileSync(file, existing + block, "utf-8");
+  } catch (err) {
+    console.error("DailyLog: failed to append system event:", err);
+  }
+}
+
+/**
  * List available log dates (newest first).
  */
 export function listLogDates(): string[] {

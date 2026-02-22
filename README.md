@@ -307,3 +307,4 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Deep technical reference for all systems
 - [ROADMAP.md](ROADMAP.md) — Planned features and specs
+- [openapi.yaml](openapi.yaml) — REST API specification (also available at `/api/docs` when the bot is running)

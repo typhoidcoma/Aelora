@@ -48,6 +48,7 @@ export function startWeb(state: AppState): void {
   }
 
   const app = express();
+  app.set("trust proxy", 1);
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "..", "public");
 

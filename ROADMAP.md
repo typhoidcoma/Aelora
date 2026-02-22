@@ -1,6 +1,6 @@
 # Roadmap
 
-Planned features for Aelora. Each feature includes an overview, how it integrates with existing systems, proposed data models, and an implementation sketch.
+Planned features for Aelora 🦋. Each feature includes an overview, how it integrates with existing systems, proposed data models, and an implementation sketch.
 
 ---
 

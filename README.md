@@ -1,4 +1,4 @@
-# Aelora
+# Aelora 🦋
 
 **The embodiment layer of the Luminora Emotion Engine.**
 

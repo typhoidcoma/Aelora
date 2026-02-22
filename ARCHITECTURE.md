@@ -1,6 +1,6 @@
 # Architecture
 
-Technical reference for the Aelora bot. Covers every system, how they connect, and how to extend them.
+Technical reference for the Aelora 🦋 bot. Covers every system, how they connect, and how to extend them.
 
 ## System Overview
 

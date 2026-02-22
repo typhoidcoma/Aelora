@@ -137,12 +137,19 @@ export function getPersonaDescriptions(personaDir: string): Array<{
   const personas = discoverPersonas(personaDir);
   return personas.map((name) => {
     const pDir = join(personaDir, name);
+    const soulMdPath = join(pDir, "soul.md");
     const personaMdPath = join(pDir, "persona.md");
     let description = "";
     let botName = "";
-    if (existsSync(personaMdPath)) {
-      const { meta } = parseFrontmatter(readFileSync(personaMdPath, "utf-8"));
+    if (existsSync(soulMdPath)) {
+      const { meta } = parseFrontmatter(readFileSync(soulMdPath, "utf-8"));
       description = (meta.description as string) ?? "";
+      botName = (meta.botName as string) ?? "";
+    }
+    // Fallback: legacy persona.md for older persona formats
+    if (!botName && existsSync(personaMdPath)) {
+      const { meta } = parseFrontmatter(readFileSync(personaMdPath, "utf-8"));
+      if (!description) description = (meta.description as string) ?? "";
       botName = (meta.botName as string) ?? "";
     }
     const fileCount = discoverFiles(pDir).length;
@@ -183,9 +190,10 @@ export function loadPersona(
     return a.path.localeCompare(b.path);
   });
 
-  // Extract per-character botName from persona.md frontmatter
-  const personaFile = files.find((f) => f.path === `${activePersona}/persona.md`);
-  const resolvedBotName = personaFile?.meta.botName || variables.botName;
+  // Extract per-character botName from soul.md frontmatter (fallback: legacy persona.md)
+  const soulFile = files.find((f) => f.path === `${activePersona}/soul.md`);
+  const legacyPersonaFile = files.find((f) => f.path === `${activePersona}/persona.md`);
+  const resolvedBotName = soulFile?.meta.botName || legacyPersonaFile?.meta.botName || variables.botName;
   const resolvedVariables = { ...variables, botName: resolvedBotName };
 
   const composedPrompt = files
@@ -305,31 +313,19 @@ export function createPersona(
 
   mkdirSync(pDir, { recursive: true });
 
-  // Create persona.md (manifest)
-  const personaContent =
+  // Create soul.md (consolidated identity + soul + metadata)
+  const soulContent =
     buildFrontmatter({
-      order: 90,
+      order: 10,
       enabled: true,
-      label: `${charName} Persona`,
-      section: "persona",
+      label: `${charName} Soul`,
+      section: "soul",
       description: description || "",
       botName: charName,
     }) +
     "\n\n" +
-    `# Persona: ${charName}\n\nDescribe this persona's behavior and focus here.\n`;
-
-  writeFileSync(join(pDir, "persona.md"), personaContent, "utf-8");
-
-  // Create identity.md
-  const identityContent =
-    buildFrontmatter({
-      order: 10,
-      enabled: true,
-      label: `${charName} Identity`,
-      section: "identity",
-    }) +
-    "\n\n" +
-    `# Identity\n\n` +
+    `# Soul: ${charName}\n\n` +
+    `## Identity\n\n` +
     `You are **{{botName}}**.\n\n` +
     `- **Full Name**: ${charName}\n` +
     `- **Role**: Define this character's role\n` +
@@ -337,20 +333,13 @@ export function createPersona(
     `## Backstory\n\n` +
     `Write this character's history and lore here.\n\n` +
     `## Identity Statement\n\n` +
-    `A brief definitive statement of who ${charName} is.\n`;
-
-  writeFileSync(join(pDir, "identity.md"), identityContent, "utf-8");
-
-  // Create soul.md
-  const soulContent =
-    buildFrontmatter({
-      order: 20,
-      enabled: true,
-      label: `${charName} Soul`,
-      section: "soul",
-    }) +
-    "\n\n" +
-    `# Soul\n\n## Core Directive\n\nDefine the behavioral core for ${charName}.\n`;
+    `A brief definitive statement of who ${charName} is.\n\n` +
+    `## Core Directive\n\n` +
+    `Define the fundamental operating principle for ${charName}.\n\n` +
+    `## Personality\n\n` +
+    `Describe how ${charName} behaves — tone, style, emotional range.\n\n` +
+    `## Behavioral Standards\n\n` +
+    `Rules ${charName} follows in all interactions.\n`;
 
   writeFileSync(join(pDir, "soul.md"), soulContent, "utf-8");
 

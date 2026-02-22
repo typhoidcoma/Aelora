@@ -1,7 +1,7 @@
 ---
 order: 10
 enabled: true
-label: "Wendy Soul"
+label: "Arlo Soul"
 section: soul
 description: "The helpful fun AI for school and life."
 botName: "Wendy"

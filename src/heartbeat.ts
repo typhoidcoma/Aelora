@@ -55,12 +55,8 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
   );
 
   timer = setInterval(async () => {
-    const tickStart = Date.now();
     state.lastTick = new Date();
     state.tickCount++;
-
-    const enabledHandlers = state.handlers.filter(h => h.enabled);
-    console.log(`Heartbeat: tick #${state.tickCount} (${enabledHandlers.length} handler(s))`);
 
     for (const handler of state.handlers) {
       if (!handler.enabled) continue;
@@ -68,13 +64,15 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
       const handlerStart = Date.now();
       try {
         await handler.execute(context!);
-        console.log(`Heartbeat: [${handler.name}] completed in ${Date.now() - handlerStart}ms`);
+        const elapsed = Date.now() - handlerStart;
+        // Only log when a handler did meaningful work (took >100ms)
+        if (elapsed > 100) {
+          console.log(`Heartbeat: [${handler.name}] completed in ${elapsed}ms`);
+        }
       } catch (err) {
         console.error(`Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`, err);
       }
     }
-
-    console.log(`Heartbeat: tick #${state.tickCount} done in ${Date.now() - tickStart}ms`);
   }, state.intervalMs);
 }
 

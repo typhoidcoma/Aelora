@@ -55,14 +55,17 @@ export function startWeb(state: AppState): void {
 
   app.use(express.json());
 
-  // Request logging middleware
+  // Request logging middleware — only log mutations and errors, not dashboard polling
   app.use((req, res, next) => {
     if (req.path === "/api/logs/stream" || !req.path.startsWith("/api")) {
       return next();
     }
     const start = Date.now();
     res.on("finish", () => {
-      console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+      // Log POST/PUT/DELETE (mutations) and any non-2xx responses (errors)
+      if (req.method !== "GET" || res.statusCode >= 400) {
+        console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+      }
     });
     next();
   });

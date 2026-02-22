@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 
 export type Config = {
+  timezone: string;
   discord: {
     token: string;
     guildMode: "mention" | "all";
@@ -70,6 +71,7 @@ export function loadConfig(path = "settings.yaml"): Config {
   }
 
   return {
+    timezone: parsed.timezone ?? "UTC",
     discord: {
       token: parsed.discord.token,
       guildMode: parsed.discord.guildMode ?? "mention",
@@ -98,7 +100,7 @@ export function loadConfig(path = "settings.yaml"): Config {
       enabled: parsed.persona?.enabled ?? true,
       dir: parsed.persona?.dir ?? "persona",
       botName: parsed.persona?.botName ?? "Aelora",
-      activePersona: parsed.persona?.activePersona ?? parsed.persona?.activeMode ?? "default",
+      activePersona: parsed.persona?.activePersona ?? "default",
     },
     heartbeat: {
       enabled: parsed.heartbeat?.enabled ?? true,

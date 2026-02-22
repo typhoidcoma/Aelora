@@ -21,8 +21,9 @@ async function main(): Promise<void> {
 
   // 1. Load config
   const config = loadConfig();
+  process.env.TZ = config.timezone;
   setToolConfigStore(config.tools);
-  console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}`);
+  console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 
   // 2. Load persona (compose system prompt from persona/ directory)
   let personaState: PersonaState | null = null;

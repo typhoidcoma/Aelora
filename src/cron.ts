@@ -180,6 +180,9 @@ export function startCron(): void {
   const persisted = loadPersistedJobs();
 
   for (const job of persisted) {
+    const history = job.history ?? [];
+    const lastEntry = history.length > 0 ? history[history.length - 1] : null;
+
     const state: CronJobState = {
       name: job.name,
       schedule: job.schedule,
@@ -189,10 +192,10 @@ export function startCron(): void {
       message: job.message,
       prompt: job.prompt,
       enabled: job.enabled,
-      lastRun: null,
+      lastRun: lastEntry ? new Date(lastEntry.timestamp) : null,
       nextRun: null,
-      lastError: null,
-      history: job.history ?? [],
+      lastError: lastEntry?.error ?? null,
+      history,
       instance: null,
     };
 

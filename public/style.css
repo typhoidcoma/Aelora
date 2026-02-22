@@ -553,16 +553,29 @@ section {
 }
 
 .schedule-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 0.3rem;
   font-size: 0.72rem;
   color: var(--text-muted);
 }
 .schedule-preview code {
   font-family: "Roboto Mono", monospace;
-  color: var(--brand-gold);
+  color: var(--text-subtle);
   background: var(--bg-deep);
   padding: 0.15rem 0.4rem;
   border-radius: 2px;
+  font-size: 0.65rem;
+}
+#cron-f-schedule-human {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.schedule-builder-row input[type="time"] {
+  font-family: "Roboto Mono", monospace;
+  width: 7rem;
 }
 
 .cron-form-grid label {
@@ -923,6 +936,31 @@ pre {
 .persona-card.active {
   border-color: var(--brand-gold);
   box-shadow: 0 0 12px rgba(242, 197, 114, 0.15);
+}
+
+.persona-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--bg-void);
+  border: 2px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.persona-card.active .persona-card-icon {
+  border-color: var(--brand-gold);
+  color: var(--brand-gold);
+}
+
+.persona-card:hover .persona-card-icon {
+  border-color: var(--brand-gold);
 }
 
 .persona-card-name {

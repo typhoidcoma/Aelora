@@ -349,9 +349,11 @@ async function fetchPersonas() {
       const isActive = p.name === data.activePersona;
       const displayName = p.botName || p.name;
       const showSlug = p.botName && p.botName.toLowerCase() !== p.name;
+      const initial = (displayName.charAt(0) || "?").toUpperCase();
       html += `
         <div class="persona-card${isActive ? " active" : ""}" onclick="switchPersona('${esc(p.name)}')">
           ${isActive ? '<div class="persona-card-badge">Active</div>' : ""}
+          <div class="persona-card-icon">${esc(initial)}</div>
           <div class="persona-card-name">${esc(displayName)}</div>
           ${showSlug ? `<div class="persona-card-id muted">${esc(p.name)}</div>` : ""}
           <div class="persona-card-desc">${esc(p.description) || '<span class="muted">No description</span>'}</div>
@@ -901,6 +903,18 @@ function timeAgo(iso) {
   return `${days}d ago`;
 }
 
+function timeUntil(iso) {
+  const diff = new Date(iso).getTime() - Date.now();
+  if (diff <= 0) return "now";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `in ${hours}h ${mins % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `in ${days}d`;
+}
+
 function formatTime(dateInput) {
   const d = dateInput instanceof Date ? dateInput : new Date(dateInput);
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -917,6 +931,72 @@ function esc(str) {
   const el = document.createElement("span");
   el.textContent = str ?? "";
   return el.innerHTML;
+}
+
+function cronToHuman(expr) {
+  if (!expr) return "";
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return expr;
+  const [min, hour, dom, mon, dow] = parts;
+
+  const days = { 0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat", 7: "Sun" };
+  const months = { 1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec" };
+
+  function fmtTime(h, m) {
+    const hr = parseInt(h);
+    const mn = parseInt(m);
+    const ampm = hr >= 12 ? "PM" : "AM";
+    const h12 = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+    return `${h12}:${String(mn).padStart(2, "0")} ${ampm}`;
+  }
+
+  // Every N minutes: */N * * * *
+  if (min.startsWith("*/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+    return `Every ${min.slice(2)} min`;
+  }
+
+  // Every N hours: 0 */N * * *
+  if (min === "0" && hour.startsWith("*/") && dom === "*" && mon === "*" && dow === "*") {
+    const n = hour.slice(2);
+    return `Every ${n} hr${n === "1" ? "" : "s"}`;
+  }
+
+  // Every hour at :MM
+  if (!min.includes("*") && !min.includes("/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+    return `Hourly at :${min.padStart(2, "0")}`;
+  }
+
+  // Fixed hour + minute, figure out frequency
+  if (!min.includes("*") && !min.includes("/") && !hour.includes("*") && !hour.includes("/")) {
+    const time = fmtTime(hour, min);
+
+    // Daily: H M * * *
+    if (dom === "*" && mon === "*" && dow === "*") {
+      return `Daily at ${time}`;
+    }
+
+    // Weekly: H M * * DOW
+    if (dom === "*" && mon === "*" && dow !== "*") {
+      const dayNames = dow.split(",").map((d) => days[d.trim()] || d).join(", ");
+      return `${dayNames} at ${time}`;
+    }
+
+    // Monthly: H M DOM * *
+    if (dom !== "*" && mon === "*" && dow === "*") {
+      const suffix = (d) => { const n = parseInt(d); const s = ["th","st","nd","rd"]; return n + (s[(n%100-20)%10] || s[n%100] || s[0]); };
+      const dayList = dom.split(",").map(suffix).join(", ");
+      return `${dayList} of month at ${time}`;
+    }
+
+    // Yearly: H M DOM MON *
+    if (dom !== "*" && mon !== "*" && dow === "*") {
+      const suffix = (d) => { const n = parseInt(d); const s = ["th","st","nd","rd"]; return n + (s[(n%100-20)%10] || s[n%100] || s[0]); };
+      const monName = months[parseInt(mon)] || mon;
+      return `${monName} ${suffix(dom)} at ${time}`;
+    }
+  }
+
+  return expr;
 }
 
 // --- Scheduled Tasks (Cron) ---
@@ -941,21 +1021,13 @@ async function fetchCron() {
             ? '<span class="cron-status-dot ok"></span>OK'
             : '<span class="cron-status-dot idle"></span>Idle';
 
-        const sourceBadge = `<span class="cron-source ${j.source}">${j.source}</span>`;
-        const lastRun = j.lastRun ? timeAgo(j.lastRun) : "--";
-        const nextRun = j.nextRun ? formatDateTime(j.nextRun) : "--";
-
-        const editBtn = j.source === "runtime"
-          ? ` <button class="btn btn-xs" onclick="editCronJob('${esc(j.name)}')">Edit</button>`
-          : "";
-        const deleteBtn = j.source === "runtime"
-          ? ` <button class="btn btn-danger btn-xs" onclick="deleteCronJob('${esc(j.name)}')">Delete</button>`
-          : "";
+        const lastRun = j.lastRun ? `${formatDateTime(j.lastRun)} <span class="muted">(${timeAgo(j.lastRun)})</span>` : "--";
+        const nextRun = j.nextRun ? `${formatDateTime(j.nextRun)} <span class="muted">(${timeUntil(j.nextRun)})</span>` : "--";
 
         return `
           <tr${j.enabled ? "" : ' class="disabled-row"'}>
-            <td><code>${esc(j.name)}</code>${sourceBadge}</td>
-            <td><code>${esc(j.schedule)}</code></td>
+            <td><code>${esc(j.name)}</code></td>
+            <td title="${esc(j.schedule)}">${cronToHuman(j.schedule)}</td>
             <td>${esc(j.type)}</td>
             <td>${j.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
             <td>${lastRun}</td>
@@ -964,7 +1036,9 @@ async function fetchCron() {
             <td>
               <button class="btn btn-xs" onclick="toggleCronJob('${esc(j.name)}')">${j.enabled ? "Disable" : "Enable"}</button>
               <button class="btn btn-xs" onclick="triggerCronJob('${esc(j.name)}')">Run</button>
-              <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>${editBtn}${deleteBtn}
+              <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>
+              <button class="btn btn-xs" onclick="editCronJob('${esc(j.name)}')">Edit</button>
+              <button class="btn btn-danger btn-xs" onclick="deleteCronJob('${esc(j.name)}')">Delete</button>
             </td>
           </tr>`;
       })
@@ -1051,8 +1125,10 @@ async function editCronJob(name) {
     document.getElementById("cron-f-message").value = job.message || "";
     document.getElementById("cron-f-submit-btn").textContent = "Save";
 
-    // Set schedule builder to custom mode (show raw cron expression)
-    document.getElementById("cron-f-freq").value = "custom";
+    // Try to parse cron into the visual builder, fall back to custom
+    if (!parseCronToBuilder(job.schedule)) {
+      document.getElementById("cron-f-freq").value = "custom";
+    }
     updateCronSchedule();
     toggleCronFormFields();
 
@@ -1082,8 +1158,7 @@ function hideCronForm() {
   document.getElementById("cron-f-submit-btn").textContent = "Create";
   // Reset schedule builder
   document.getElementById("cron-f-freq").value = "daily";
-  document.getElementById("cron-f-hour").value = "9";
-  document.getElementById("cron-f-minute").value = "0";
+  document.getElementById("cron-f-time").value = "09:00";
   document.getElementById("cron-f-interval").value = "5";
   document.getElementById("cron-f-dow").value = "1";
   document.getElementById("cron-f-dom").value = "1";
@@ -1101,8 +1176,7 @@ function toggleCronFormFields() {
 
 function updateCronSchedule() {
   const freq = document.getElementById("cron-f-freq").value;
-  const hour = document.getElementById("cron-f-hour").value;
-  const minute = document.getElementById("cron-f-minute").value;
+  const timeVal = document.getElementById("cron-f-time").value || "09:00";
   const interval = document.getElementById("cron-f-interval").value;
   const dow = document.getElementById("cron-f-dow").value;
   const dom = document.getElementById("cron-f-dom").value;
@@ -1119,13 +1193,18 @@ function updateCronSchedule() {
   // Toggle between preview (visual) and raw input (custom)
   const isCustom = freq === "custom";
   document.getElementById("cron-f-schedule-preview").style.display = isCustom ? "none" : "";
+  document.getElementById("cron-f-schedule-human").style.display = isCustom ? "none" : "";
   document.getElementById("cron-f-schedule").style.display = isCustom ? "" : "none";
 
-  if (isCustom) return;
+  if (isCustom) {
+    updateCronPreviewFromCustom();
+    return;
+  }
 
-  // Generate cron expression
-  const h = parseInt(hour) || 0;
-  const m = parseInt(minute) || 0;
+  // Parse time input
+  const [hStr, mStr] = timeVal.split(":");
+  const h = parseInt(hStr) || 0;
+  const m = parseInt(mStr) || 0;
   const iv = parseInt(interval) || 1;
   let cron;
 
@@ -1138,7 +1217,67 @@ function updateCronSchedule() {
   }
 
   document.getElementById("cron-f-schedule-preview").textContent = cron;
+  document.getElementById("cron-f-schedule-human").textContent = cronToHuman(cron);
   document.getElementById("cron-f-schedule").value = cron;
+}
+
+function updateCronPreviewFromCustom() {
+  const raw = document.getElementById("cron-f-schedule").value.trim();
+  const human = document.getElementById("cron-f-schedule-human");
+  if (raw) {
+    human.textContent = cronToHuman(raw);
+    human.style.display = "";
+  } else {
+    human.style.display = "none";
+  }
+}
+
+// Parse a cron expression back into the schedule builder fields
+function parseCronToBuilder(expr) {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length < 5) return false;
+  const [min, hour, dom, mon, dow] = parts;
+
+  // Every N minutes
+  if (min.startsWith("*/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
+    document.getElementById("cron-f-freq").value = "minutes";
+    document.getElementById("cron-f-interval").value = min.slice(2);
+    return true;
+  }
+  // Every N hours
+  if (min === "0" && hour.startsWith("*/") && dom === "*" && mon === "*" && dow === "*") {
+    document.getElementById("cron-f-freq").value = "hours";
+    document.getElementById("cron-f-interval").value = hour.slice(2);
+    return true;
+  }
+
+  // Fixed time patterns
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour)) {
+    const h = parseInt(hour);
+    const m = parseInt(min);
+    document.getElementById("cron-f-time").value =
+      `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+
+    // Daily
+    if (dom === "*" && mon === "*" && dow === "*") {
+      document.getElementById("cron-f-freq").value = "daily";
+      return true;
+    }
+    // Weekly
+    if (dom === "*" && mon === "*" && /^\d$/.test(dow)) {
+      document.getElementById("cron-f-freq").value = "weekly";
+      document.getElementById("cron-f-dow").value = dow;
+      return true;
+    }
+    // Monthly
+    if (/^\d+$/.test(dom) && mon === "*" && dow === "*") {
+      document.getElementById("cron-f-freq").value = "monthly";
+      document.getElementById("cron-f-dom").value = dom;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function submitCronJob() {

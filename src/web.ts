@@ -33,6 +33,7 @@ import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
 import { getAllSessions, getSession, deleteSession, clearAllSessions } from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
+import { saveActivePersona } from "./state.js";
 
 export type AppState = {
   config: Config;
@@ -376,6 +377,7 @@ export function startWeb(state: AppState): void {
       config.persona.activePersona = persona;
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
+      saveActivePersona(persona);
 
       const enabledCount = newState.files.filter((f) => f.meta.enabled).length;
       res.json({
@@ -829,7 +831,7 @@ export function startWeb(state: AppState): void {
     console.log(`Web: Activity enabled (serving ${activityDir})`);
   }
 
-  app.listen(config.web.port, () => {
-    console.log(`Web: dashboard at http://localhost:${config.web.port}`);
+  app.listen(config.web.port, "0.0.0.0", () => {
+    console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}`);
   });
 }

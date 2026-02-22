@@ -12,7 +12,7 @@ import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js
 import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
 import { startWeb, type AppState } from "./web.js";
-import { saveState, consumePreviousState, formatRestartMessage } from "./state.js";
+import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
 import { appendSystemEvent } from "./daily-log.js";
 
 // Install logger first so all console output is captured
@@ -28,6 +28,13 @@ async function main(): Promise<void> {
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 
   // 2. Load persona (compose system prompt from persona/ directory)
+  //    Use persisted active persona if available (survives crashes/restarts)
+  const savedPersona = loadActivePersona();
+  if (savedPersona && savedPersona !== config.persona.activePersona) {
+    console.log(`Persona: restoring last active persona "${savedPersona}" (config default: "${config.persona.activePersona}")`);
+    config.persona.activePersona = savedPersona;
+  }
+
   let personaState: PersonaState | null = null;
   if (config.persona.enabled) {
     try {

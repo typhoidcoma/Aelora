@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "
 
 const STATE_FILE = "data/state.json";
 const CALENDAR_NOTIFIED_FILE = "data/calendar-notified.json";
+const ACTIVE_PERSONA_FILE = "data/active-persona.json";
 
 export type ShutdownReason = "clean" | "reboot" | "crash" | "fatal";
 
@@ -97,6 +98,30 @@ export function saveCalendarNotified(uids: string[]): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
     writeFileSync(CALENDAR_NOTIFIED_FILE, JSON.stringify(uids), "utf-8");
+  } catch {
+    // Best effort
+  }
+}
+
+// ── Active persona persistence ──────────────────────────────────
+
+/** Load the last active persona name from disk. Returns null if none saved. */
+export function loadActivePersona(): string | null {
+  try {
+    if (existsSync(ACTIVE_PERSONA_FILE)) {
+      return JSON.parse(readFileSync(ACTIVE_PERSONA_FILE, "utf-8"));
+    }
+  } catch {
+    // Fall back to config default
+  }
+  return null;
+}
+
+/** Persist the active persona name to disk so it survives restarts. */
+export function saveActivePersona(name: string): void {
+  try {
+    if (!existsSync("data")) mkdirSync("data", { recursive: true });
+    writeFileSync(ACTIVE_PERSONA_FILE, JSON.stringify(name), "utf-8");
   } catch {
     // Best effort
   }

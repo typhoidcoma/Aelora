@@ -61,63 +61,80 @@ export function loadConfig(path = "settings.yaml"): Config {
 
   const parsed = parse(raw);
 
-  if (!parsed?.discord?.token) {
-    throw new Error("settings.yaml: discord.token is required");
-  }
-  if (!parsed?.llm?.baseURL) {
-    throw new Error("settings.yaml: llm.baseURL is required");
-  }
-  if (!parsed?.llm?.model) {
-    throw new Error("settings.yaml: llm.model is required");
-  }
-
-  return {
-    timezone: parsed.timezone ?? "UTC",
+  const config: Config = {
+    timezone: parsed?.timezone ?? "UTC",
     discord: {
-      token: parsed.discord.token,
-      guildMode: parsed.discord.guildMode ?? "mention",
-      allowedChannels: (parsed.discord.allowedChannels ?? []).map(String),
-      allowDMs: parsed.discord.allowDMs ?? true,
-      status: parsed.discord.status ?? "Online",
-      guildId: parsed.discord.guildId ?? undefined,
-      embedColor: parsed.discord.embedColor
+      token: parsed?.discord?.token ?? "",
+      guildMode: parsed?.discord?.guildMode ?? "mention",
+      allowedChannels: (parsed?.discord?.allowedChannels ?? []).map(String),
+      allowDMs: parsed?.discord?.allowDMs ?? true,
+      status: parsed?.discord?.status ?? "Online",
+      guildId: parsed?.discord?.guildId ?? undefined,
+      embedColor: parsed?.discord?.embedColor
         ? parseInt(String(parsed.discord.embedColor).replace("#", ""), 16)
         : undefined,
-      statusChannelId: parsed.discord.statusChannelId ?? undefined,
+      statusChannelId: parsed?.discord?.statusChannelId ?? undefined,
     },
     llm: {
-      baseURL: parsed.llm.baseURL,
-      apiKey: parsed.llm.apiKey ?? "",
-      model: parsed.llm.model,
-      systemPrompt: parsed.llm.systemPrompt ?? "You are a helpful assistant.",
-      maxTokens: parsed.llm.maxTokens ?? 1024,
-      maxHistory: parsed.llm.maxHistory ?? 20,
+      baseURL: parsed?.llm?.baseURL ?? "",
+      apiKey: parsed?.llm?.apiKey ?? "",
+      model: parsed?.llm?.model ?? "",
+      systemPrompt: parsed?.llm?.systemPrompt ?? "You are a helpful assistant.",
+      maxTokens: parsed?.llm?.maxTokens ?? 1024,
+      maxHistory: parsed?.llm?.maxHistory ?? 20,
     },
     web: {
-      enabled: parsed.web?.enabled ?? true,
-      port: parsed.web?.port ?? 3000,
-      apiKey: parsed.web?.apiKey ?? undefined,
+      enabled: parsed?.web?.enabled ?? true,
+      port: parsed?.web?.port ?? 3000,
+      apiKey: parsed?.web?.apiKey ?? undefined,
     },
     persona: {
-      enabled: parsed.persona?.enabled ?? true,
-      dir: parsed.persona?.dir ?? "persona",
-      botName: parsed.persona?.botName ?? "Aelora",
-      activePersona: parsed.persona?.activePersona ?? "default",
+      enabled: parsed?.persona?.enabled ?? true,
+      dir: parsed?.persona?.dir ?? "persona",
+      botName: parsed?.persona?.botName ?? "Aelora",
+      activePersona: parsed?.persona?.activePersona ?? "default",
     },
     heartbeat: {
-      enabled: parsed.heartbeat?.enabled ?? true,
-      intervalMs: parsed.heartbeat?.intervalMs ?? 60_000,
+      enabled: parsed?.heartbeat?.enabled ?? true,
+      intervalMs: parsed?.heartbeat?.intervalMs ?? 60_000,
     },
     agents: {
-      enabled: parsed.agents?.enabled ?? true,
-      maxIterations: parsed.agents?.maxIterations ?? 5,
+      enabled: parsed?.agents?.enabled ?? true,
+      maxIterations: parsed?.agents?.maxIterations ?? 5,
     },
-    tools: parsed.tools ?? {},
+    tools: parsed?.tools ?? {},
     activity: {
-      enabled: parsed.activity?.enabled ?? false,
-      clientId: parsed.activity?.clientId ?? "",
-      clientSecret: parsed.activity?.clientSecret ?? "",
-      serverUrl: parsed.activity?.serverUrl ?? "",
+      enabled: parsed?.activity?.enabled ?? false,
+      clientId: parsed?.activity?.clientId ?? "",
+      clientSecret: parsed?.activity?.clientSecret ?? "",
+      serverUrl: parsed?.activity?.serverUrl ?? "",
     },
   };
+
+  // Environment variables override YAML values (secrets + port)
+  applyEnvOverrides(config);
+
+  // Validate required fields (after env overrides)
+  if (!config.discord.token) {
+    throw new Error("discord.token is required (set in settings.yaml or AELORA_DISCORD_TOKEN)");
+  }
+  if (!config.llm.baseURL) {
+    throw new Error("llm.baseURL is required (set in settings.yaml or AELORA_LLM_BASE_URL)");
+  }
+  if (!config.llm.model) {
+    throw new Error("llm.model is required (set in settings.yaml)");
+  }
+
+  return config;
+}
+
+function applyEnvOverrides(config: Config): void {
+  const env = process.env;
+  if (env.AELORA_DISCORD_TOKEN)          config.discord.token = env.AELORA_DISCORD_TOKEN;
+  if (env.AELORA_LLM_API_KEY)            config.llm.apiKey = env.AELORA_LLM_API_KEY;
+  if (env.AELORA_LLM_BASE_URL)           config.llm.baseURL = env.AELORA_LLM_BASE_URL;
+  if (env.AELORA_WEB_API_KEY)            config.web.apiKey = env.AELORA_WEB_API_KEY;
+  if (env.AELORA_WEB_PORT)               config.web.port = parseInt(env.AELORA_WEB_PORT, 10) || config.web.port;
+  if (env.AELORA_ACTIVITY_CLIENT_ID)     config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID;
+  if (env.AELORA_ACTIVITY_CLIENT_SECRET) config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET;
 }

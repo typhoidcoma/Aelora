@@ -28,7 +28,15 @@ function start(): void {
     stdio: "inherit",
   });
 
+  // Forward signals to child for clean shutdown (systemd sends SIGTERM to stop)
+  const onSIGTERM = () => child.kill("SIGTERM");
+  const onSIGINT = () => child.kill("SIGINT");
+  process.on("SIGTERM", onSIGTERM);
+  process.on("SIGINT", onSIGINT);
+
   child.on("exit", (code) => {
+    process.removeListener("SIGTERM", onSIGTERM);
+    process.removeListener("SIGINT", onSIGINT);
     if (code === REBOOT_CODE) {
       console.log("\n--- Rebooting ---\n");
       start();

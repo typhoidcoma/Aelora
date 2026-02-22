@@ -307,28 +307,22 @@
         </div>
       </section>
 
-      <!-- Activity Preview -->
-      <section>
-        <div class="section-header" data-section="activity">
-          <span class="chevron">&#9660;</span>
-          <h2>Activity Preview</h2>
-        </div>
-        <div class="section-body" data-section="activity">
-          <div class="card" id="activity-preview-card">
-            <p class="muted" style="margin-bottom: 0.5rem;">Test your Unity WebGL build without Discord. Uses stub user data.</p>
-            <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
-            <div id="activity-frame-wrap" style="display: none; margin-top: 0.5rem;">
-              <iframe id="activity-frame" src="" style="width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 6px; background: #0c0c0e;"></iframe>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <div class="resize-handle" id="resize-handle"></div>
 
-    <!-- Right: console -->
+    <!-- Right sidebar: activity + console -->
     <aside>
+      <div class="sidebar-panel activity-panel">
+        <div class="console-header">
+          <h3>Activity Preview</h3>
+          <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
+        </div>
+        <p class="muted" style="margin: 0.5rem 0;">Test your Unity WebGL build without Discord. Uses stub user data.</p>
+        <div id="activity-frame-wrap" style="display: none;">
+          <iframe id="activity-frame" src="" style="width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 6px; background: #0c0c0e;"></iframe>
+        </div>
+      </div>
       <div class="sidebar-panel console-panel">
         <div class="console-header">
           <h3>Console</h3>

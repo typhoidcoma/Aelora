@@ -17,7 +17,7 @@ import { startWeb, type AppState } from "./web.js";
 installLogger();
 
 async function main(): Promise<void> {
-  console.log("Aelora starting...\n");
+  console.log("Aelora 🦋 starting...\n");
 
   // 1. Load config
   const config = loadConfig();
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     };
   });
 
-  console.log("\nAelora is ready.\n");
+  console.log("\nAelora 🦋 is ready.\n");
 }
 
 process.on("SIGINT", () => {

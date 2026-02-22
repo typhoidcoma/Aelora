@@ -2,7 +2,7 @@
 
 **The embodiment layer of the Luminora Emotion Engine.**
 
-Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Persona"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard — all from a single `settings.yaml` config file.
+Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system ("Persona"), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, and a live web dashboard.
 
 ## Features
 
@@ -67,7 +67,6 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `persona` | Personality system toggle, directory, bot name, active persona |
 | `tools` | Per-tool config (API keys, CalDAV credentials, etc.) |
 | `agents` | Agent system toggle, max iterations |
-| `cron` | Scheduled jobs (static messages or LLM-generated) |
 | `heartbeat` | Periodic handler system interval |
 | `web` | Dashboard toggle and port |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
@@ -208,14 +207,13 @@ Once both the SDK and Unity are ready, the wrapper sends `OnDiscordReady` to Uni
 
 Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`.
 
-- **Status** — Discord connection, uptime, guild count
-- **Persona** — Character persona switching (card grid), file editor, botName, prompt size, hot-reload
-- **Tools & Agents** — Enable/disable at runtime
-- **Sessions** — Active conversations, message counts, clear/delete
-- **Memory** — Stored facts by scope, delete individual facts or clear scopes
-- **Cron** — Create, edit, delete, trigger, toggle jobs; schedules, last/next run, errors
-- **Heartbeat** — Tick count, handler list
+- **Status** — Discord connection, uptime, guild count, heartbeat
+- **Persona** — Character switching (card grid), file editor, botName, prompt size, hot-reload
 - **LLM Test** — Send test prompts with streaming output
+- **Sessions** — Active conversations, message counts, session detail overlay, clear/delete
+- **Memory** — Stored facts by scope, delete individual facts or clear scopes
+- **Scheduled Tasks** — Create, edit, delete, trigger, toggle cron jobs; human-readable schedules, last/next run, execution history
+- **Tools** — Enable/disable tools at runtime
 - **Activity Preview** — Test Unity WebGL build locally without Discord (stub user data)
 - **Console** — Live log stream via SSE
 

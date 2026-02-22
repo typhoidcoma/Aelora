@@ -376,7 +376,7 @@ Multiple providers behind a common interface. Selected by config.
 
 ### Overview
 
-Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. The existing `soul/templates/user.md` placeholder supports per-user prompt injection.
+Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. The existing `persona/aelora/templates/user.md` placeholder supports per-user prompt injection.
 
 ### How It Fits
 

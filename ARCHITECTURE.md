@@ -420,14 +420,7 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 **File:** [src/cron.ts](src/cron.ts)
 
-Schedules jobs from two sources: config-based jobs (from `settings.yaml`) and runtime-created jobs (via the `cron` tool or REST API). Uses the `croner` library (cron expressions with timezone support).
-
-### Job Sources
-
-| Source | Created via | Editable at runtime? | Persistence |
-|--------|-------------|----------------------|-------------|
-| `config` | `cron.jobs` in `settings.yaml` | No (read-only) | `settings.yaml` |
-| `runtime` | `cron` tool or `POST /api/cron` | Yes (full CRUD) | `data/cron-jobs.json` |
+Schedules jobs from `data/cron-jobs.json`. Jobs are created via the `cron` tool, REST API, or web dashboard. Uses the `croner` library (cron expressions with timezone support).
 
 ### Job Types
 
@@ -436,38 +429,16 @@ Schedules jobs from two sources: config-based jobs (from `settings.yaml`) and ru
 | `static` | Sends `job.message` literally to the configured channel |
 | `llm` | Sends `job.prompt` to `getLLMOneShot()`, posts the LLM's response |
 
-LLM-type jobs have full tool support — the LLM can call tools while generating the response.
+LLM-type jobs have full tool support — the LLM can call tools while generating the response. LLM-type jobs use the active persona's system prompt.
 
-### Configuration
+### Job Management
 
-```yaml
-cron:
-  jobs:
-    - name: "Good morning"
-      schedule: "0 9 * * *"
-      timezone: "America/New_York"
-      channelId: "123456789"
-      type: "static"
-      message: "Good morning everyone!"
-      enabled: true
-
-    - name: "Daily wisdom"
-      schedule: "0 12 * * *"
-      timezone: "America/New_York"
-      channelId: "123456789"
-      type: "llm"
-      prompt: "Generate a short piece of wisdom. Keep it under 200 words."
-      enabled: true
-```
-
-### Runtime Job Management
-
-Runtime jobs can be created, updated, toggled, triggered, and deleted through:
+Jobs can be created, updated, toggled, triggered, and deleted through:
 - The `cron` tool (LLM-accessible, used during conversations)
 - REST API (`POST/PUT/DELETE /api/cron/...`)
 - Web dashboard UI
 
-Runtime jobs persist to `data/cron-jobs.json` and are restored on restart. Each job maintains up to 10 execution history records with timestamps, duration, output preview, and error status.
+Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job maintains up to 10 execution history records with timestamps, duration, output preview, and error status.
 
 ### State Tracking
 
@@ -555,6 +526,7 @@ Express 5 server serving the dashboard frontend and REST API.
 | `POST` | `/api/cron/:name/trigger` | Manually trigger a cron job |
 | `DELETE` | `/api/cron/:name` | Delete a runtime cron job |
 | `GET` | `/api/sessions` | All active conversation sessions |
+| `GET` | `/api/sessions/:channelId` | Session detail with per-user stats and related memory facts |
 | `DELETE` | `/api/sessions/:channelId` | Delete a specific session |
 | `DELETE` | `/api/sessions` | Clear all sessions |
 | `GET` | `/api/memory` | All stored memory facts |
@@ -610,7 +582,6 @@ type Config = {
     maxTokens: number;        // Default: 1024
     maxHistory: number;       // Default: 20
   };
-  cron: { jobs: CronJobConfig[] };
   web: { enabled: boolean; port: number };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
   heartbeat: { enabled: boolean; intervalMs: number };
@@ -658,9 +629,7 @@ type Config = {
 | Notes | `data/notes.json` (disk) | Yes |
 | Calendar events | External CalDAV server | Yes |
 | Tool/agent enabled state | In-memory registry | No (resets to code defaults) |
-| Cron jobs (config) | `settings.yaml` | Yes |
-| Cron jobs (runtime) | `data/cron-jobs.json` (disk) | Yes |
-| Cron execution history | `data/cron-jobs.json` (disk) | Yes |
+| Cron jobs + execution history | `data/cron-jobs.json` (disk) | Yes |
 | Memory facts | `data/memory.json` (disk) | Yes |
 | Sessions | `data/sessions.json` (disk) | Yes |
 | Heartbeat notified events | In-memory Set | No |
@@ -776,18 +745,4 @@ Discord auto-creates an Entry Point command for applications with Activities ena
 
 ### Adding a Cron Job
 
-**Option 1: Config-based** — add to `settings.yaml` under `cron.jobs`:
-
-```yaml
-cron:
-  jobs:
-    - name: "My Job"
-      schedule: "*/30 * * * *"    # Every 30 minutes
-      timezone: "UTC"
-      channelId: "CHANNEL_ID"
-      type: "llm"                 # or "static"
-      prompt: "Generate something interesting."
-      enabled: true
-```
-
-**Option 2: Runtime** — create via the REST API (`POST /api/cron`), the web dashboard, or ask the bot to create one using the `cron` tool. Runtime jobs persist to `data/cron-jobs.json` and survive restarts.
+Create via the REST API (`POST /api/cron`), the web dashboard, or ask the bot to create one using the `cron` tool. Jobs persist to `data/cron-jobs.json` and survive restarts.

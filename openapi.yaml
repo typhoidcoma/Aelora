@@ -1,0 +1,1277 @@
+openapi: 3.1.0
+info:
+  title: Aelora API
+  version: 1.0.0
+  description: |
+    REST API for the Aelora bot platform. Powers the web dashboard and can be used
+    by external services to manage personas, memory, scheduled tasks, and more.
+
+    ## Authentication
+
+    When `web.apiKey` is set in `settings.yaml`, all routes (except those marked Public)
+    require a bearer token:
+
+    ```
+    Authorization: Bearer <your-api-key>
+    ```
+
+    For SSE endpoints (EventSource can't set headers), use a query parameter instead:
+
+    ```
+    GET /api/logs/stream?token=<your-api-key>
+    ```
+
+    When no API key is configured, all routes are open.
+
+    ## Rate Limiting
+
+    - **General:** 100 requests / 15 minutes per IP on all `/api/*` routes
+    - **LLM:** 10 requests / minute per IP on `/api/llm/test` and `/api/llm/test/stream`
+
+    Rate limit headers (`RateLimit-*`) are included in responses.
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Status
+    description: Health check and bot state
+  - name: Config
+    description: Bot configuration (sanitized, no secrets)
+  - name: Persona
+    description: Persona management, file editing, switching
+  - name: LLM
+    description: LLM test endpoints (rate limited to 10/min)
+  - name: Cron
+    description: Scheduled task management
+  - name: Sessions
+    description: Conversation session analytics
+  - name: Memory
+    description: Fact storage, daily logs, conversation summaries
+  - name: Tools
+    description: Tool registry management
+  - name: Agents
+    description: Agent registry management
+  - name: System
+    description: Heartbeat, logs, reboot
+  - name: Activity
+    description: Discord Activity (Unity WebGL) support
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+    QueryToken:
+      type: apiKey
+      in: query
+      name: token
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    Success:
+      type: object
+      properties:
+        success:
+          type: boolean
+
+    Status:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        username:
+          type: string
+          nullable: true
+        userId:
+          type: string
+          nullable: true
+        guildCount:
+          type: integer
+        uptime:
+          type: number
+          description: Seconds since boot
+        authRequired:
+          type: boolean
+
+    CronJob:
+      type: object
+      properties:
+        name:
+          type: string
+        schedule:
+          type: string
+          description: Cron expression (e.g. "0 9 * * *")
+        timezone:
+          type: string
+        channelId:
+          type: string
+        type:
+          type: string
+          enum: [static, llm]
+        message:
+          type: string
+          description: Static message (when type=static)
+        prompt:
+          type: string
+          description: LLM prompt (when type=llm)
+        enabled:
+          type: boolean
+        lastRun:
+          type: string
+          format: date-time
+          nullable: true
+        nextRun:
+          type: string
+          format: date-time
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              success:
+                type: boolean
+              durationMs:
+                type: integer
+              outputPreview:
+                type: string
+              error:
+                type: string
+
+    Session:
+      type: object
+      properties:
+        channelId:
+          type: string
+        channelName:
+          type: string
+        guildId:
+          type: string
+          nullable: true
+        messageCount:
+          type: integer
+        firstMessage:
+          type: string
+          format: date-time
+        lastMessage:
+          type: string
+          format: date-time
+        users:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              username:
+                type: string
+              messageCount:
+                type: integer
+              lastMessage:
+                type: string
+                format: date-time
+
+    MemoryFact:
+      type: object
+      properties:
+        fact:
+          type: string
+        savedAt:
+          type: string
+          format: date-time
+
+    Tool:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+
+    Agent:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        tools:
+          type: array
+          items:
+            type: string
+        maxIterations:
+          type: integer
+          nullable: true
+        model:
+          type: string
+          nullable: true
+
+    PersonaFile:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+        meta:
+          type: object
+          properties:
+            label:
+              type: string
+            section:
+              type: string
+            order:
+              type: integer
+            enabled:
+              type: boolean
+            description:
+              type: string
+            botName:
+              type: string
+
+    LogEntry:
+      type: object
+      properties:
+        ts:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [log, warn, error]
+        message:
+          type: string
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ── Status ──────────────────────────────────────────────
+  /api/status:
+    get:
+      tags: [Status]
+      summary: Bot status
+      description: Connection state, uptime, guild count, and whether auth is required. Always public.
+      security: []
+      responses:
+        "200":
+          description: Bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+
+  # ── Config ──────────────────────────────────────────────
+  /api/config:
+    get:
+      tags: [Config]
+      summary: Sanitized config
+      description: Returns bot configuration with secrets stripped.
+      responses:
+        "200":
+          description: Config object
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Persona ─────────────────────────────────────────────
+  /api/persona:
+    get:
+      tags: [Persona]
+      summary: Active persona state
+      description: File inventory, prompt stats, and active persona info.
+      responses:
+        "200":
+          description: Persona state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  activePersona:
+                    type: string
+                  botName:
+                    type: string
+                  loadedAt:
+                    type: string
+                    format: date-time
+                  promptLength:
+                    type: integer
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        label:
+                          type: string
+                        section:
+                          type: string
+                        order:
+                          type: integer
+                        enabled:
+                          type: boolean
+                        contentLength:
+                          type: integer
+
+  /api/persona/reload:
+    post:
+      tags: [Persona]
+      summary: Reload persona from disk
+      description: Hot-reloads all persona files and recomposes the system prompt.
+      responses:
+        "200":
+          description: Reload result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  activePersona:
+                    type: string
+                  botName:
+                    type: string
+                  promptLength:
+                    type: integer
+                  fileCount:
+                    type: integer
+                  enabledCount:
+                    type: integer
+
+  /api/personas:
+    get:
+      tags: [Persona]
+      summary: List all personas
+      description: Returns all available personas with descriptions for the card grid.
+      responses:
+        "200":
+          description: Persona list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  personas:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        botName:
+                          type: string
+                        description:
+                          type: string
+                        fileCount:
+                          type: integer
+                  activePersona:
+                    type: string
+    post:
+      tags: [Persona]
+      summary: Create a new persona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Folder name (lowercase, hyphens)
+                description:
+                  type: string
+                botName:
+                  type: string
+                  description: Character display name
+              required: [name]
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/personas/{name}:
+    delete:
+      tags: [Persona]
+      summary: Delete a persona
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          description: Cannot delete active persona
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/persona/switch:
+    post:
+      tags: [Persona]
+      summary: Switch active persona
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                persona:
+                  type: string
+              required: [persona]
+      responses:
+        "200":
+          description: Switched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  activePersona:
+                    type: string
+                  botName:
+                    type: string
+                  promptLength:
+                    type: integer
+
+  /api/persona/files:
+    get:
+      tags: [Persona]
+      summary: List all persona files
+      description: Returns all files across all personas with content.
+      responses:
+        "200":
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PersonaFile"
+
+  /api/persona/file:
+    get:
+      tags: [Persona]
+      summary: Get a persona file
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Relative path (e.g. "aelora/persona.md")
+      responses:
+        "200":
+          description: File content and metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonaFile"
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Persona]
+      summary: Create a new persona file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+                meta:
+                  type: object
+              required: [path]
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+    put:
+      tags: [Persona]
+      summary: Update a persona file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+                meta:
+                  type: object
+              required: [path, content]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+    delete:
+      tags: [Persona]
+      summary: Delete a persona file
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+              required: [path]
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+
+  # ── LLM ─────────────────────────────────────────────────
+  /api/llm/test:
+    post:
+      tags: [LLM]
+      summary: One-shot LLM test
+      description: Send a message and get a response using the current persona prompt. Rate limited to 10/min.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required: [message]
+      responses:
+        "200":
+          description: LLM response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/llm/test/stream:
+    post:
+      tags: [LLM]
+      summary: Streaming LLM test (SSE)
+      description: |
+        Same as `/api/llm/test` but streams tokens via Server-Sent Events.
+        Each event is `data: {"token": "..."}` during streaming,
+        then `data: {"done": true, "reply": "..."}` when complete.
+        Rate limited to 10/min.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required: [message]
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  # ── Cron ────────────────────────────────────────────────
+  /api/cron:
+    get:
+      tags: [Cron]
+      summary: List all cron jobs
+      responses:
+        "200":
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CronJob"
+    post:
+      tags: [Cron]
+      summary: Create a cron job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                schedule:
+                  type: string
+                timezone:
+                  type: string
+                channelId:
+                  type: string
+                type:
+                  type: string
+                  enum: [static, llm]
+                message:
+                  type: string
+                prompt:
+                  type: string
+                enabled:
+                  type: boolean
+              required: [name, schedule, channelId, type]
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/cron/{name}:
+    put:
+      tags: [Cron]
+      summary: Update a cron job
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                schedule:
+                  type: string
+                timezone:
+                  type: string
+                channelId:
+                  type: string
+                type:
+                  type: string
+                  enum: [static, llm]
+                message:
+                  type: string
+                prompt:
+                  type: string
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Cron]
+      summary: Delete a cron job
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/cron/{name}/toggle:
+    post:
+      tags: [Cron]
+      summary: Toggle a cron job on/off
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Toggle result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/cron/{name}/trigger:
+    post:
+      tags: [Cron]
+      summary: Manually trigger a cron job
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Trigger result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  output:
+                    type: string
+                  error:
+                    type: string
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Sessions ────────────────────────────────────────────
+  /api/sessions:
+    get:
+      tags: [Sessions]
+      summary: List all sessions
+      responses:
+        "200":
+          description: Session list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Session"
+    delete:
+      tags: [Sessions]
+      summary: Clear all sessions
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: integer
+
+  /api/sessions/{channelId}:
+    get:
+      tags: [Sessions]
+      summary: Session detail
+      description: Includes per-user stats and related memory facts.
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Session with memories
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Session"
+                  - type: object
+                    properties:
+                      memories:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            $ref: "#/components/schemas/MemoryFact"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Memory ──────────────────────────────────────────────
+  /api/memory:
+    get:
+      tags: [Memory]
+      summary: All stored facts
+      description: Returns all memory facts grouped by scope.
+      responses:
+        "200":
+          description: Facts by scope
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MemoryFact"
+
+  /api/memory/{scope}/{index}:
+    delete:
+      tags: [Memory]
+      summary: Delete a specific fact
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Scope key (e.g. user:123, channel:456, global)"
+        - name: index
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "404":
+          description: Fact not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/memory/{scope}:
+    delete:
+      tags: [Memory]
+      summary: Clear all facts in a scope
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deleted:
+                    type: integer
+
+  /api/memory/logs:
+    get:
+      tags: [Memory]
+      summary: List daily log dates
+      description: Returns an array of date strings (YYYY-MM-DD) for which logs exist.
+      responses:
+        "200":
+          description: Date list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /api/memory/logs/{date}:
+    get:
+      tags: [Memory]
+      summary: Read a daily log
+      parameters:
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Date in YYYY-MM-DD format
+      responses:
+        "200":
+          description: Log content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  content:
+                    type: string
+        "404":
+          description: No log for that date
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/memory/summaries:
+    get:
+      tags: [Memory]
+      summary: Conversation summaries
+      description: Returns compacted conversation summaries keyed by channel ID.
+      responses:
+        "200":
+          description: Summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    summary:
+                      type: string
+                    updatedAt:
+                      type: string
+                      format: date-time
+
+  # ── Tools ───────────────────────────────────────────────
+  /api/tools:
+    get:
+      tags: [Tools]
+      summary: List all tools
+      responses:
+        "200":
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tool"
+
+  /api/tools/{name}/toggle:
+    post:
+      tags: [Tools]
+      summary: Toggle a tool on/off
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Toggle result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Agents ──────────────────────────────────────────────
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List all agents
+      responses:
+        "200":
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+
+  /api/agents/{name}/toggle:
+    post:
+      tags: [Agents]
+      summary: Toggle an agent on/off
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Toggle result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── System ──────────────────────────────────────────────
+  /api/heartbeat:
+    get:
+      tags: [System]
+      summary: Heartbeat state
+      description: Returns heartbeat status and registered handler list.
+      responses:
+        "200":
+          description: Heartbeat info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  tickCount:
+                    type: integer
+                  handlers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        enabled:
+                          type: boolean
+
+  /api/logs:
+    get:
+      tags: [System]
+      summary: Recent log entries
+      description: Returns the last 200 log entries.
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LogEntry"
+
+  /api/logs/stream:
+    get:
+      tags: [System]
+      summary: Live log stream (SSE)
+      description: |
+        Server-Sent Events stream of log entries in real time.
+        Each event is `data: {"ts": "...", "level": "log", "message": "..."}`.
+        Use `?token=<key>` for auth (EventSource can't set headers).
+      security:
+        - QueryToken: []
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/reboot:
+    post:
+      tags: [System]
+      summary: Reboot the bot
+      description: Triggers a graceful reboot. Response is sent before the process exits.
+      responses:
+        "200":
+          description: Reboot initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  # ── Activity ────────────────────────────────────────────
+  /api/activity/config:
+    get:
+      tags: [Activity]
+      summary: Activity client ID
+      description: Returns the Discord application client ID for the Activity SDK. Always public (no secret exposed).
+      security: []
+      responses:
+        "200":
+          description: Activity config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clientId:
+                    type: string
+                  enabled:
+                    type: boolean
+
+  /api/activity/token:
+    post:
+      tags: [Activity]
+      summary: OAuth2 token exchange
+      description: Exchanges a Discord OAuth2 authorization code for an access token. Always public.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+              required: [code]
+      responses:
+        "200":
+          description: Access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+        "400":
+          description: Missing code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"

@@ -544,108 +544,15 @@ Builders for Discord embeds:
 
 Express 5 server serving the dashboard frontend and REST API.
 
-### API Authentication & Rate Limiting
+### API Documentation
 
-All `/api/*` routes support optional bearer token authentication. When `web.apiKey` is set in `settings.yaml`, requests must include an `Authorization: Bearer <key>` header. For SSE endpoints (which can't set headers), use `?token=<key>` query parameter instead. When no API key is configured, all routes are open (easy local dev).
+The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interactive Swagger UI at `/api/docs` when the bot is running. The spec file lives at the project root (`openapi.yaml`).
 
-**Rate limits** (in-memory, per IP):
-- General: 100 requests / 15 minutes on all `/api/*` routes
-- LLM: 10 requests / minute on `/api/llm/test` and `/api/llm/test/stream`
+**Auth:** Optional bearer token via `web.apiKey` in `settings.yaml`. When set, all `/api/*` routes (except `/api/status`, `/api/activity/*`, and `/api/docs`) require `Authorization: Bearer <key>`. SSE endpoints accept `?token=<key>` instead. No key configured = no auth.
 
-The dashboard automatically prompts for an API key when `authRequired: true` is returned from the status endpoint, storing it in `localStorage`.
+**Rate limits:** 100 req/15 min general, 10 req/min on LLM endpoints.
 
-### API Reference
-
-#### Status
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/status` | Public | Bot connection state, uptime, guild count, `authRequired` flag |
-
-#### Config
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/config` | Required | Sanitized config (no secrets) |
-
-#### Persona
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/persona` | Required | Active persona state, file inventory, prompt stats |
-| `POST` | `/api/persona/reload` | Required | Hot-reload persona files from disk |
-| `GET` | `/api/personas` | Required | List all personas with descriptions |
-| `POST` | `/api/persona/switch` | Required | Switch active persona |
-| `POST` | `/api/personas` | Required | Create a new persona (with botName) |
-| `DELETE` | `/api/personas/:name` | Required | Delete a persona |
-| `GET` | `/api/persona/files` | Required | List all files with metadata |
-| `GET` | `/api/persona/file?path=...` | Required | Get a file's content and metadata |
-| `POST` | `/api/persona/file` | Required | Create a new persona file |
-| `PUT` | `/api/persona/file` | Required | Update an existing persona file |
-| `DELETE` | `/api/persona/file` | Required | Delete a persona file |
-
-#### LLM (10 req/min limit)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/api/llm/test` | Required | One-shot LLM test call |
-| `POST` | `/api/llm/test/stream` | Required | Streaming LLM test (SSE) |
-
-#### Scheduled Tasks (Cron)
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/cron` | Required | Cron job list with state and history |
-| `POST` | `/api/cron` | Required | Create a new runtime cron job |
-| `PUT` | `/api/cron/:name` | Required | Update a runtime cron job |
-| `POST` | `/api/cron/:name/toggle` | Required | Enable/disable a cron job |
-| `POST` | `/api/cron/:name/trigger` | Required | Manually trigger a cron job |
-| `DELETE` | `/api/cron/:name` | Required | Delete a runtime cron job |
-
-#### Sessions
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/sessions` | Required | All active conversation sessions |
-| `GET` | `/api/sessions/:channelId` | Required | Session detail with per-user stats and related memory facts |
-| `DELETE` | `/api/sessions/:channelId` | Required | Delete a specific session |
-| `DELETE` | `/api/sessions` | Required | Clear all sessions |
-
-#### Memory
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/memory` | Required | All stored memory facts |
-| `DELETE` | `/api/memory/:scope/:index` | Required | Delete a specific fact |
-| `DELETE` | `/api/memory/:scope` | Required | Clear all facts in a scope |
-| `GET` | `/api/memory/logs` | Required | List available daily log dates |
-| `GET` | `/api/memory/logs/:date` | Required | Read a specific daily log |
-| `GET` | `/api/memory/summaries` | Required | Conversation compaction summaries |
-
-#### Tools & Agents
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/tools` | Required | All tools with enabled status |
-| `POST` | `/api/tools/:name/toggle` | Required | Enable/disable a tool |
-| `GET` | `/api/agents` | Required | All agents with config |
-| `POST` | `/api/agents/:name/toggle` | Required | Enable/disable an agent |
-
-#### System
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/heartbeat` | Required | Heartbeat state + handler list |
-| `GET` | `/api/logs` | Required | Recent 200 log entries |
-| `GET` | `/api/logs/stream` | Required | SSE live log stream |
-| `POST` | `/api/reboot` | Required | Trigger graceful reboot |
-
-#### Discord Activity
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `GET` | `/api/activity/config` | Public | Activity client ID (no secret exposed) |
-| `POST` | `/api/activity/token` | Public | OAuth2 code→token exchange for Activity SDK |
+**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Tools (2), Agents (2), System (4), Activity (2) — 42 endpoints total.
 
 ### Routing
 

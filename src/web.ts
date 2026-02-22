@@ -107,7 +107,13 @@ export function startWeb(state: AppState): void {
   app.use("/api/llm/test", llmLimiter);
 
   // --- Auth middleware ---
-  const PUBLIC_ROUTES = ["/api/status", "/api/activity/config", "/api/activity/token"];
+  const PUBLIC_ROUTES = [
+    "/api/status",
+    "/api/activity/config",
+    "/api/activity/token",
+    "/api/docs",
+    "/api/docs/openapi.yaml",
+  ];
 
   if (config.web.apiKey) {
     app.use("/api", (req, res, next) => {
@@ -132,6 +138,27 @@ export function startWeb(state: AppState): void {
 
     console.log("Web: API key authentication enabled");
   }
+
+  // --- API docs (public) ---
+  const specPath = path.join(__dirname, "..", "openapi.yaml");
+
+  app.get("/api/docs/openapi.yaml", (_req, res) => {
+    res.sendFile(specPath);
+  });
+
+  app.get("/api/docs", (_req, res) => {
+    res.type("html").send(`<!DOCTYPE html>
+<html><head>
+  <title>Aelora API</title>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+  <style>body{margin:0} .swagger-ui .topbar{display:none}</style>
+</head><body>
+  <div id="ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>SwaggerUIBundle({url:"/api/docs/openapi.yaml",dom_id:"#ui",deepLinking:true})</script>
+</body></html>`);
+  });
 
   // Bot status (public — also tells dashboard if auth is required)
   app.get("/api/status", (_req, res) => {

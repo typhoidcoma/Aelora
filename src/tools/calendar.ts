@@ -422,7 +422,7 @@ export default defineTool({
       client = await getClient({ serverUrl, username, password, authMethod: authMethod || "Basic" });
     } catch (err) {
       cachedClient = null; // Reset on failure so next call retries
-      return `Error connecting to CalDAV server: ${err instanceof Error ? err.message : String(err)}`;
+      return `Error: failed to connect to CalDAV server: ${err instanceof Error ? err.message : String(err)}`;
     }
 
     try {
@@ -440,7 +440,7 @@ export default defineTool({
       }
     } catch (err) {
       cachedClient = null; // Reset client on error
-      return `Calendar error: ${err instanceof Error ? err.message : String(err)}`;
+      return `Error: calendar operation failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
 });

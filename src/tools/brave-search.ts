@@ -51,7 +51,7 @@ export default defineTool({
 
     if (!res.ok) {
       const body = await res.text();
-      return `Search error (${res.status}): ${body.slice(0, 200)}`;
+      return `Error: search request failed (${res.status}): ${body.slice(0, 200)}`;
     }
 
     const data = (await res.json()) as BraveSearchResponse;

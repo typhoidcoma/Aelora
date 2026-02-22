@@ -97,6 +97,55 @@ export const param = {
       _required: required,
     };
   },
+
+  object(
+    description: string,
+    options: {
+      required?: boolean;
+      properties: Record<string, ParamSchema>;
+      requiredFields?: string[];
+    },
+  ): ParamSchema<Record<string, unknown>> {
+    const { required = false, properties, requiredFields } = options;
+
+    const schemaProperties: Record<string, unknown> = {};
+    for (const [key, p] of Object.entries(properties)) {
+      schemaProperties[key] = p.schema;
+    }
+
+    const reqFields =
+      requiredFields ??
+      Object.entries(properties)
+        .filter(([, p]) => p._required)
+        .map(([k]) => k);
+
+    return {
+      schema: {
+        type: "object",
+        description,
+        properties: schemaProperties,
+        ...(reqFields.length > 0 ? { required: reqFields } : {}),
+        additionalProperties: false,
+      },
+      _required: required,
+    };
+  },
+
+  date(
+    description: string,
+    options: { required?: boolean; format?: "date" | "date-time" } = {},
+  ): ParamSchema<string> {
+    const { required = false, format = "date-time" } = options;
+    const formatHint =
+      format === "date"
+        ? " (YYYY-MM-DD format)"
+        : " (ISO 8601 datetime, e.g. '2025-03-15T10:00:00')";
+
+    return {
+      schema: { type: "string", description: description + formatHint },
+      _required: required,
+    };
+  },
 };
 
 // ============================================================
@@ -196,6 +245,23 @@ export function defineTool<P extends Record<string, ParamSchema>>(
   };
 }
 
+/**
+ * Require context fields to be non-null. Returns null if all fields are
+ * present, or an error string if any are missing. Does NOT throw.
+ *
+ * Usage:
+ *   const err = requireContext(ctx, "userId", "channelId");
+ *   if (err) return err;
+ */
+export function requireContext(
+  ctx: ToolContext,
+  ...fields: (keyof ToolContext)[]
+): string | null {
+  const missing = fields.filter((f) => ctx[f] === null || ctx[f] === undefined);
+  if (missing.length === 0) return null;
+  return `Error: missing context: ${missing.join(", ")}. This action requires ${missing.join(" and ")}.`;
+}
+
 // ============================================================
 // Arg validation
 // ============================================================
@@ -225,6 +291,8 @@ function validateArgs(
       errors.push(`"${key}" must be a boolean`);
     } else if (schemaType === "array" && !Array.isArray(value)) {
       errors.push(`"${key}" must be an array`);
+    } else if (schemaType === "object" && (typeof value !== "object" || Array.isArray(value) || value === null)) {
+      errors.push(`"${key}" must be an object`);
     }
 
     if (p.schema.enum && Array.isArray(p.schema.enum)) {

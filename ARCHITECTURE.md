@@ -296,7 +296,55 @@ export default defineTool({
 });
 ```
 
-**`param` helpers:** `param.string()`, `param.number()`, `param.boolean()`, `param.enum()`, `param.array()` — each returns a `ParamSchema` with JSON Schema metadata and a `_required` flag.
+**`param` helpers:** `param.string()`, `param.number()`, `param.boolean()`, `param.enum()`, `param.array()`, `param.object()`, `param.date()` — each returns a `ParamSchema` with JSON Schema metadata and a `_required` flag.
+
+#### `param.object()` — Structured nested data
+
+```typescript
+metadata: param.object("Task metadata.", {
+  required: true,
+  properties: {
+    priority: param.enum("Priority level.", ["low", "medium", "high"] as const),
+    tags: param.array("Tags.", { itemType: "string" }),
+  },
+  requiredFields: ["priority"],  // Optional — defaults to inferring from _required flags
+}),
+```
+
+Produces a valid OpenAI JSON Schema `object` type with nested properties. The `properties` parameter accepts the same `ParamSchema` helpers used at the top level.
+
+#### `param.date()` — Date/datetime strings
+
+```typescript
+dueDate: param.date("When the task is due."),
+startDate: param.date("Start date.", { format: "date" }),  // YYYY-MM-DD only
+```
+
+Emits a `string` type with a format hint appended to the description. Defaults to ISO 8601 datetime (`format: "date-time"`). Use `format: "date"` for date-only values.
+
+#### `requireContext()` — Context validation helper
+
+Validates that required context fields (like `userId`, `channelId`) are present. Returns `null` on success or an `"Error: ..."` string on failure — designed to be returned directly from a handler.
+
+```typescript
+import { defineTool, param, requireContext } from "./types.js";
+
+handler: async (args, ctx) => {
+  const err = requireContext(ctx, "userId", "channelId");
+  if (err) return err;
+  // ctx.userId and ctx.channelId are guaranteed non-null here
+}
+```
+
+#### Multi-Action Tool Pattern
+
+Most tools use a single `action` enum param with a `switch` statement. See `src/tools/_example-multi-action.ts` for a complete template. Key conventions:
+
+1. **Action enum**: Always `required: true`, first param
+2. **Conditional required params**: Validate inside each `case` branch, not at the param level
+3. **Context validation**: Use `requireContext()` at the top of the handler
+4. **Error format**: Always return `"Error: ..."` strings (never throw from a handler)
+5. **Default branch**: Always include a `default:` case returning `"Error: unknown action ..."`
 
 ### Config Resolution
 
@@ -712,6 +760,29 @@ Discord auto-creates an Entry Point command for applications with Activities ena
 3. If it needs config, add keys to `config: [...]` and matching entries in `settings.yaml` under `tools:`
 4. Restart the bot — it auto-loads
 5. Verify in console: `Tools: loaded "my-tool" (enabled)`
+
+#### Quick Example
+
+```typescript
+import { defineTool, param } from "./types.js";
+
+export default defineTool({
+  name: "hello",
+  description: "Greet a user by name.",
+
+  params: {
+    name: param.string("The name to greet.", { required: true }),
+    enthusiasm: param.enum("How enthusiastic.", ["low", "medium", "high"] as const),
+  },
+
+  handler: async ({ name, enthusiasm }) => {
+    const suffix = enthusiasm === "high" ? "!!!" : enthusiasm === "low" ? "." : "!";
+    return `Hello, ${name}${suffix}`;
+  },
+});
+```
+
+For multi-action tools (the most common pattern), copy `src/tools/_example-multi-action.ts` as your starting point. For API-integrated tools, see `src/tools/_example-gmail.ts`.
 
 ### Adding an Agent
 

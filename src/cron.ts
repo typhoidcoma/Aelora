@@ -163,13 +163,14 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
   let success = true;
   let error: string | null = null;
 
+  console.log(`Cron [${name}]: executing (type=${job.type})`);
+
   try {
     output = await resolveCronPayload(job);
     if (!output.trim()) {
       throw new Error("LLM returned empty response — nothing to send");
     }
     await sendToChannel(job.channelId, output);
-    console.log(`Cron [${name}]: sent to ${job.channelId}`);
   } catch (err) {
     error = String(err);
     output = String(err);
@@ -177,10 +178,13 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
     console.error(`Cron [${name}] error:`, err);
   }
 
+  const durationMs = Date.now() - startTime;
+  console.log(`Cron [${name}]: ${success ? "completed" : "failed"} in ${durationMs}ms`);
+
   const record: CronExecutionRecord = {
     timestamp: new Date().toISOString(),
     success,
-    durationMs: Date.now() - startTime,
+    durationMs,
     outputPreview: output.slice(0, OUTPUT_PREVIEW_LENGTH),
     error,
   };

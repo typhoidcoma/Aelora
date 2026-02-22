@@ -94,6 +94,13 @@ export async function executeAgent(
   if (!agent) return `Error: unknown agent "${agentName}"`;
   if (!agent.enabled) return `Error: agent "${agentName}" is currently disabled`;
 
+  const argSummary = Object.keys(args).length > 0
+    ? Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v.slice(0, 60) : JSON.stringify(v).slice(0, 60)}`).join(", ")
+    : "(no args)";
+  console.log(`Agents: executing "${agentName}" (${argSummary})`);
+
+  const start = Date.now();
+
   try {
     // Lazy import to break circular dependency with llm.ts
     const { runAgentLoop } = await import("./llm.js");
@@ -108,12 +115,15 @@ export async function executeAgent(
     });
 
     if (agent.postProcess) {
-      return agent.postProcess(rawResult, args);
+      const processed = agent.postProcess(rawResult, args);
+      console.log(`Agents: "${agentName}" completed in ${Date.now() - start}ms (post-processed)`);
+      return processed;
     }
 
+    console.log(`Agents: "${agentName}" completed in ${Date.now() - start}ms`);
     return rawResult;
   } catch (err) {
-    console.error(`Agents: execution error in "${agentName}":`, err);
+    console.error(`Agents: "${agentName}" failed after ${Date.now() - start}ms:`, err);
     return `Error executing agent "${agentName}": ${String(err)}`;
   }
 }

@@ -34,8 +34,9 @@ export function saveState(reason: ShutdownReason, error?: string): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
-  } catch {
-    // Best effort — if we can't write during a crash, nothing we can do
+    console.log(`State: saved shutdown context (reason=${reason})`);
+  } catch (err) {
+    console.warn("State: failed to save shutdown context:", err);
   }
 }
 
@@ -45,7 +46,9 @@ export function consumePreviousState(): StateFile | null {
     if (!existsSync(STATE_FILE)) return null;
     const raw = readFileSync(STATE_FILE, "utf-8");
     unlinkSync(STATE_FILE);
-    return JSON.parse(raw);
+    const prev: StateFile = JSON.parse(raw);
+    console.log(`State: restored previous state (reason=${prev.reason})`);
+    return prev;
   } catch {
     return null;
   }
@@ -98,6 +101,7 @@ export function saveCalendarNotified(uids: string[]): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
     writeFileSync(CALENDAR_NOTIFIED_FILE, JSON.stringify(uids), "utf-8");
+    console.log(`State: saved ${uids.length} calendar notification UID(s)`);
   } catch {
     // Best effort
   }
@@ -109,7 +113,9 @@ export function saveCalendarNotified(uids: string[]): void {
 export function loadActivePersona(): string | null {
   try {
     if (existsSync(ACTIVE_PERSONA_FILE)) {
-      return JSON.parse(readFileSync(ACTIVE_PERSONA_FILE, "utf-8"));
+      const name = JSON.parse(readFileSync(ACTIVE_PERSONA_FILE, "utf-8"));
+      console.log(`State: loaded active persona "${name}"`);
+      return name;
     }
   } catch {
     // Fall back to config default
@@ -122,6 +128,7 @@ export function saveActivePersona(name: string): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
     writeFileSync(ACTIVE_PERSONA_FILE, JSON.stringify(name), "utf-8");
+    console.log(`State: saved active persona "${name}"`);
   } catch {
     // Best effort
   }

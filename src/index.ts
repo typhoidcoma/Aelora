@@ -19,6 +19,7 @@ import { appendSystemEvent } from "./daily-log.js";
 installLogger();
 
 async function main(): Promise<void> {
+  const bootStart = Date.now();
   console.log("Aelora 🦋 starting...\n");
 
   // 1. Load config
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
     };
   });
 
-  console.log("\nAelora 🦋 is ready.\n");
+  console.log(`\nAelora 🦋 is ready (boot: ${Date.now() - bootStart}ms)\n`);
 }
 
 process.on("SIGINT", () => {

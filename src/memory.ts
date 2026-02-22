@@ -55,6 +55,7 @@ export function saveFact(scope: string, fact: string): { success: boolean; error
   }
 
   save();
+  console.log(`Memory: saved fact to "${scope}" (${store[scope].length} total)`);
   return { success: true };
 }
 
@@ -69,6 +70,7 @@ export function deleteFact(scope: string, index: number): boolean {
   facts.splice(index, 1);
   if (facts.length === 0) delete store[scope];
   save();
+  console.log(`Memory: deleted fact from "${scope}" (index ${index})`);
   return true;
 }
 
@@ -78,6 +80,7 @@ export function clearScope(scope: string): number {
   const count = facts.length;
   delete store[scope];
   save();
+  console.log(`Memory: cleared scope "${scope}" (${count} facts removed)`);
   return count;
 }
 

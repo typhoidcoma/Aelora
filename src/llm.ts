@@ -305,6 +305,7 @@ export async function compactPendingHistory(minQueueSize = 10): Promise<number> 
         ? `Previous summary:\n${existing}\n\nNew messages to incorporate:\n`
         : "Messages to summarize:\n";
 
+      const compactStart = Date.now();
       const completion = await client.chat.completions.create({
         model: config.llm.model,
         max_completion_tokens: 500,
@@ -328,7 +329,7 @@ export async function compactPendingHistory(minQueueSize = 10): Promise<number> 
         };
         saveSummaries();
         compacted++;
-        console.log(`LLM: compacted ${messages.length} messages for channel ${channelId}`);
+        console.log(`LLM: compaction ${Date.now() - compactStart}ms, ${messages.length} messages for channel ${channelId}`);
       }
     } catch (err) {
       console.error(`LLM: compaction failed for channel ${channelId}:`, err);
@@ -403,12 +404,15 @@ async function runCompletionLoop(
     ...(tools.length > 0 ? { tools } : {}),
   };
 
+  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
+
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
     let toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined;
 
     if (onToken) {
       // --- Streaming path ---
+      const apiStart = Date.now();
       const stream = await client.chat.completions.create({ ...baseParams, stream: true });
 
       let contentAccum = "";
@@ -434,7 +438,16 @@ async function runCompletionLoop(
             if (tc.function?.arguments) accum.arguments += tc.function.arguments;
           }
         }
+
+        // Capture usage from final chunk (if API supports it)
+        const chunkAny = chunk as unknown as { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+        if (chunkAny.usage) {
+          const u = chunkAny.usage;
+          console.log(`LLM: tokens (in=${u.prompt_tokens}, out=${u.completion_tokens}, total=${u.total_tokens})`);
+        }
       }
+
+      console.log(`LLM: stream complete ${Date.now() - apiStart}ms`);
 
       content = contentAccum || null;
 
@@ -448,10 +461,19 @@ async function runCompletionLoop(
           }));
       }
     } else {
-      // --- Non-streaming path (unchanged) ---
+      // --- Non-streaming path ---
+      const apiStart = Date.now();
       const completion = await client.chat.completions.create(baseParams);
+      const apiMs = Date.now() - apiStart;
       const choice = completion.choices[0];
       if (!choice) return "(no response)";
+
+      const usage = completion.usage;
+      if (usage) {
+        console.log(`LLM: response ${apiMs}ms (in=${usage.prompt_tokens}, out=${usage.completion_tokens}, total=${usage.total_tokens})`);
+      } else {
+        console.log(`LLM: response ${apiMs}ms`);
+      }
 
       content = choice.message.content;
       toolCalls = choice.message.tool_calls ?? undefined;
@@ -475,10 +497,13 @@ async function runCompletionLoop(
           );
         }
 
+        const isAgent = allowAgentDispatch && agentRegistryCache?.isAgent(toolCall.function.name);
+        console.log(`LLM: calling ${isAgent ? "agent" : "tool"} "${toolCall.function.name}"`);
+
         // Dispatch: agent or tool?
         let result: string;
-        if (allowAgentDispatch && agentRegistryCache?.isAgent(toolCall.function.name)) {
-          result = await agentRegistryCache.executeAgent(toolCall.function.name, args, channelId);
+        if (isAgent) {
+          result = await agentRegistryCache!.executeAgent(toolCall.function.name, args, channelId);
         } else {
           result = await executeTool(toolCall.function.name, args, channelId, userId);
         }
@@ -494,6 +519,7 @@ async function runCompletionLoop(
     }
 
     // No tool calls — final text response
+    console.log(`LLM: completed in ${i + 1} iteration(s)`);
     return content?.trim() || "(no response)";
   }
 

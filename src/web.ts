@@ -55,6 +55,18 @@ export function startWeb(state: AppState): void {
 
   app.use(express.json());
 
+  // Request logging middleware
+  app.use((req, res, next) => {
+    if (req.path === "/api/logs/stream" || !req.path.startsWith("/api")) {
+      return next();
+    }
+    const start = Date.now();
+    res.on("finish", () => {
+      console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+    });
+    next();
+  });
+
   // If activity enabled, serve activity page at root (Discord Activity iframe loads /)
   if (config.activity.enabled) {
     const activityDir = path.join(__dirname, "..", "activity");

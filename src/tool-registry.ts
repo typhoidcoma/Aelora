@@ -95,12 +95,20 @@ export async function executeTool(
   if (!tool) return `Error: unknown tool "${toolName}"`;
   if (!tool.enabled) return `Error: tool "${toolName}" is currently disabled`;
 
+  const argSummary = Object.keys(args).length > 0
+    ? Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v.slice(0, 60) : JSON.stringify(v).slice(0, 60)}`).join(", ")
+    : "(no args)";
+  console.log(`Tools: executing "${toolName}" (${argSummary})`);
+
   const context: ToolContext = { channelId, userId: userId ?? null, sendToChannel };
+  const start = Date.now();
 
   try {
-    return await tool.handler(args, context);
+    const result = await tool.handler(args, context);
+    console.log(`Tools: "${toolName}" completed in ${Date.now() - start}ms (result: ${result.slice(0, 100)}${result.length > 100 ? "..." : ""})`);
+    return result;
   } catch (err) {
-    console.error(`Tools: execution error in "${toolName}":`, err);
+    console.error(`Tools: "${toolName}" failed after ${Date.now() - start}ms:`, err);
     return `Error executing tool "${toolName}": ${String(err)}`;
   }
 }

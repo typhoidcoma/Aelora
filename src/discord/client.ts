@@ -177,6 +177,9 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
   const channel = message.channel;
   if (!channel.isSendable()) return;
 
+  const preview = (content || "(attachment)").slice(0, 80) + ((content || "").length > 80 ? "..." : "");
+  console.log(`Discord: message from ${message.author.username} in ${channelName}: "${preview}"`);
+
   let replyMsg: Message | null = null;
   let activeMsg: Message | null = null;
   let editTimer: ReturnType<typeof setInterval> | null = null;
@@ -213,7 +216,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         const p = message.reply(pending + " \u25CF").then((msg) => {
           activeMsg = msg;
           replyMsg = msg;
-        }).catch(() => {});
+        }).catch((err) => { console.warn("Discord: failed to send streaming reply:", err.message ?? err); });
         inflightEdit = p;
         await p;
         return;
@@ -227,7 +230,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         }
         if (splitAt <= 0) splitAt = OVERFLOW_THRESHOLD;
 
-        const p = activeMsg.edit(pending.slice(0, splitAt)).catch(() => {});
+        const p = activeMsg.edit(pending.slice(0, splitAt)).catch((err) => { console.warn("Discord: failed to edit overflow message:", err.message ?? err); });
         inflightEdit = p;
         await p;
         activeOffset += splitAt;
@@ -236,12 +239,12 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         if (overflow.length > 0) {
           const p2 = channel.send(overflow + " \u25CF").then((msg) => {
             activeMsg = msg;
-          }).catch(() => {});
+          }).catch((err) => { console.warn("Discord: failed to send overflow chunk:", err.message ?? err); });
           inflightEdit = p2;
           await p2;
         }
       } else {
-        const p = activeMsg.edit(pending + " \u25CF").catch(() => {});
+        const p = activeMsg.edit(pending + " \u25CF").catch((err) => { console.warn("Discord: streaming edit failed:", err.message ?? err); });
         inflightEdit = p;
         await p;
       }
@@ -249,9 +252,11 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
 
     editTimer = setInterval(doEdit, STREAM_EDIT_INTERVAL);
 
+    const llmStart = Date.now();
     const text = await getLLMResponse(message.channelId, userContent, (token) => {
       buffer += token;
     }, message.author.id);
+    console.log(`Discord: LLM response ${Date.now() - llmStart}ms (${text.length} chars)`);
 
     // Stop streaming edits and wait for any in-flight Discord API call to settle
     streamDone = true;
@@ -279,7 +284,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         username: message.author.displayName ?? message.author.username,
         summary: `**User:** ${userSnippet}\n**Bot:** ${botSnippet}`,
       });
-    } catch { /* swallow */ }
+    } catch (err) { console.warn("Discord: daily log append failed:", err); }
 
     // Finalize: properly chunk the remaining text
     const remaining = text.slice(activeOffset);
@@ -298,6 +303,8 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         await channel.send(chunks[i]);
       }
     }
+
+    console.log(`Discord: reply sent to ${channelName} (${chunks.length} chunk(s))`);
   } catch (err) {
     if (editTimer) clearInterval(editTimer);
     if (typingTimer) clearInterval(typingTimer);
@@ -309,8 +316,8 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       } else {
         await message.reply("Sorry, I encountered an error processing your message.");
       }
-    } catch {
-      // swallow
+    } catch (err) {
+      console.warn("Discord: failed to send error message:", err);
     }
   }
 }

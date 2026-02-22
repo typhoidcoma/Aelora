@@ -60,6 +60,7 @@ export function loadConfig(path = "settings.yaml"): Config {
   }
 
   const parsed = parse(raw);
+  console.log("Config: loaded settings.yaml");
 
   const config: Config = {
     timezone: parsed?.timezone ?? "UTC",
@@ -130,11 +131,15 @@ export function loadConfig(path = "settings.yaml"): Config {
 
 function applyEnvOverrides(config: Config): void {
   const env = process.env;
-  if (env.AELORA_DISCORD_TOKEN)          config.discord.token = env.AELORA_DISCORD_TOKEN;
-  if (env.AELORA_LLM_API_KEY)            config.llm.apiKey = env.AELORA_LLM_API_KEY;
-  if (env.AELORA_LLM_BASE_URL)           config.llm.baseURL = env.AELORA_LLM_BASE_URL;
-  if (env.AELORA_WEB_API_KEY)            config.web.apiKey = env.AELORA_WEB_API_KEY;
-  if (env.AELORA_WEB_PORT)               config.web.port = parseInt(env.AELORA_WEB_PORT, 10) || config.web.port;
-  if (env.AELORA_ACTIVITY_CLIENT_ID)     config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID;
-  if (env.AELORA_ACTIVITY_CLIENT_SECRET) config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET;
+  const applied: string[] = [];
+  if (env.AELORA_DISCORD_TOKEN)          { config.discord.token = env.AELORA_DISCORD_TOKEN; applied.push("AELORA_DISCORD_TOKEN"); }
+  if (env.AELORA_LLM_API_KEY)            { config.llm.apiKey = env.AELORA_LLM_API_KEY; applied.push("AELORA_LLM_API_KEY"); }
+  if (env.AELORA_LLM_BASE_URL)           { config.llm.baseURL = env.AELORA_LLM_BASE_URL; applied.push("AELORA_LLM_BASE_URL"); }
+  if (env.AELORA_WEB_API_KEY)            { config.web.apiKey = env.AELORA_WEB_API_KEY; applied.push("AELORA_WEB_API_KEY"); }
+  if (env.AELORA_WEB_PORT)               { config.web.port = parseInt(env.AELORA_WEB_PORT, 10) || config.web.port; applied.push("AELORA_WEB_PORT"); }
+  if (env.AELORA_ACTIVITY_CLIENT_ID)     { config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID; applied.push("AELORA_ACTIVITY_CLIENT_ID"); }
+  if (env.AELORA_ACTIVITY_CLIENT_SECRET) { config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET; applied.push("AELORA_ACTIVITY_CLIENT_SECRET"); }
+  if (applied.length > 0) {
+    console.log(`Config: env overrides applied: ${applied.join(", ")}`);
+  }
 }

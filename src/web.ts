@@ -30,8 +30,8 @@ import {
 } from "./cron.js";
 import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
-import { getAllSessions, deleteSession, clearAllSessions } from "./sessions.js";
-import { getAllMemory, deleteFact, clearScope } from "./memory.js";
+import { getAllSessions, getSession, deleteSession, clearAllSessions } from "./sessions.js";
+import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 
 export type AppState = {
   config: Config;
@@ -543,6 +543,30 @@ export function startWeb(state: AppState): void {
   // Session analytics
   app.get("/api/sessions", (_req, res) => {
     res.json(getAllSessions());
+  });
+
+  // Get a single session with related memories
+  app.get("/api/sessions/:channelId", (req, res) => {
+    const { channelId } = req.params;
+    const session = getSession(channelId);
+
+    if (!session) {
+      res.status(404).json({ error: `Session "${channelId}" not found` });
+      return;
+    }
+
+    // Gather related memory facts
+    const memories: Record<string, { fact: string; savedAt: string }[]> = {};
+
+    const channelFacts = getFacts(`channel:${channelId}`);
+    if (channelFacts.length > 0) memories[`channel:${channelId}`] = channelFacts;
+
+    for (const userId of Object.keys(session.users)) {
+      const userFacts = getFacts(`user:${userId}`);
+      if (userFacts.length > 0) memories[`user:${userId}`] = userFacts;
+    }
+
+    res.json({ ...session, memories });
   });
 
   // Delete a single session

@@ -18,7 +18,7 @@ export default defineTool({
   params: {
     action: param.enum(
       "The cron action to perform.",
-      ["list", "create", "edit", "toggle", "trigger", "delete"] as const,
+      ["list", "view", "create", "edit", "toggle", "trigger", "delete"] as const,
       { required: true },
     ),
     name: param.string(
@@ -72,6 +72,47 @@ export default defineTool({
         });
 
         return `**Cron Jobs** (${jobs.length}):\n\n${lines.join("\n\n")}`;
+      }
+
+      case "view": {
+        if (!name) return "Error: name is required for view.";
+
+        const jobs = getCronJobsForAPI();
+        const job = jobs.find((j) => j.name === name);
+        if (!job) return `Error: job "${name}" not found.`;
+
+        const status = job.enabled ? "enabled" : "disabled";
+        const next = job.nextRun ? job.nextRun : "not scheduled";
+        const last = job.lastRun ? job.lastRun : "never run";
+
+        let detail =
+          `**${job.name}** (${status})\n` +
+          `Schedule: \`${job.schedule}\`${job.timezone ? ` (${job.timezone})` : ""}\n` +
+          `Type: ${job.type} | Channel: ${job.channelId}\n` +
+          `Next: ${next} | Last: ${last}`;
+
+        if (job.type === "llm" && job.prompt) {
+          detail += `\n\n**Prompt:**\n${job.prompt}`;
+        } else if (job.type === "static" && job.message) {
+          detail += `\n\n**Message:**\n${job.message}`;
+        }
+
+        if (job.lastError) {
+          detail += `\n\n**Last error:** ${job.lastError}`;
+        }
+
+        if (job.history.length > 0) {
+          const historyLines = job.history.map((h) => {
+            const icon = h.success ? "+" : "-";
+            const dur = `${h.durationMs}ms`;
+            return `${icon} ${h.timestamp} (${dur})${h.error ? ` — ${h.error}` : ""}\n  ${h.outputPreview}`;
+          });
+          detail += `\n\n**History** (last ${job.history.length}):\n${historyLines.join("\n")}`;
+        } else {
+          detail += `\n\n**History:** none`;
+        }
+
+        return detail;
       }
 
       case "create": {
@@ -142,7 +183,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use list, create, edit, toggle, trigger, or delete.`;
+        return `Unknown action "${action}". Use list, view, create, edit, toggle, trigger, or delete.`;
     }
   },
 });

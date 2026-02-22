@@ -337,6 +337,14 @@
   </div>
 
   <div id="toast-container"></div>
+
+  <!-- Session detail popout -->
+  <div id="session-overlay" class="overlay" style="display: none;" onclick="if(event.target===this)hideSessionDetail()">
+    <div class="overlay-window">
+      <div id="session-overlay-body"></div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

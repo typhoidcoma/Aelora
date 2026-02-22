@@ -410,6 +410,61 @@ section {
   white-space: nowrap;
 }
 
+.session-row:hover {
+  background: var(--bg-elevated);
+  border-radius: 4px;
+}
+
+/* --- Overlay (reusable popout window) --- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+
+.overlay-window {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+/* --- Session detail (inside overlay) --- */
+
+.session-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.session-detail-header h3 {
+  margin: 0;
+  color: var(--brand-gold);
+  text-transform: none;
+  font-size: 0.85rem;
+}
+
+.session-detail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem 1.5rem;
+  font-size: 0.78rem;
+  margin-bottom: 1rem;
+}
+
+.session-detail-stats .muted {
+  margin-right: 0.4rem;
+}
+
 /* --- Memory --- */
 
 .memory-scope {

@@ -119,14 +119,14 @@ async function fetchSessions() {
         const ago = timeAgo(s.lastMessage);
 
         return `
-          <div class="session-row">
+          <div class="session-row" onclick="showSessionDetail('${esc(s.channelId)}')" style="cursor:pointer">
             <div class="session-channel">
               <code>#${esc(s.channelName || s.channelId)}</code>
               <span class="session-count">${s.messageCount} messages</span>
             </div>
             <div class="session-users">${userList}</div>
             <div class="session-time">Last active ${ago}</div>
-            <button class="btn btn-danger btn-xs" onclick="deleteSession('${esc(s.channelId)}')">&times;</button>
+            <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteSession('${esc(s.channelId)}')">&times;</button>
           </div>`;
       })
       .join("");
@@ -167,6 +167,92 @@ async function clearAllSessions() {
   } catch (err) {
     showToast(`Clear error: ${err.message}`, "error");
   }
+}
+
+// --- Session Detail (popout) ---
+
+async function showSessionDetail(channelId) {
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(channelId)}`);
+    if (!res.ok) {
+      showToast("Session no longer exists", "error");
+      fetchSessions();
+      return;
+    }
+    const s = await res.json();
+
+    // Users table
+    const users = Object.entries(s.users)
+      .map(([id, u]) => ({ id, ...u }))
+      .sort((a, b) => b.messageCount - a.messageCount);
+
+    const userRows = users
+      .map(
+        (u) => `
+        <tr>
+          <td>${esc(u.username)}</td>
+          <td><code>${esc(u.id)}</code></td>
+          <td>${u.messageCount}</td>
+          <td>${timeAgo(u.lastMessage)}</td>
+        </tr>`,
+      )
+      .join("");
+
+    // Memories section
+    let memoriesHtml = "";
+    if (s.memories && Object.keys(s.memories).length > 0) {
+      const scopes = Object.entries(s.memories).map(([scope, facts]) => {
+        const userId = scope.startsWith("user:") ? scope.slice(5) : null;
+        const user = userId ? s.users[userId] : null;
+        const label = user ? `${esc(user.username)} (${esc(scope)})` : esc(scope);
+
+        const factList = facts
+          .map((f) => `<div class="memory-fact">${esc(f.fact)} <span class="muted">${timeAgo(f.savedAt)}</span></div>`)
+          .join("");
+
+        return `<div class="memory-scope"><div class="memory-scope-header">${label} <span class="muted">(${facts.length})</span></div>${factList}</div>`;
+      });
+      memoriesHtml = scopes.join("");
+    } else {
+      memoriesHtml = '<span class="muted">No memories for this session</span>';
+    }
+
+    const overlay = document.getElementById("session-overlay");
+    document.getElementById("session-overlay-body").innerHTML = `
+      <div class="session-detail-header">
+        <h3>#${esc(s.channelName || s.channelId)}</h3>
+        <button class="btn btn-xs" onclick="hideSessionDetail()">&times;</button>
+      </div>
+
+      <div class="session-detail-stats">
+        <div><span class="muted">Channel ID</span> <code>${esc(s.channelId)}</code></div>
+        <div><span class="muted">Guild ID</span> <code>${esc(s.guildId || "DM")}</code></div>
+        <div><span class="muted">First message</span> ${formatDateTime(s.firstMessage)}</div>
+        <div><span class="muted">Last message</span> ${formatDateTime(s.lastMessage)}</div>
+        <div><span class="muted">Total messages</span> ${s.messageCount}</div>
+        <div><span class="muted">Users</span> ${users.length}</div>
+      </div>
+
+      <h3>Users</h3>
+      <table>
+        <thead>
+          <tr><th>User</th><th>ID</th><th>Messages</th><th>Last Active</th></tr>
+        </thead>
+        <tbody>${userRows}</tbody>
+      </table>
+
+      <h3>Memories</h3>
+      ${memoriesHtml}
+    `;
+
+    overlay.style.display = "";
+  } catch (err) {
+    showToast(`Error loading session: ${err.message}`, "error");
+  }
+}
+
+function hideSessionDetail() {
+  document.getElementById("session-overlay").style.display = "none";
 }
 
 // --- Memory ---

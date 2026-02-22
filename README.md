@@ -223,7 +223,7 @@ Once both the SDK and Unity are ready, the wrapper sends `OnDiscordReady` to Uni
 
 ## Web Dashboard
 
-Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`.
+Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`. For remote access, use Tailscale Funnel or Serve — see [Deployment: Remote Access](deploy/DEPLOY.md#6-remote-access-with-tailscale).
 
 - **Status** — Discord connection, uptime, guild count, heartbeat
 - **Persona** — Character switching (card grid), file editor, botName, prompt size, hot-reload

@@ -70,6 +70,63 @@ sudo journalctl -u aelora -f
 curl http://localhost:3000/api/status
 ```
 
+## 6. Remote access with Tailscale
+
+Expose the web dashboard over HTTPS using [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (public) or [Tailscale Serve](https://tailscale.com/kb/1312/serve) (Tailnet-only).
+
+### Install Tailscale
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+```
+
+### Option A: Tailscale Serve (private — Tailnet devices only)
+
+```bash
+sudo tailscale serve 3000
+```
+
+The dashboard is available at `https://<machine>.<tailnet>.ts.net` but only from devices on your Tailnet.
+
+### Option B: Tailscale Funnel (public — anyone on the internet)
+
+First, enable Funnel in the [Tailscale admin console](https://login.tailscale.com/admin/acls). Add the `funnel` attribute to your ACL:
+
+```jsonc
+"nodeAttrs": [
+  {
+    "target": ["*"],
+    "attr": ["funnel"]
+  }
+]
+```
+
+Then start the Funnel:
+
+```bash
+# Foreground (for testing)
+sudo tailscale funnel 3000
+
+# Background (persistent)
+sudo tailscale funnel --bg 3000
+
+# Stop
+sudo tailscale funnel --bg off
+```
+
+The dashboard is available at `https://<machine>.<tailnet>.ts.net` with automatic HTTPS certificates.
+
+### Serve vs Funnel
+
+| | `tailscale serve` | `tailscale funnel` |
+|---|---|---|
+| **Access** | Tailnet devices only | Anyone on the internet |
+| **HTTPS** | Auto certs | Auto certs |
+| **Use case** | Private dashboard | Public webhooks / API access |
+
+> **Security:** If using Funnel, set `web.apiKey` in `settings.yaml` to require authentication on all dashboard and API routes.
+
 ## Updating
 
 ```bash

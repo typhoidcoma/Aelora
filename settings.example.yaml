@@ -36,6 +36,9 @@ discord:
   # Custom embed accent color (hex). Omit for Discord blurple.
   # embedColor: "#5865F2"
 
+  # Channel ID for crash/restart notifications. Omit to disable.
+  # statusChannelId: "YOUR_CHANNEL_ID"
+
 # --- LLM ---
 # Any OpenAI-compatible endpoint works (OpenAI, Ollama, OpenRouter,
 # Together, Groq, LM Studio, etc.).

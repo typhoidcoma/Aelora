@@ -12,6 +12,8 @@ import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js
 import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
 import { startWeb, type AppState } from "./web.js";
+import { saveState, consumePreviousState, formatRestartMessage } from "./state.js";
+import { appendSystemEvent } from "./daily-log.js";
 
 // Install logger first so all console output is captured
 installLogger();
@@ -55,10 +57,22 @@ async function main(): Promise<void> {
   console.log("Discord: connecting...");
   await startDiscord(config);
 
-  // 7. Start cron scheduler
+  // 7. Check previous state and send restart notification
+  const prevState = consumePreviousState();
+  if (prevState && config.discord.statusChannelId) {
+    try {
+      const msg = formatRestartMessage(prevState);
+      await sendToChannel(config.discord.statusChannelId, msg);
+    } catch (err) {
+      console.error("Failed to send restart notification:", err);
+    }
+  }
+  appendSystemEvent("startup", prevState ? `Restarted (${prevState.reason})` : "Cold start");
+
+  // 8. Start cron scheduler
   startCron();
 
-  // 8. Start heartbeat
+  // 9. Start heartbeat
   if (config.heartbeat.enabled) {
     registerCalendarReminder();
     registerMemoryCompaction();
@@ -69,11 +83,11 @@ async function main(): Promise<void> {
     });
   }
 
-  // 9. Start web dashboard
+  // 10. Start web dashboard
   const appState: AppState = { config, personaState };
   startWeb(appState);
 
-  // 10. Register live system state for LLM context
+  // 11. Register live system state for LLM context
   setSystemStateProvider(() => {
     const hb = config.heartbeat.enabled ? getHeartbeatState() : null;
     return {
@@ -97,6 +111,7 @@ async function main(): Promise<void> {
 
 process.on("SIGINT", () => {
   console.log("\nShutting down...");
+  saveState("clean");
   stopHeartbeat();
   stopCron();
   process.exit(0);
@@ -104,20 +119,26 @@ process.on("SIGINT", () => {
 
 process.on("SIGTERM", () => {
   console.log("Received SIGTERM, shutting down...");
+  saveState("clean");
   stopHeartbeat();
   stopCron();
   process.exit(0);
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception (keeping process alive):", err);
+  console.error("Uncaught exception:", err);
+  saveState("crash", err?.stack ?? String(err));
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled promise rejection (keeping process alive):", reason);
+  console.error("Unhandled promise rejection:", reason);
+  saveState("crash", reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason));
+  process.exit(1);
 });
 
 main().catch((err) => {
   console.error("Fatal error:", err);
+  saveState("fatal", err?.stack ?? String(err));
   process.exit(1);
 });

@@ -11,6 +11,7 @@ export type Config = {
     status: string;
     guildId?: string;
     embedColor?: number;
+    statusChannelId?: string;
   };
   llm: {
     baseURL: string;
@@ -82,6 +83,7 @@ export function loadConfig(path = "settings.yaml"): Config {
       embedColor: parsed.discord.embedColor
         ? parseInt(String(parsed.discord.embedColor).replace("#", ""), 16)
         : undefined,
+      statusChannelId: parsed.discord.statusChannelId ?? undefined,
     },
     llm: {
       baseURL: parsed.llm.baseURL,

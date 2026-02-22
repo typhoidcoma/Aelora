@@ -32,6 +32,27 @@ export async function startDiscord(config: Config): Promise<Client> {
     partials: [Partials.Channel],
   });
 
+  // --- Client lifecycle handlers ---
+  client.on(Events.Error, (err) => {
+    console.error("Discord client error:", err);
+  });
+
+  client.on(Events.Warn, (msg) => {
+    console.warn("Discord client warning:", msg);
+  });
+
+  client.on("shardDisconnect", (event, shardId) => {
+    console.warn(`Discord: shard ${shardId} disconnected (code ${event.code})`);
+  });
+
+  client.on("shardReconnecting", (shardId) => {
+    console.log(`Discord: shard ${shardId} reconnecting...`);
+  });
+
+  client.on("shardResume", (shardId, replayedEvents) => {
+    console.log(`Discord: shard ${shardId} resumed (${replayedEvents} events replayed)`);
+  });
+
   const ready = new Promise<void>((resolve) => {
     client.once(Events.ClientReady, async (readyClient) => {
       botUserId = readyClient.user.id;

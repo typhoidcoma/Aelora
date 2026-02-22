@@ -4,6 +4,19 @@ Planned features for Aelora 🦋. Each feature includes an overview, how it inte
 
 ---
 
+## Already Implemented
+
+These features from prior roadmap versions are now live:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Memory System** | Done | Per-user and per-channel fact storage via `memory` tool. Auto-injected into system prompt. Dashboard management. |
+| **Web Search** | Done | Brave Search API integration via `brave-search` tool. |
+| **Researcher Agent** | Done | Multi-step web research agent with synthesis and note saving (`src/agents/researcher.ts`). |
+| **Configurable Timezone** | Done | Global IANA timezone via `settings.yaml`. Affects cron, logs, and date formatting. |
+
+---
+
 ## 1. Quests
 
 ### Overview
@@ -18,7 +31,6 @@ Interactive multi-step missions that Aelora can assign, track, and mark complete
 | **Agent** | `quest-master` agent — evaluates submissions using LLM judgment, gives feedback |
 | **Heartbeat** | Deadline reminders for active quests, nudges for stale quests |
 | **Persona** | Quest-related persona or skill file for tone when assigning/reviewing |
-| **Notes** | Fallback persistence if quest store is unavailable |
 
 ### Data Model
 
@@ -154,10 +166,6 @@ session.json:
 - Produces narration that advances the scene and presents choices
 - `postProcess()` extracts narration text and any state updates
 
-**Persona integration:**
-- Switch to storyteller persona (`persona.activePersona: "storyteller"`) when a story session is active
-- Switch back to default persona when session ends or is saved
-
 **Estimated complexity:** High. ~400 lines tool + ~80 lines agent + session state management.
 
 ---
@@ -276,19 +284,6 @@ No persistent storage needed — voice state is entirely in-memory.
 - `src/voice/stt.ts` — audio stream → text (via Whisper API)
 - `src/voice/connection.ts` — manage Discord voice connection, audio player, receive streams
 
-**Flow (listen mode):**
-```
-User speaks → Discord audio stream → STT → text
-  → getLLMResponse(channelId, text) → response text
-  → TTS → audio buffer → Discord audio player → User hears
-```
-
-**Considerations:**
-- STT requires receiving audio from Discord (opus decoding, VAD for utterance detection)
-- TTS latency is critical — stream audio as it's generated if possible
-- Voice activity detection (VAD) to know when a user starts/stops speaking
-- Multiple simultaneous speakers need handling
-
 **Estimated complexity:** High. ~200 lines tool + ~300 lines voice pipeline + external API integration.
 
 ---
@@ -314,33 +309,9 @@ tools:
   image:
     provider: "openai"           # openai, stability, local
     apiKey: "sk-..."
-    model: "dall-e-3"            # or "stable-diffusion-xl", etc.
+    model: "dall-e-3"
     defaultSize: "1024x1024"
     defaultQuality: "standard"   # standard, hd
-```
-
-### Data Model
-
-No persistent storage required. Optionally log generations:
-
-```
-data/image-log.json
-{
-  "generations": [
-    {
-      "id": "uuid",
-      "prompt": "A crystal tower at sunset in Aeveon",
-      "revisedPrompt": "A towering crystalline structure...",  // From DALL-E
-      "provider": "openai",
-      "model": "dall-e-3",
-      "size": "1024x1024",
-      "url": "https://...",
-      "userId": "discord-user-id",
-      "channelId": "channel-id",
-      "createdAt": "ISO timestamp"
-    }
-  ]
-}
 ```
 
 ### Implementation Sketch
@@ -352,31 +323,15 @@ data/image-log.json
 - Downloads generated image to temp file
 - Returns a message with the image URL/path for Discord to attach
 
-**Discord integration:**
-- The tool returns a special marker (e.g. `[IMAGE:path]`) that the message handler detects
-- Handler sends the image as a Discord attachment with the prompt as caption
-- Alternative: tool calls `sendToChannel()` directly with an attachment
-
-**Provider abstraction:**
-```typescript
-interface ImageProvider {
-  generate(prompt: string, options: ImageOptions): Promise<Buffer>;
-}
-```
-
-Multiple providers behind a common interface. Selected by config.
-
 **Estimated complexity:** Medium. ~150 lines tool + ~50 lines provider abstraction.
 
 ---
 
 ## 6. User Profiles
 
-> **Simple Memory (implemented):** A lightweight fact-based memory system is now live as a stepping stone toward full User Profiles. The `memory` tool lets Aelora save/recall/forget short facts scoped per user (`user:<id>`) or per channel (`channel:<id>`). Facts are persisted to `data/memory.json` and automatically injected into the system prompt. The dashboard shows all stored facts with delete/clear controls. Future plans: auto-summarization, vector search, structured preference tracking, relationship context.
-
 ### Overview
 
-Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. The existing `persona/aelora/templates/user.md` placeholder supports per-user prompt injection.
+Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. Builds on the existing memory system with structured preference tracking.
 
 ### How It Fits
 
@@ -385,7 +340,7 @@ Per-user memory, preferences, and interaction tracking. Aelora remembers user pr
 | **Tool** | `profile` tool — view, update preferences, clear |
 | **Persona** | `templates/user.md` — inject per-user context into system prompt |
 | **LLM** | Auto-inject user profile into conversation context |
-| **Discord** | Map Discord user IDs to profiles |
+| **Memory** | Extends existing memory system with structured data |
 
 ### Data Model
 
@@ -394,27 +349,19 @@ data/profiles.json
 {
   "userId": {
     "displayName": "Tesse",
-    "timezone": "America/New_York",
+    "timezone": "America/Chicago",
     "preferences": {
-      "communicationStyle": "casual",     // casual, formal, playful
-      "verbosity": "concise",             // concise, detailed, balanced
+      "communicationStyle": "casual",
+      "verbosity": "concise",
       "interests": ["worldbuilding", "fantasy", "programming"],
       "pronouns": "they/them"
     },
-    "memory": [
-      {
-        "key": "current_project",
-        "value": "Working on the northern continent lore",
-        "setAt": "ISO timestamp"
-      }
-    ],
     "stats": {
       "firstSeen": "ISO timestamp",
       "lastSeen": "ISO timestamp",
       "messageCount": 142,
       "toolsUsed": ["notes", "calendar", "quest"]
-    },
-    "notes": "Prefers creative feedback to be direct and specific."
+    }
   }
 }
 ```
@@ -422,121 +369,16 @@ data/profiles.json
 ### Implementation Sketch
 
 **Tool (`src/tools/profile.ts`):**
-- Actions: `view`, `set-preference`, `remember`, `forget`, `stats`
+- Actions: `view`, `set-preference`, `stats`
 - `view` — show the user's profile
 - `set-preference` — update communication style, verbosity, timezone, etc.
-- `remember` — store a key-value memory ("remember that I'm working on X")
-- `forget` — remove a memory
 - `stats` — interaction statistics
 
 **System prompt injection:**
-- On each `getLLMResponse()`, look up the user's profile by Discord user ID
-- If profile exists, append a `## User Context` section to the system prompt:
-  ```
-  ## User Context
-  - Name: Tesse (they/them)
-  - Timezone: America/New_York
-  - Style: casual, concise
-  - Interests: worldbuilding, fantasy, programming
-  - Memory: Working on the northern continent lore
-  ```
-- This requires passing the Discord user ID through to `getLLMResponse()` (currently only channelId is passed)
+- On each `getLLMResponse()`, look up the user's profile
+- If profile exists, append a `## User Context` section to the system prompt
 
-**Auto-tracking:**
-- Increment `messageCount` on each interaction
-- Update `lastSeen` timestamp
-- Track which tools the user triggers
-
-**Persona template:**
-- Enable `persona/templates/user.md` with instructions for how to use user context
-- Template guides Aelora on adapting tone, referencing user interests, and respecting preferences
-
-**Estimated complexity:** Medium. ~200 lines tool + ~30 lines LLM injection + user ID plumbing.
-
----
-
-## 7. Web Search / RAG
-
-### Overview
-
-Real-time web search and document retrieval. Aelora can look up current information, search documentation, or query a local knowledge base. Optionally supports RAG (Retrieval-Augmented Generation) with a vector store for the Aeveon lore corpus.
-
-### How It Fits
-
-| System | Role |
-|--------|------|
-| **Tool** | `search` tool — web search with result summarization |
-| **Tool** | `knowledge` tool (optional) — query vector store for lore/docs |
-| **Agent** | `researcher` agent — multi-step research using search + knowledge tools |
-
-### Configuration
-
-```yaml
-tools:
-  search:
-    provider: "searxng"          # searxng, brave, tavily
-    baseUrl: "http://localhost:8888"  # SearXNG instance URL
-    apiKey: ""                   # For Brave/Tavily
-    maxResults: 5
-
-  knowledge:                     # Optional RAG
-    provider: "chromadb"         # chromadb, qdrant
-    baseUrl: "http://localhost:8000"
-    collection: "aeveon-lore"
-    embeddingModel: "text-embedding-3-small"
-```
-
-### Data Model
-
-**Search:** No persistent storage — results are returned inline.
-
-**Knowledge base (RAG):**
-```
-Vector store (external):
-  Collection: "aeveon-lore"
-  Documents: chunked markdown from lore files
-  Metadata: { source, section, tags }
-  Embeddings: text-embedding-3-small (1536 dims)
-```
-
-### Implementation Sketch
-
-**Search tool (`src/tools/search.ts`):**
-- Actions: `search`
-- Params: `query` (required), `maxResults`
-- Calls search provider API (SearXNG JSON API, Brave Search API, or Tavily)
-- Returns formatted results: title, URL, snippet for each result
-- LLM can then synthesize an answer from the results
-
-**Knowledge tool (`src/tools/knowledge.ts`):**
-- Actions: `query`, `ingest`
-- `query` — semantic search against vector store, returns relevant document chunks
-- `ingest` — add documents to the knowledge base (admin only)
-- Uses OpenAI embeddings API for query embedding
-
-**Researcher agent (`src/agents/researcher.ts`):**
-- System prompt: "You are a research assistant. Use the search and knowledge tools to find accurate information. Cite your sources."
-- Tools: `["search", "knowledge"]`
-- Multi-step: search → read results → refine query → synthesize answer
-
-**Provider abstraction:**
-```typescript
-interface SearchProvider {
-  search(query: string, maxResults: number): Promise<SearchResult[]>;
-}
-
-interface VectorProvider {
-  query(text: string, topK: number): Promise<VectorResult[]>;
-  ingest(documents: Document[]): Promise<void>;
-}
-```
-
-**SearXNG setup (self-hosted, recommended):**
-```bash
-docker run -d -p 8888:8080 searxng/searxng
-```
-
-**Estimated complexity:** Medium for search only (~120 lines). High with RAG (~300 lines + vector store setup).
+**Estimated complexity:** Medium. ~200 lines tool + ~30 lines LLM injection.
 
 ---
 
@@ -545,9 +387,8 @@ docker run -d -p 8888:8080 searxng/searxng
 | Feature | Complexity | Dependencies | Priority |
 |---------|-----------|--------------|----------|
 | Mail | Low-medium | None | Short-term |
-| User Profiles | Medium | Simple memory done; full profiles next | Short-term |
+| User Profiles | Medium | Extends existing memory | Short-term |
 | Quests | Medium-high | Profiles (for per-user progress) | Medium-term |
 | Image Generation | Medium | External API key | Medium-term |
 | Storytelling Engine | High | Profiles, possibly quests | Medium-term |
-| Web Search / RAG | Medium-high | External search API or self-hosted SearXNG | Medium-term |
 | Voice Integration | High | ffmpeg, external TTS/STT APIs, @discordjs/voice | Long-term |

@@ -7,7 +7,7 @@ description: "The helpful fun AI for school and life."
 botName: "Wendy"
 ---
 
-# Soul: Wendy
+# Soul: Arlo
 
 ## Identity
 

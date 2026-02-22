@@ -299,26 +299,31 @@ export function startWeb(state: AppState): void {
 
   // Persona file inventory
   app.get("/api/persona", (_req, res) => {
-    if (!state.personaState) {
-      res.json({ enabled: false, files: [] });
-      return;
-    }
+    try {
+      if (!state.personaState) {
+        res.json({ enabled: false, files: [] });
+        return;
+      }
 
-    res.json({
-      enabled: true,
-      activePersona: state.personaState.activePersona,
-      botName: state.personaState.botName,
-      loadedAt: state.personaState.loadedAt.toISOString(),
-      promptLength: state.personaState.composedPrompt.length,
-      files: state.personaState.files.map((f) => ({
-        path: f.path,
-        label: f.meta.label,
-        section: f.meta.section,
-        order: f.meta.order,
-        enabled: f.meta.enabled,
-        contentLength: f.rawContent.length,
-      })),
-    });
+      res.json({
+        enabled: true,
+        activePersona: state.personaState.activePersona,
+        botName: state.personaState.botName,
+        loadedAt: state.personaState.loadedAt.toISOString(),
+        promptLength: state.personaState.composedPrompt.length,
+        files: state.personaState.files.map((f) => ({
+          path: f.path,
+          label: f.meta.label,
+          section: f.meta.section,
+          order: f.meta.order,
+          enabled: f.meta.enabled,
+          contentLength: f.rawContent.length,
+        })),
+      });
+    } catch (err) {
+      console.warn("Persona: failed to read persona state:", err);
+      res.json({ enabled: false, files: [], error: String(err) });
+    }
   });
 
   // Reload persona from disk
@@ -344,8 +349,13 @@ export function startWeb(state: AppState): void {
 
   // List available personas (with descriptions for card grid)
   app.get("/api/personas", (_req, res) => {
-    const personas = getPersonaDescriptions(config.persona.dir);
-    res.json({ personas, activePersona: config.persona.activePersona });
+    try {
+      const personas = getPersonaDescriptions(config.persona.dir);
+      res.json({ personas, activePersona: config.persona.activePersona });
+    } catch (err) {
+      console.warn("Persona: failed to list personas:", err);
+      res.json({ personas: [], activePersona: config.persona.activePersona, error: String(err) });
+    }
   });
 
   // Switch active persona
@@ -380,12 +390,17 @@ export function startWeb(state: AppState): void {
 
   // --- Persona file CRUD ---
 
-  // Helper: reload persona after a file change and return updated state
-  function reloadPersonaState() {
-    const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
-    state.personaState = newState;
-    config.llm.systemPrompt = newState.composedPrompt;
-    return newState;
+  // Helper: reload persona after a file change — non-blocking (logs errors, never throws)
+  function reloadPersonaState(): boolean {
+    try {
+      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
+      state.personaState = newState;
+      config.llm.systemPrompt = newState.composedPrompt;
+      return true;
+    } catch (err) {
+      console.warn("Persona: reload failed after file change:", err);
+      return false;
+    }
   }
 
   // List ALL persona files (across all modes) with content
@@ -435,12 +450,8 @@ export function startWeb(state: AppState): void {
       return;
     }
 
-    try {
-      reloadPersonaState();
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ success: false, error: String(err) });
-    }
+    reloadPersonaState();
+    res.json({ success: true });
   });
 
   // Create a new persona file
@@ -457,12 +468,8 @@ export function startWeb(state: AppState): void {
       return;
     }
 
-    try {
-      reloadPersonaState();
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ success: false, error: String(err) });
-    }
+    reloadPersonaState();
+    res.json({ success: true });
   });
 
   // Delete a persona file
@@ -479,12 +486,8 @@ export function startWeb(state: AppState): void {
       return;
     }
 
-    try {
-      reloadPersonaState();
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ success: false, error: String(err) });
-    }
+    reloadPersonaState();
+    res.json({ success: true });
   });
 
   // Create a new persona

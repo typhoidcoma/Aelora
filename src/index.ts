@@ -27,8 +27,13 @@ async function main(): Promise<void> {
   // 2. Load persona (compose system prompt from persona/ directory)
   let personaState: PersonaState | null = null;
   if (config.persona.enabled) {
-    personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
-    config.llm.systemPrompt = personaState.composedPrompt;
+    try {
+      personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
+      config.llm.systemPrompt = personaState.composedPrompt;
+    } catch (err) {
+      console.error(`Persona: failed to load "${config.persona.activePersona}":`, err);
+      console.warn("Persona: continuing without persona system");
+    }
   }
 
   // 3. Initialize LLM client
@@ -101,6 +106,14 @@ process.on("SIGTERM", () => {
   stopHeartbeat();
   stopCron();
   process.exit(0);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception (keeping process alive):", err);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection (keeping process alive):", reason);
 });
 
 main().catch((err) => {

@@ -368,9 +368,12 @@ export function startWeb(state: AppState): void {
       return;
     }
 
+    const previousPersona = config.persona.activePersona;
+
     try {
-      config.persona.activePersona = persona;
+      // Load BEFORE updating config — if loadPersona throws, config stays intact
       const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, persona);
+      config.persona.activePersona = persona;
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
 
@@ -384,6 +387,9 @@ export function startWeb(state: AppState): void {
         enabledCount,
       });
     } catch (err) {
+      // Restore previous persona on failure
+      config.persona.activePersona = previousPersona;
+      console.error(`Persona: switch to "${persona}" failed:`, err);
       res.status(500).json({ success: false, error: String(err) });
     }
   });

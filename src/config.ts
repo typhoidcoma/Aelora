@@ -1,53 +1,88 @@
 import { readFileSync } from "node:fs";
 import { parse } from "yaml";
+import { z } from "zod";
 
-export type Config = {
-  timezone: string;
-  discord: {
-    token: string;
-    guildMode: "mention" | "all";
-    allowedChannels: string[];
-    allowDMs: boolean;
-    status: string;
-    guildId?: string;
-    embedColor?: number;
-    statusChannelId?: string;
-  };
-  llm: {
-    baseURL: string;
-    apiKey: string;
-    model: string;
-    systemPrompt: string;
-    maxTokens: number;
-    maxHistory: number;
-  };
-  web: {
-    enabled: boolean;
-    port: number;
-    apiKey?: string;
-  };
-  persona: {
-    enabled: boolean;
-    dir: string;
-    botName: string;
-    activePersona: string;
-  };
-  heartbeat: {
-    enabled: boolean;
-    intervalMs: number;
-  };
-  agents: {
-    enabled: boolean;
-    maxIterations: number;
-  };
-  tools: Record<string, Record<string, unknown>>;
-  activity: {
-    enabled: boolean;
-    clientId: string;
-    clientSecret: string;
-    serverUrl: string;
-  };
-};
+// ---------------------------------------------------------------------------
+// Zod schemas — serve as both runtime validator AND TypeScript type source
+// ---------------------------------------------------------------------------
+
+const discordSchema = z.object({
+  token: z.string().default(""),
+  guildMode: z.enum(["mention", "all"]).default("mention"),
+  allowedChannels: z.array(z.coerce.string()).default([]),
+  allowDMs: z.boolean().default(true),
+  status: z.string().default("Online"),
+  guildId: z.string().optional(),
+  embedColor: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((v) => {
+      if (v === undefined) return undefined;
+      const n = parseInt(String(v).replace("#", ""), 16);
+      if (Number.isNaN(n) || n < 0 || n > 0xffffff) {
+        throw new Error(`Invalid hex color: ${v}`);
+      }
+      return n;
+    }),
+  statusChannelId: z.string().optional(),
+});
+
+const llmSchema = z.object({
+  baseURL: z.string().default(""),
+  apiKey: z.string().default(""),
+  model: z.string().default(""),
+  systemPrompt: z.string().default("You are a helpful assistant."),
+  maxTokens: z.number().int().positive().default(1024),
+  maxHistory: z.number().int().positive().default(20),
+});
+
+const webSchema = z.object({
+  enabled: z.boolean().default(true),
+  port: z.number().int().min(1).max(65535).default(3000),
+  apiKey: z.string().optional(),
+});
+
+const personaSchema = z.object({
+  enabled: z.boolean().default(true),
+  dir: z.string().default("persona"),
+  botName: z.string().default("Aelora"),
+  activePersona: z.string().default("aelora"),
+});
+
+const heartbeatSchema = z.object({
+  enabled: z.boolean().default(true),
+  intervalMs: z.number().int().positive().default(60_000),
+});
+
+const agentsSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxIterations: z.number().int().positive().default(5),
+});
+
+const activitySchema = z.object({
+  enabled: z.boolean().default(false),
+  clientId: z.string().default(""),
+  clientSecret: z.string().default(""),
+  serverUrl: z.string().default(""),
+});
+
+const configSchema = z.object({
+  timezone: z.string().default("UTC"),
+  discord: discordSchema,
+  llm: llmSchema,
+  web: webSchema.default({}),
+  persona: personaSchema.default({}),
+  heartbeat: heartbeatSchema.default({}),
+  agents: agentsSchema.default({}),
+  tools: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
+  activity: activitySchema.default({}),
+});
+
+export type Config = z.infer<typeof configSchema>;
+
+// ---------------------------------------------------------------------------
+// Load & validate
+// ---------------------------------------------------------------------------
 
 export function loadConfig(path = "settings.yaml"): Config {
   let raw: string;
@@ -62,60 +97,20 @@ export function loadConfig(path = "settings.yaml"): Config {
   const parsed = parse(raw);
   console.log("Config: loaded settings.yaml");
 
-  const config: Config = {
-    timezone: parsed?.timezone ?? "UTC",
-    discord: {
-      token: parsed?.discord?.token ?? "",
-      guildMode: parsed?.discord?.guildMode ?? "mention",
-      allowedChannels: (parsed?.discord?.allowedChannels ?? []).map(String),
-      allowDMs: parsed?.discord?.allowDMs ?? true,
-      status: parsed?.discord?.status ?? "Online",
-      guildId: parsed?.discord?.guildId ?? undefined,
-      embedColor: parsed?.discord?.embedColor
-        ? parseInt(String(parsed.discord.embedColor).replace("#", ""), 16)
-        : undefined,
-      statusChannelId: parsed?.discord?.statusChannelId ?? undefined,
-    },
-    llm: {
-      baseURL: parsed?.llm?.baseURL ?? "",
-      apiKey: parsed?.llm?.apiKey ?? "",
-      model: parsed?.llm?.model ?? "",
-      systemPrompt: parsed?.llm?.systemPrompt ?? "You are a helpful assistant.",
-      maxTokens: parsed?.llm?.maxTokens ?? 1024,
-      maxHistory: parsed?.llm?.maxHistory ?? 20,
-    },
-    web: {
-      enabled: parsed?.web?.enabled ?? true,
-      port: parsed?.web?.port ?? 3000,
-      apiKey: parsed?.web?.apiKey ?? undefined,
-    },
-    persona: {
-      enabled: parsed?.persona?.enabled ?? true,
-      dir: parsed?.persona?.dir ?? "persona",
-      botName: parsed?.persona?.botName ?? "Aelora",
-      activePersona: parsed?.persona?.activePersona ?? "default",
-    },
-    heartbeat: {
-      enabled: parsed?.heartbeat?.enabled ?? true,
-      intervalMs: parsed?.heartbeat?.intervalMs ?? 60_000,
-    },
-    agents: {
-      enabled: parsed?.agents?.enabled ?? true,
-      maxIterations: parsed?.agents?.maxIterations ?? 5,
-    },
-    tools: parsed?.tools ?? {},
-    activity: {
-      enabled: parsed?.activity?.enabled ?? false,
-      clientId: parsed?.activity?.clientId ?? "",
-      clientSecret: parsed?.activity?.clientSecret ?? "",
-      serverUrl: parsed?.activity?.serverUrl ?? "",
-    },
-  };
+  const result = configSchema.safeParse(parsed ?? {});
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
+      .join("\n");
+    throw new Error(`Config validation failed:\n${issues}`);
+  }
+
+  const config = result.data;
 
   // Environment variables override YAML values (secrets + port)
   applyEnvOverrides(config);
 
-  // Validate required fields (after env overrides)
+  // Validate required fields (after env overrides, since secrets often come from env)
   if (!config.discord.token) {
     throw new Error("discord.token is required (set in settings.yaml or AELORA_DISCORD_TOKEN)");
   }
@@ -136,7 +131,10 @@ function applyEnvOverrides(config: Config): void {
   if (env.AELORA_LLM_API_KEY)            { config.llm.apiKey = env.AELORA_LLM_API_KEY; applied.push("AELORA_LLM_API_KEY"); }
   if (env.AELORA_LLM_BASE_URL)           { config.llm.baseURL = env.AELORA_LLM_BASE_URL; applied.push("AELORA_LLM_BASE_URL"); }
   if (env.AELORA_WEB_API_KEY)            { config.web.apiKey = env.AELORA_WEB_API_KEY; applied.push("AELORA_WEB_API_KEY"); }
-  if (env.AELORA_WEB_PORT)               { config.web.port = parseInt(env.AELORA_WEB_PORT, 10) || config.web.port; applied.push("AELORA_WEB_PORT"); }
+  if (env.AELORA_WEB_PORT) {
+    const p = parseInt(env.AELORA_WEB_PORT, 10);
+    if (!Number.isNaN(p)) { config.web.port = p; applied.push("AELORA_WEB_PORT"); }
+  }
   if (env.AELORA_ACTIVITY_CLIENT_ID)     { config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID; applied.push("AELORA_ACTIVITY_CLIENT_ID"); }
   if (env.AELORA_ACTIVITY_CLIENT_SECRET) { config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET; applied.push("AELORA_ACTIVITY_CLIENT_SECRET"); }
   if (applied.length > 0) {

@@ -29,7 +29,8 @@
     "express-rate-limit": "^8.2.1",
     "openai": "^4.77.0",
     "tsdav": "^2.1.8",
-    "yaml": "^2.7.0"
+    "yaml": "^2.7.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

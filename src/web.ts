@@ -15,7 +15,7 @@ import {
   createPersona,
   type PersonaState,
 } from "./persona.js";
-import { getLLMOneShot, getLLMResponse, clearHistory } from "./llm.js";
+import { getLLMResponse, clearHistory } from "./llm.js";
 import { getAllTools, toggleTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
@@ -125,7 +125,6 @@ export function startWeb(state: AppState): void {
   });
 
   app.use("/api", apiLimiter);
-  app.use("/api/llm/test", llmLimiter);
   app.use("/api/chat", llmLimiter);
 
   // --- Auth middleware ---
@@ -535,58 +534,7 @@ export function startWeb(state: AppState): void {
     res.json({ success: true, name });
   });
 
-  // Test LLM with current persona prompt
-  app.post("/api/llm/test", async (req, res) => {
-    const message = req.body?.message;
-    if (!message || typeof message !== "string") {
-      res.status(400).json({ error: "message is required" });
-      return;
-    }
-
-    try {
-      const reply = await getLLMOneShot(message);
-      res.json({ reply });
-    } catch (err) {
-      res.status(500).json({ error: String(err) });
-    }
-  });
-
-  // Streaming LLM test (SSE)
-  app.post("/api/llm/test/stream", async (req, res) => {
-    const message = req.body?.message;
-    if (!message || typeof message !== "string") {
-      res.status(400).json({ error: "message is required" });
-      return;
-    }
-
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-
-    let closed = false;
-    req.on("close", () => { closed = true; });
-
-    try {
-      const reply = await getLLMOneShot(message, (token) => {
-        if (!closed) {
-          res.write(`data: ${JSON.stringify({ token })}\n\n`);
-        }
-      });
-      if (!closed) {
-        res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
-      }
-    } catch (err) {
-      if (!closed) {
-        res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
-      }
-    } finally {
-      res.end();
-    }
-  });
-
-  // --- External Chat API ---
+  // --- Chat API ---
 
   // Chat — send message with full conversation state
   app.post("/api/chat", async (req, res) => {

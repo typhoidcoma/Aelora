@@ -820,10 +820,10 @@ async function testLLM() {
   pre.textContent = "";
 
   try {
-    const res = await apiFetch("/api/llm/test/stream", {
+    const res = await apiFetch("/api/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, sessionId: "dashboard" }),
     });
 
     if (!res.ok) {

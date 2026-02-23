@@ -181,7 +181,6 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 `getLLMOneShot(prompt)` — stateless call with full tool support. Used by:
 - Cron jobs (`type: "llm"`)
-- Web dashboard LLM test
 - Agent sub-loops
 
 ### Direct Client Access
@@ -711,9 +710,9 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Auth:** Optional bearer token via `web.apiKey` in `settings.yaml`. When set, all `/api/*` routes (except `/api/status`, `/api/activity/*`, and `/api/docs`) require `Authorization: Bearer <key>`. SSE endpoints accept `?token=<key>` instead. No key configured = no auth.
 
-**Rate limits:** 1000 req/15 min general, 60 req/min on LLM endpoints.
+**Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), LLM (2), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 54 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 52 endpoints total.
 
 ### Routing
 

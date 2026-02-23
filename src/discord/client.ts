@@ -13,6 +13,7 @@ import { setEmbedColor } from "./embeds.js";
 import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
 import { recordMessage } from "../sessions.js";
 import { appendLog } from "../daily-log.js";
+import { classifyMood } from "../mood.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -305,6 +306,10 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     }
 
     console.log(`Discord: reply sent to ${channelName} (${chunks.length} chunk(s))`);
+
+    // Auto-classify mood from the response (async, best-effort)
+    const userText = typeof userContent === "string" ? userContent : content;
+    classifyMood(text, userText).catch((err) => console.warn("Mood classify failed:", err));
   } catch (err) {
     if (editTimer) clearInterval(editTimer);
     if (typingTimer) clearInterval(typingTimer);

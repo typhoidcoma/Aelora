@@ -88,6 +88,10 @@ export function initLLM(cfg: Config): void {
   loadSummaries();
 }
 
+/** Expose the initialized OpenAI client for lightweight direct calls (e.g. mood classification). */
+export function getLLMClient(): OpenAI { return client; }
+export function getLLMModel(): string { return config.llm.model; }
+
 export function clearHistory(channelId: string): void {
   conversations.delete(channelId);
 }
@@ -241,8 +245,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
   }
 
   // --- Current mood (semi-static — changes on mood shift) ---
-  const moodSection = buildMoodPromptSection();
-  if (moodSection) sections.push("\n\n" + moodSection);
+  sections.push("\n\n" + buildMoodPromptSection());
 
   // --- Memory (semi-static — changes on fact save) ---
   const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);

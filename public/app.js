@@ -463,6 +463,34 @@ async function fetchPersonas() {
   }
 }
 
+function updateMoodOnCard(mood) {
+  const activeCard = document.querySelector(".persona-card.active");
+  if (!activeCard) return;
+
+  // Remove existing mood element if present
+  const existing = activeCard.querySelector(".persona-card-mood");
+  if (existing) existing.remove();
+
+  if (!mood.active) return;
+
+  const color = MOOD_COLORS[mood.emotion] || "var(--text-muted)";
+  const label = mood.label.charAt(0).toUpperCase() + mood.label.slice(1);
+  const secondary = mood.secondary ? ` + ${mood.secondary}` : "";
+
+  const el = document.createElement("div");
+  el.className = "persona-card-mood";
+  el.style.setProperty("--mood-color", color);
+  el.innerHTML = `<span class="mood-dot"></span>${esc(label)}${esc(secondary)}`;
+
+  // Insert before .persona-card-meta
+  const meta = activeCard.querySelector(".persona-card-meta");
+  if (meta) {
+    meta.parentNode.insertBefore(el, meta);
+  } else {
+    activeCard.appendChild(el);
+  }
+}
+
 async function switchPersona(name) {
   try {
     const res = await apiFetch("/api/persona/switch", {
@@ -978,6 +1006,16 @@ async function initConsole() {
       /* ignore */
     }
   };
+
+  // Live mood updates on persona cards
+  evtSource.addEventListener("mood", (event) => {
+    try {
+      const mood = JSON.parse(event.data);
+      updateMoodOnCard(mood);
+    } catch {
+      /* ignore */
+    }
+  });
 }
 
 // --- Resizable sidebar ---

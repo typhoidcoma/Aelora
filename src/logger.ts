@@ -59,3 +59,15 @@ export function addSSEClient(res: Response): void {
   sseClients.add(res);
   res.on("close", () => sseClients.delete(res));
 }
+
+/** Send a named SSE event to all connected clients. */
+export function broadcastEvent(event: string, data: unknown): void {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(payload);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}

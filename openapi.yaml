@@ -1174,6 +1174,43 @@ paths:
                         enabled:
                           type: boolean
 
+  /api/mood:
+    get:
+      tags: [System]
+      summary: Current mood
+      description: Returns the bot's current emotional state using Plutchik's wheel of emotions. Updated automatically after each Discord response via mood classification.
+      responses:
+        "200":
+          description: Mood state (active=false when no mood has been set yet)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                    description: Whether a mood is currently set
+                  emotion:
+                    type: string
+                    enum: [joy, trust, fear, surprise, sadness, disgust, anger, anticipation]
+                  intensity:
+                    type: string
+                    enum: [low, mid, high]
+                  label:
+                    type: string
+                    description: Resolved emotion word (e.g. "serenity" for joy/low)
+                  secondary:
+                    type: string
+                    nullable: true
+                    description: Optional secondary emotion for blends
+                  note:
+                    type: string
+                    nullable: true
+                    description: Brief context for why mood shifted
+                  updatedAt:
+                    type: string
+                    format: date-time
+
   /api/logs:
     get:
       tags: [System]

@@ -20,7 +20,10 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Daily Log** — Automatic daily activity logging
 - **Heartbeat** — Periodic handler system for proactive actions (calendar reminders, memory compaction)
 - **Discord Activity** — Host a Unity WebGL build (or any web app) as an embedded Discord Activity with OAuth2, SDK integration, and a `/play` command
-- **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, Activity preview
+- **Mood System** — Automatic emotion tracking using Plutchik's wheel (8 emotions × 3 intensities), auto-classified after each response, live dashboard indicator, manual override tool
+- **Config Validation** — Zod-powered runtime schema validation with clear startup error messages
+- **Lite Mode** — Slim tool schemas and trimmed system prompt for running local/small models (4B–7B via LM Studio, Ollama, etc.)
+- **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, mood indicator, Activity preview
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** — Global IANA timezone setting for cron, logs, and date formatting
 
@@ -66,7 +69,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 |---|---|
 | `timezone` | IANA timezone for the server (cron, logs, date formatting). Defaults to UTC |
 | `discord` | Bot token, response mode (mention/all), allowed channels, DMs, status |
-| `llm` | API endpoint, model, max tokens, conversation history length |
+| `llm` | API endpoint, model, max tokens, conversation history length, lite mode |
 | `persona` | Personality system toggle, directory, bot name, active persona |
 | `tools` | Per-tool config (API keys, CalDAV credentials, etc.) |
 | `agents` | Agent system toggle, max iterations |
@@ -233,6 +236,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 - **Scheduled Tasks** — Create, edit, delete, trigger, toggle cron jobs; human-readable schedules, last/next run, execution history
 - **Tools** — Enable/disable tools at runtime
 - **Activity Preview** — Test Unity WebGL build locally without Discord (stub user data)
+- **Mood** — Live emotion indicator on the active persona card, auto-updated via SSE
 - **Console** — Live log stream via SSE
 
 ## Project Structure
@@ -241,7 +245,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 ├── src/
 │   ├── index.ts              — Startup orchestration (10-step boot)
 │   ├── boot.ts               — Process wrapper (auto-restart on exit 100)
-│   ├── config.ts             — YAML config loader + types
+│   ├── config.ts             — YAML config loader + Zod schema validation
 │   ├── llm.ts                — LLM client, conversation history, streaming, tool loop
 │   ├── persona.ts            — Persona file discovery, parsing, composition
 │   ├── tool-registry.ts      — Tool auto-discovery + execution
@@ -253,9 +257,11 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── heartbeat.ts          — Periodic handler system
 │   ├── heartbeat-calendar.ts — Calendar reminder handler
 │   ├── heartbeat-memory.ts   — Memory compaction handler
+│   ├── mood.ts               — Emotion state (Plutchik's wheel) + auto-classification
+│   ├── state.ts              — Persisted bot state (active persona)
 │   ├── web.ts                — Express dashboard + REST API
 │   ├── lifecycle.ts          — Graceful reboot
-│   ├── logger.ts             — Console capture + SSE broadcast
+│   ├── logger.ts             — Console capture + SSE broadcast + named events
 │   ├── utils.ts              — Shared utilities
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
@@ -271,6 +277,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   │   ├── brave-search.ts   — Brave Search web queries
 │   │   ├── cron.ts           — Runtime cron job management
 │   │   ├── memory.ts         — Memory save/list/forget tool
+│   │   ├── mood.ts           — Emotional state override (set_mood)
 │   │   ├── _example-gmail.ts — Example tool template (skipped on load)
 │   │   └── _example-multi-action.ts — Multi-action tool template
 │   └── agents/

@@ -38,7 +38,8 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
                      ┌──────────────▼────────────────┐
                      │       Persistence layer       │
                      │  memory.ts · sessions.ts ·    │
-                     │  daily-log.ts · data/*.json   │
+                     │  mood.ts · daily-log.ts ·     │
+                     │  data/*.json                  │
                      └───────────────────────────────┘
 
   ┌────────────┐    ┌────────────┐    ┌─────────────────────┐
@@ -143,41 +144,29 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 
 ### System Prompt Composition
 
-`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request:
+`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request. Sections are ordered **static-first, dynamic-last** to maximize OpenAI's automatic prefix caching — if the first N tokens are identical between requests, they get a cache hit (faster, cheaper):
 
 ```
-[Persona composed prompt]
+1. [Persona composed prompt]          ← static (changes on persona switch)
 
-## System Status
-- Bot: Aelora (Aelora#1234)
-- Discord: connected, 1 guild(s)
-- Model: gpt-5.1-chat-latest
-- Uptime: 2h 15m
-- Heartbeat: running, 2 handler(s)
-- Cron: 2 active job(s)
+2. ## Currently Available              ← static (changes on tool toggle)
+   ### Tools / ### Agents
 
-## Currently Available
+3. ## Current Mood                     ← semi-static (changes on mood shift)
+   You are currently feeling **serenity**
 
-### Tools
-- **ping** — Responds with pong and server time
-- **notes** — Save, retrieve, list, and delete notes
-- **calendar** — Manage calendar events via CalDAV
-- **brave-search** — Search the web via Brave Search API
-- **cron** — Create, list, toggle, trigger, and delete scheduled jobs
-- **memory** — Remember and recall facts about users and channels
+4. ## Memory                           ← semi-static (changes on fact save)
+   ### About this user / channel
 
-### Agents
-- **researcher** — Research a topic using web search and notes
+5. ## Conversation Summary             ← dynamic (changes after compaction)
 
-## Memory
-### About this user
-- Prefers casual tone
-- Working on a Rust game engine
-### About this channel
-- This channel discusses AI news
+6. ## System Status                    ← most dynamic (uptime changes every request, goes LAST)
+   Bot, Discord, Model, Uptime, Heartbeat, Cron
 ```
 
-The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` — only appears when relevant facts exist. This gives the LLM live awareness of its environment and persistent knowledge about users and channels.
+In **lite mode** (`llm.lite: true`), the Tool/Agent Inventory and System Status sections are skipped entirely to reduce token count.
+
+The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` — only appears when relevant facts exist.
 
 ### Tool Calling Loop
 
@@ -194,6 +183,29 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 - Cron jobs (`type: "llm"`)
 - Web dashboard LLM test
 - Agent sub-loops
+
+### Direct Client Access
+
+`getLLMClient()` and `getLLMModel()` expose the initialized OpenAI client and model name for lightweight direct calls that don't need the full system prompt or tool support (e.g. mood classification).
+
+### Lite Mode
+
+When `config.llm.lite` is `true`:
+- `slimDefinitions()` truncates tool descriptions to the first sentence and trims parameter descriptions
+- System Status and Tool/Agent Inventory sections are skipped from the system prompt
+- Tools remain fully functional — just less verbose in the schema presented to the LLM
+
+Useful for local models (4B–7B) running via LM Studio, Ollama, etc. where token budgets are tight.
+
+### Conversation Compaction
+
+Messages trimmed from history are queued per-channel for async summarization:
+
+1. When history exceeds `maxHistory`, oldest messages are pushed to a compaction queue
+2. `compactPendingHistory(minQueueSize)` is called by the memory heartbeat handler
+3. When a channel has ≥10 queued messages, they're summarized via a one-shot LLM call
+4. Summaries are persisted to `data/memory/summaries.json` (max 3000 chars per channel)
+5. Summaries are injected into the system prompt, giving the LLM awareness of earlier conversation context
 
 ### Agent Loop
 
@@ -385,6 +397,7 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `brave-search` | Web search via Brave Search API | `brave.apiKey` |
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
+| `mood` | Manual emotional state override (set_mood) | none |
 
 ---
 
@@ -483,6 +496,76 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 ---
 
+## Mood System
+
+**Files:** [src/mood.ts](src/mood.ts), [src/tools/mood.ts](src/tools/mood.ts)
+
+Tracks the bot's emotional state using Plutchik's wheel of emotions — 8 primary emotions at 3 intensity levels (24 distinct states). The mood is auto-classified after each Discord response and displayed live on the dashboard.
+
+### Plutchik's Wheel
+
+| Emotion | Low | Mid | High |
+|---------|-----|-----|------|
+| Joy | serenity | joy | ecstasy |
+| Trust | acceptance | trust | admiration |
+| Fear | apprehension | fear | terror |
+| Surprise | distraction | surprise | amazement |
+| Sadness | pensiveness | sadness | grief |
+| Disgust | boredom | disgust | loathing |
+| Anger | annoyance | anger | rage |
+| Anticipation | interest | anticipation | vigilance |
+
+Blends are supported via an optional `secondary` emotion (e.g. joy + trust = love).
+
+### MoodState
+
+```typescript
+type MoodState = {
+  emotion: PrimaryEmotion;    // One of 8 primary emotions
+  intensity: Intensity;        // "low" | "mid" | "high"
+  secondary?: PrimaryEmotion;  // Optional blend
+  note?: string;               // Brief context (max 200 chars)
+  updatedAt: string;           // ISO timestamp
+};
+```
+
+Persisted to `data/current-mood.json`. Survives restarts.
+
+### Auto-Classification
+
+After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
+
+1. Checks throttle — skips if mood was updated less than 30 seconds ago
+2. Makes a lightweight direct LLM call (no tools, no persona, ~150 token prompt)
+3. Parses JSON response into `{ emotion, intensity, secondary?, note? }`
+4. Validates against Plutchik's emotions enum
+5. Calls `saveMood()` → persists to disk + broadcasts SSE event
+
+The classification uses `getLLMClient()` and `getLLMModel()` from `llm.ts` for a minimal API call — no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
+
+### Manual Override
+
+The `set_mood` tool allows the bot to express intentional mood shifts that auto-detection might miss. It bypasses the classification throttle. This is a secondary mechanism — auto-classification handles the baseline.
+
+### System Prompt Injection
+
+`buildMoodPromptSection()` adds the current mood to every LLM request:
+
+```
+## Current Mood
+You are currently feeling **serenity** with undertones of **trust**.
+```
+
+When no mood is set yet: `No mood set yet — it will be detected automatically from your responses.`
+
+### Live Dashboard
+
+`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place — colored dot, emotion label, and secondary emotion.
+
+Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust, blue for sadness, red for anger, etc.).
+
+---
+
 ## Cron System
 
 **File:** [src/cron.ts](src/cron.ts)
@@ -544,6 +627,7 @@ Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job main
 - On ready: sets bot status, registers slash commands (guild-scoped if `guildId` set, otherwise global)
 - Preserves Discord-managed commands (e.g. Activity Entry Point) during bulk registration by fetching existing non-slash commands and including them in the update
 - Message routing filters: ignores bots, respects `allowedChannels`, `guildMode`, `allowDMs`
+- After each response, `classifyMood()` is called fire-and-forget to auto-detect the bot's emotional tone from the response text
 - Exports `discordClient`, `botUserId`, `startDiscord()`, `sendToChannel()`
 
 ### commands.ts
@@ -592,7 +676,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on LLM endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Tools (2), Agents (2), System (4), Activity (2) — 42 endpoints total.
+**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 43 endpoints total.
 
 ### Routing
 
@@ -606,7 +690,7 @@ When `activity.enabled` is false:
 
 ### Frontend
 
-Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. Includes an **Activity Preview** panel that loads the Unity WebGL test page in an iframe (uses stub Discord data).
+Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events — no page refresh needed. Includes an **Activity Preview** panel that loads the Unity WebGL test page in an iframe (uses stub Discord data).
 
 ---
 
@@ -614,7 +698,7 @@ Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, pur
 
 **File:** [src/config.ts](src/config.ts)
 
-`loadConfig()` reads `settings.yaml`, validates required keys (`discord.token`, `llm.baseURL`, `llm.model`), and returns a typed `Config` object with defaults applied. The `timezone` field sets `process.env.TZ` at startup, affecting all date/time operations globally.
+`loadConfig()` reads `settings.yaml`, validates it with **Zod schemas** (`configSchema.safeParse()`), and returns a typed `Config` object with defaults applied. Invalid config produces clear error messages listing each validation failure. The `Config` type is derived from the Zod schema via `z.infer<typeof configSchema>`, so types and validation are always in sync. The `timezone` field sets `process.env.TZ` at startup, affecting all date/time operations globally.
 
 ### Config Type
 
@@ -628,7 +712,8 @@ type Config = {
     allowDMs: boolean;
     status: string;
     guildId?: string;
-    embedColor?: number;
+    embedColor?: number;       // Validated hex, NaN-safe
+    statusChannelId?: string;  // Channel for crash/restart notifications
   };
   llm: {
     baseURL: string;
@@ -637,6 +722,7 @@ type Config = {
     systemPrompt: string;     // Overwritten by persona system at startup
     maxTokens: number;        // Default: 1024
     maxHistory: number;       // Default: 20
+    lite: boolean;            // Default: false — slim tool schemas for local models
   };
   web: { enabled: boolean; port: number; apiKey?: string };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
@@ -671,6 +757,8 @@ type Config = {
 2. Pushes a `LogEntry` into a 200-entry circular buffer
 3. Broadcasts the entry as an SSE event to all connected dashboard clients
 
+`broadcastEvent(event, data)` sends **named** SSE events to all connected clients. Used by the mood system to push live updates — the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource.
+
 ### daily-log.ts — Activity Logging
 
 Automatic daily activity logging, persisted to disk. Uses the configured timezone for date formatting.
@@ -697,6 +785,9 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Memory facts | `data/memory.json` (disk) | Yes |
 | Sessions | `data/sessions.json` (disk) | Yes |
 | Daily log | `data/daily-log/` (disk) | Yes |
+| Mood state | `data/current-mood.json` (disk) | Yes |
+| Conversation summaries | `data/memory/summaries.json` (disk) | Yes |
+| Active persona | `data/bot-state.json` (disk) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Persona files | Disk (`persona/` directory) | Yes |

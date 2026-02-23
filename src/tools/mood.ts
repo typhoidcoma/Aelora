@@ -14,7 +14,7 @@ const intensities: Intensity[] = ["low", "mid", "high"];
 export default defineTool({
   name: "set_mood",
   description:
-    "Update your current emotional state. Call this when your mood shifts during conversation.",
+    "Manually override your current emotional state. Use this when you want to express an intentional mood shift that auto-detection might miss.",
 
   params: {
     emotion: param.enum(

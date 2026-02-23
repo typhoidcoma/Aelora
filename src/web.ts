@@ -35,6 +35,9 @@ import { getAllSessions, getSession, deleteSession, clearAllSessions } from "./s
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel } from "./mood.js";
+import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
+import { getAllUsers, getUser, deleteUser } from "./users.js";
+import { getClient as getCalDAVClient, parseICS, icsDateToISO } from "./tools/calendar.js";
 
 export type AppState = {
   config: Config;
@@ -745,6 +748,160 @@ export function startWeb(state: AppState): void {
   app.get("/api/memory/summaries", async (_req, res) => {
     const { getConversationSummaries } = await import("./llm.js");
     res.json(getConversationSummaries());
+  });
+
+  // --- Notes CRUD ---
+
+  // Notes — list all (all scopes)
+  app.get("/api/notes", (_req, res) => {
+    res.json(listAllNotes());
+  });
+
+  // Notes — list by scope
+  app.get("/api/notes/:scope", (req, res) => {
+    const { scope } = req.params;
+    const notes = listNotesByScope(scope);
+    res.json({ scope, notes, count: Object.keys(notes).length });
+  });
+
+  // Notes — get single note
+  app.get("/api/notes/:scope/:title", (req, res) => {
+    const { scope, title } = req.params;
+    const note = getNote(scope, title);
+    if (!note) {
+      res.status(404).json({ error: `Note "${title}" not found in scope "${scope}"` });
+      return;
+    }
+    res.json({ scope, title, ...note });
+  });
+
+  // Notes — create or update
+  app.put("/api/notes/:scope/:title", (req, res) => {
+    const { scope, title } = req.params;
+    const { content } = req.body ?? {};
+
+    if (!content || typeof content !== "string") {
+      res.status(400).json({ error: "content is required" });
+      return;
+    }
+
+    const existing = getNote(scope, title);
+    const note = upsertNote(scope, title, content);
+    res.json({ scope, title, ...note, created: !existing });
+  });
+
+  // Notes — delete
+  app.delete("/api/notes/:scope/:title", (req, res) => {
+    const { scope, title } = req.params;
+    const deleted = deleteNote(scope, title);
+    if (!deleted) {
+      res.status(404).json({ error: `Note "${title}" not found in scope "${scope}"` });
+      return;
+    }
+    res.json({ success: true });
+  });
+
+  // --- Calendar (read-only) ---
+
+  app.get("/api/calendar/events", async (req, res) => {
+    const caldavConfig = config.tools?.caldav as
+      | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
+      | undefined;
+
+    if (!caldavConfig?.serverUrl || caldavConfig.serverUrl === "YOUR_CALDAV_SERVER_URL") {
+      res.status(503).json({ error: "Calendar is not configured. Set caldav settings in settings.yaml under tools:" });
+      return;
+    }
+
+    const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
+    const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
+
+    let client;
+    try {
+      client = await getCalDAVClient({
+        serverUrl: caldavConfig.serverUrl,
+        username: caldavConfig.username,
+        password: caldavConfig.password,
+        authMethod: caldavConfig.authMethod || "Basic",
+      });
+    } catch {
+      res.status(502).json({ error: "Failed to connect to CalDAV server" });
+      return;
+    }
+
+    try {
+      const calendars = await client.fetchCalendars();
+      if (calendars.length === 0) {
+        res.json({ events: [], count: 0, daysAhead, maxResults });
+        return;
+      }
+
+      const calendar =
+        (caldavConfig.calendarName
+          ? calendars.find((c) => c.displayName === caldavConfig.calendarName)
+          : null) ?? calendars[0];
+
+      const now = new Date();
+      const end = new Date(now);
+      end.setDate(end.getDate() + daysAhead);
+
+      const objects = await client.fetchCalendarObjects({
+        calendar,
+        timeRange: { start: now.toISOString(), end: end.toISOString() },
+      });
+
+      if (!objects || objects.length === 0) {
+        res.json({ events: [], count: 0, daysAhead, maxResults });
+        return;
+      }
+
+      const events = objects
+        .filter((o) => o.data)
+        .map((o) => {
+          const parsed = parseICS(o.data as string, o.url, o.etag ?? "");
+          return {
+            ...parsed,
+            dtstart: icsDateToISO(parsed.dtstart),
+            dtend: icsDateToISO(parsed.dtend),
+          };
+        })
+        .sort((a, b) => a.dtstart.localeCompare(b.dtstart))
+        .slice(0, maxResults);
+
+      res.json({ events, count: events.length, daysAhead, maxResults });
+    } catch {
+      res.status(500).json({ error: "Calendar query failed" });
+    }
+  });
+
+  // --- Users ---
+
+  // Users — list all profiles
+  app.get("/api/users", (_req, res) => {
+    res.json(getAllUsers());
+  });
+
+  // Users — get single profile with memory facts
+  app.get("/api/users/:userId", (req, res) => {
+    const { userId } = req.params;
+    const profile = getUser(userId);
+    if (!profile) {
+      res.status(404).json({ error: `User "${userId}" not found` });
+      return;
+    }
+    const facts = getFacts(`user:${userId}`);
+    res.json({ ...profile, facts });
+  });
+
+  // Users — delete profile
+  app.delete("/api/users/:userId", (req, res) => {
+    const { userId } = req.params;
+    const deleted = deleteUser(userId);
+    if (!deleted) {
+      res.status(404).json({ error: `User "${userId}" not found` });
+      return;
+    }
+    res.json({ success: true });
   });
 
   // Heartbeat status

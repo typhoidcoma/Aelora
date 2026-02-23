@@ -14,6 +14,7 @@ import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
 import { recordMessage } from "../sessions.js";
 import { appendLog } from "../daily-log.js";
 import { classifyMood } from "../mood.js";
+import { updateUser } from "../users.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -174,6 +175,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     userId: message.author.id,
     username: message.author.displayName ?? message.author.username,
   });
+  updateUser(message.author.id, message.author.displayName ?? message.author.username, message.channelId);
 
   const channel = message.channel;
   if (!channel.isSendable()) return;

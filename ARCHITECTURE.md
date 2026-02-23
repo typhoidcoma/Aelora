@@ -38,8 +38,8 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
                      ┌──────────────▼────────────────┐
                      │       Persistence layer       │
                      │  memory.ts · sessions.ts ·    │
-                     │  mood.ts · daily-log.ts ·     │
-                     │  data/*.json                  │
+                     │  users.ts · mood.ts ·         │
+                     │  daily-log.ts · data/*.json   │
                      └───────────────────────────────┘
 
   ┌────────────┐    ┌────────────┐    ┌─────────────────────┐
@@ -566,6 +566,39 @@ Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust,
 
 ---
 
+## User Profiles
+
+**File:** [src/users.ts](src/users.ts)
+
+Tracks a unified profile for every user who messages the bot, aggregated across all channels.
+
+### UserProfile
+
+```typescript
+type UserProfile = {
+  userId: string;         // Discord user ID
+  username: string;       // Latest display name
+  firstSeen: string;      // ISO timestamp — first message ever
+  lastSeen: string;       // ISO timestamp — most recent message
+  messageCount: number;   // Total messages across all channels
+  channels: string[];     // Channel IDs the user has been active in
+};
+```
+
+Persisted to `data/users.json`. Updated on every Discord message via `updateUser()` (called in [src/discord/client.ts](src/discord/client.ts) alongside `recordMessage()`).
+
+### API
+
+- `GET /api/users` — all profiles
+- `GET /api/users/:userId` — single profile + memory facts (from `user:{userId}` scope)
+- `DELETE /api/users/:userId` — remove profile (does not affect memory facts or sessions)
+
+### Difference from Sessions
+
+Sessions ([src/sessions.ts](src/sessions.ts)) track per-channel stats — a user appears in each channel's `users` record independently. User profiles aggregate across channels into a single record per user.
+
+---
+
 ## Cron System
 
 **File:** [src/cron.ts](src/cron.ts)
@@ -676,7 +709,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on LLM endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 43 endpoints total.
+**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 52 endpoints total.
 
 ### Routing
 
@@ -788,6 +821,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Mood state | `data/current-mood.json` (disk) | Yes |
 | Conversation summaries | `data/memory/summaries.json` (disk) | Yes |
 | Active persona | `data/bot-state.json` (disk) | Yes |
+| User profiles | `data/users.json` (disk) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Persona files | Disk (`persona/` directory) | Yes |

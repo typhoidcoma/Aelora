@@ -5,15 +5,15 @@ import { defineTool, param } from "./types.js";
 const DATA_DIR = "data";
 const NOTES_FILE = join(DATA_DIR, "notes.json");
 
-type Note = {
+export type Note = {
   content: string;
   createdAt: string;
   updatedAt: string;
 };
 
-type NoteStore = Record<string, Record<string, Note>>;
+export type NoteStore = Record<string, Record<string, Note>>;
 
-function load(): NoteStore {
+export function loadNotes(): NoteStore {
   try {
     if (existsSync(NOTES_FILE)) {
       return JSON.parse(readFileSync(NOTES_FILE, "utf-8"));
@@ -24,7 +24,7 @@ function load(): NoteStore {
   return {};
 }
 
-function save(store: NoteStore): void {
+function saveNotes(store: NoteStore): void {
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }
@@ -36,6 +36,46 @@ function resolveScope(scope: string | undefined, channelId: string | null): stri
   if (channelId) return `channel:${channelId}`;
   return "global";
 }
+
+// --- Exported data helpers (used by REST API) ---
+
+export function listAllNotes(): NoteStore {
+  return loadNotes();
+}
+
+export function listNotesByScope(scope: string): Record<string, Note> {
+  return loadNotes()[scope] ?? {};
+}
+
+export function getNote(scope: string, title: string): Note | undefined {
+  return loadNotes()[scope]?.[title];
+}
+
+export function upsertNote(scope: string, title: string, content: string): Note {
+  const store = loadNotes();
+  if (!store[scope]) store[scope] = {};
+  const now = new Date().toISOString();
+  const existing = store[scope][title];
+  const note: Note = {
+    content,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  store[scope][title] = note;
+  saveNotes(store);
+  return note;
+}
+
+export function deleteNote(scope: string, title: string): boolean {
+  const store = loadNotes();
+  if (!store[scope]?.[title]) return false;
+  delete store[scope][title];
+  if (Object.keys(store[scope]).length === 0) delete store[scope];
+  saveNotes(store);
+  return true;
+}
+
+// --- Tool definition ---
 
 export default defineTool({
   name: "notes",
@@ -58,48 +98,33 @@ export default defineTool({
   },
 
   handler: async ({ action, title, content, scope }, { channelId }) => {
-    const store = load();
     const bucket = resolveScope(scope, channelId);
 
     switch (action) {
       case "save": {
         if (!title) return "Error: title is required for save.";
         if (!content) return "Error: content is required for save.";
-
-        if (!store[bucket]) store[bucket] = {};
-        const now = new Date().toISOString();
-        const existing = store[bucket][title];
-
-        store[bucket][title] = {
-          content,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-        };
-
-        save(store);
+        upsertNote(bucket, title, content);
         return `Saved note "${title}" (${bucket === "global" ? "global" : "this channel"}).`;
       }
 
       case "get": {
         if (!title) return "Error: title is required for get.";
-
-        const note = store[bucket]?.[title];
+        const note = getNote(bucket, title);
         if (!note) return `No note found with title "${title}" in ${bucket === "global" ? "global" : "this channel"}.`;
-
         return `**${title}**\n${note.content}\n\n_Saved: ${note.createdAt}${note.updatedAt !== note.createdAt ? ` | Updated: ${note.updatedAt}` : ""}_`;
       }
 
       case "list": {
+        const store = loadNotes();
         const lines: string[] = [];
 
-        // Channel-specific notes
         const channelNotes = store[bucket] ? Object.keys(store[bucket]) : [];
         if (bucket !== "global" && channelNotes.length > 0) {
           lines.push(`**Channel notes** (${channelNotes.length}):`);
           for (const t of channelNotes) lines.push(`- ${t}`);
         }
 
-        // Global notes (always shown when listing from a channel)
         const globalNotes = store["global"] ? Object.keys(store["global"]) : [];
         if (globalNotes.length > 0) {
           if (lines.length > 0) lines.push("");
@@ -113,14 +138,8 @@ export default defineTool({
 
       case "delete": {
         if (!title) return "Error: title is required for delete.";
-
-        if (!store[bucket]?.[title]) {
-          return `No note found with title "${title}" in ${bucket === "global" ? "global" : "this channel"}.`;
-        }
-
-        delete store[bucket][title];
-        if (Object.keys(store[bucket]).length === 0) delete store[bucket];
-        save(store);
+        const deleted = deleteNote(bucket, title);
+        if (!deleted) return `No note found with title "${title}" in ${bucket === "global" ? "global" : "this channel"}.`;
         return `Deleted note "${title}".`;
       }
 

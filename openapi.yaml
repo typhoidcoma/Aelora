@@ -51,6 +51,12 @@ tags:
     description: Conversation session analytics
   - name: Memory
     description: Fact storage, daily logs, conversation summaries
+  - name: Notes
+    description: Persistent note storage with scope-based organization
+  - name: Calendar
+    description: CalDAV calendar event queries (read-only)
+  - name: Users
+    description: User profile tracking across channels
   - name: Tools
     description: Tool registry management
   - name: Agents
@@ -258,6 +264,67 @@ components:
           enum: [log, warn, error]
         message:
           type: string
+
+    Note:
+      type: object
+      properties:
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [content, createdAt, updatedAt]
+
+    CalendarEvent:
+      type: object
+      properties:
+        uid:
+          type: string
+        summary:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        dtstart:
+          type: string
+          format: date-time
+          description: Event start in ISO 8601
+        dtend:
+          type: string
+          format: date-time
+          description: Event end in ISO 8601
+        url:
+          type: string
+          description: CalDAV object URL
+        etag:
+          type: string
+
+    UserProfile:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+          description: Latest Discord display name
+        firstSeen:
+          type: string
+          format: date-time
+        lastSeen:
+          type: string
+          format: date-time
+        messageCount:
+          type: integer
+        channels:
+          type: array
+          items:
+            type: string
+          description: Channel IDs the user has been active in
+      required: [userId, username, firstSeen, lastSeen, messageCount, channels]
 
 security:
   - BearerAuth: []
@@ -1057,6 +1124,332 @@ paths:
                     updatedAt:
                       type: string
                       format: date-time
+
+  # ── Notes ───────────────────────────────────────────────
+  /api/notes:
+    get:
+      tags: [Notes]
+      summary: List all notes
+      description: Returns every note across all scopes (global, channel-specific).
+      responses:
+        "200":
+          description: Note store keyed by scope
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    $ref: "#/components/schemas/Note"
+
+  /api/notes/{scope}:
+    get:
+      tags: [Notes]
+      summary: List notes in a scope
+      description: Returns all notes within a specific scope (e.g. `global` or `channel:123456`).
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Note scope (e.g. `global`, `channel:123456`)"
+      responses:
+        "200":
+          description: Notes in the requested scope
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                  notes:
+                    type: object
+                    additionalProperties:
+                      $ref: "#/components/schemas/Note"
+                  count:
+                    type: integer
+
+  /api/notes/{scope}/{title}:
+    get:
+      tags: [Notes]
+      summary: Get a single note
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: title
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested note
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  updatedAt:
+                    type: string
+                    format: date-time
+        "404":
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+    put:
+      tags: [Notes]
+      summary: Create or update a note
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: title
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: The note content
+      responses:
+        "200":
+          description: Note created or updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                  updatedAt:
+                    type: string
+                    format: date-time
+                  created:
+                    type: boolean
+                    description: True if newly created, false if updated
+        "400":
+          description: Missing content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+    delete:
+      tags: [Notes]
+      summary: Delete a note
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: title
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Note deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "404":
+          description: Note not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  # ── Calendar ────────────────────────────────────────────
+  /api/calendar/events:
+    get:
+      tags: [Calendar]
+      summary: List upcoming events
+      description: Returns upcoming calendar events from the configured CalDAV server. Read-only.
+      parameters:
+        - name: maxResults
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+          description: Maximum number of events to return
+        - name: daysAhead
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 14
+          description: How many days ahead to query
+      responses:
+        "200":
+          description: List of upcoming events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CalendarEvent"
+                  count:
+                    type: integer
+                  daysAhead:
+                    type: integer
+                  maxResults:
+                    type: integer
+        "502":
+          description: CalDAV connection failure
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "503":
+          description: CalDAV not configured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  # ── Users ───────────────────────────────────────────────
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List all user profiles
+      description: Returns every tracked user profile, keyed by Discord user ID.
+      responses:
+        "200":
+          description: User store keyed by userId
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/UserProfile"
+
+  /api/users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user profile with memory facts
+      description: Returns a user's profile enriched with their stored memory facts.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Discord user ID
+      responses:
+        "200":
+          description: User profile with facts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/UserProfile"
+                  - type: object
+                    properties:
+                      facts:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/MemoryFact"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+    delete:
+      tags: [Users]
+      summary: Delete user profile
+      description: Removes a user profile. Does not delete their memory facts or session data.
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
 
   # ── Tools ───────────────────────────────────────────────
   /api/tools:

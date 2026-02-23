@@ -8,6 +8,7 @@ import {
 } from "./tool-registry.js";
 import { getMemoryForPrompt } from "./memory.js";
 import { buildMoodPromptSection } from "./mood.js";
+import { getUser } from "./users.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -246,6 +247,19 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
 
   // --- Current mood (semi-static — changes on mood shift) ---
   sections.push("\n\n" + buildMoodPromptSection());
+
+  // --- Current user (semi-static — changes on new user or name change) ---
+  if (userId) {
+    const profile = getUser(userId);
+    if (profile) {
+      let userLine = `## Current User\nYou are talking to **${profile.username}**`;
+      if (profile.messageCount > 1) {
+        userLine += ` (${profile.messageCount} messages since ${new Date(profile.firstSeen).toLocaleDateString()})`;
+      }
+      userLine += ".";
+      sections.push("\n\n" + userLine);
+    }
+  }
 
   // --- Memory (semi-static — changes on fact save) ---
   const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);

@@ -987,6 +987,24 @@ pre {
   margin-bottom: 0.35rem;
 }
 
+.persona-card-mood {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--mood-color, var(--text-muted));
+  margin-bottom: 0.35rem;
+  font-weight: 500;
+}
+
+.mood-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mood-color, var(--text-muted));
+  flex-shrink: 0;
+}
+
 .persona-card-meta {
   font-size: 0.7rem;
   color: var(--text-subtle);

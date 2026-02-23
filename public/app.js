@@ -400,10 +400,19 @@ async function clearMemoryScope(scope) {
 
 let currentActivePersona = null;
 
+const MOOD_COLORS = {
+  joy: "#f2c572", trust: "#8bc58b", fear: "#9b7fbf", surprise: "#5fbfbf",
+  sadness: "#6a8cb7", disgust: "#8b8b6a", anger: "#c56a6a", anticipation: "#d4a056",
+};
+
 async function fetchPersonas() {
   try {
-    const res = await apiFetch("/api/personas");
-    const data = await res.json();
+    const [personaRes, moodRes] = await Promise.all([
+      apiFetch("/api/personas"),
+      apiFetch("/api/mood"),
+    ]);
+    const data = await personaRes.json();
+    const mood = await moodRes.json();
     const grid = document.getElementById("persona-cards");
     currentActivePersona = data.activePersona || null;
 
@@ -415,6 +424,15 @@ async function fetchPersonas() {
       const emojis = ["🦋","🔮","🌙","✨","🎭","🌿","🐉","🦊","🎪","🌸","🦉","🎯","🧭","🪐","🌊","🍄","🦚","🔥","🧩","🎸","🐺","🌻","💎","🦅","🏔️","🫧","🪶","🐝","🎨","⚡"];
       const hash = [...p.name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
       const emoji = emojis[Math.abs(hash) % emojis.length];
+
+      let moodHtml = "";
+      if (isActive && mood.active) {
+        const color = MOOD_COLORS[mood.emotion] || "var(--text-muted)";
+        const label = mood.label.charAt(0).toUpperCase() + mood.label.slice(1);
+        const secondary = mood.secondary ? ` + ${mood.secondary}` : "";
+        moodHtml = `<div class="persona-card-mood" style="--mood-color: ${color}"><span class="mood-dot"></span>${esc(label)}${esc(secondary)}</div>`;
+      }
+
       html += `
         <div class="persona-card${isActive ? " active" : ""}" onclick="switchPersona('${esc(p.name)}')">
           ${isActive ? '<div class="persona-card-badge">Active</div>' : ""}
@@ -422,6 +440,7 @@ async function fetchPersonas() {
           <div class="persona-card-name">${esc(displayName)}</div>
           ${showSlug ? `<div class="persona-card-id muted">${esc(p.name)}</div>` : ""}
           <div class="persona-card-desc">${esc(p.description) || '<span class="muted">No description</span>'}</div>
+          ${moodHtml}
           <div class="persona-card-meta">${p.fileCount} file(s)</div>
           <div class="persona-card-actions">
             <button class="btn btn-xs" onclick="event.stopPropagation(); editPersona('${esc(p.name)}')">Edit</button>

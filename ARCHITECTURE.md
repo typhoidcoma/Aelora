@@ -207,6 +207,10 @@ Messages trimmed from history are queued per-channel for async summarization:
 4. Summaries are persisted to `data/memory/summaries.json` (max 3000 chars per channel)
 5. Summaries are injected into the system prompt, giving the LLM awareness of earlier conversation context
 
+### External Chat API
+
+`POST /api/chat` and `POST /api/chat/stream` provide the same full conversation experience as Discord — stateful history, user memory, session tracking, mood classification, and daily logs. External apps supply a `sessionId` (maps to internal `channelId`) and optionally `userId`/`username` for identity. `DELETE /api/chat/:sessionId` clears conversation history. Rate-limited to 60 req/min (same as LLM test endpoints).
+
 ### Agent Loop
 
 `runAgentLoop(options)` — sub-completion-loop with:
@@ -709,7 +713,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on LLM endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes), LLM (2), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 52 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), LLM (2), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 54 endpoints total.
 
 ### Routing
 

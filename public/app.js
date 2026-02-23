@@ -444,7 +444,6 @@ async function fetchPersonas() {
           <div class="persona-card-meta">${p.fileCount} file(s)</div>
           <div class="persona-card-actions">
             <button class="btn btn-xs" onclick="event.stopPropagation(); editPersona('${esc(p.name)}')">Edit</button>
-            ${!isActive && p.name !== "default" ? `<button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deletePersona('${esc(p.name)}')">Delete</button>` : ""}
           </div>
         </div>`;
     }
@@ -567,26 +566,6 @@ async function submitCreatePersona() {
   }
 }
 
-async function deletePersona(name) {
-  if (!confirm(`Delete the "${name}" persona? This removes all its files.`)) return;
-
-  try {
-    const res = await apiFetch(`/api/personas/${encodeURIComponent(name)}`, { method: "DELETE" });
-    const data = await res.json();
-
-    if (data.success) {
-      showToast(`Deleted persona "${name}"`);
-      if (editorCurrentPath && editorCurrentPath.startsWith(name + "/")) {
-        hidePersonaEditor();
-      }
-      fetchPersonas();
-    } else {
-      showToast(data.error || "Delete failed", "error");
-    }
-  } catch (err) {
-    showToast(`Error: ${err.message}`, "error");
-  }
-}
 
 // --- Persona File Editor ---
 

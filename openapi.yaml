@@ -45,6 +45,8 @@ tags:
     description: Persona management, file editing, switching
   - name: LLM
     description: LLM test endpoints (rate limited to 10/min)
+  - name: Chat
+    description: External conversation API with full session state (rate limited to 60/min)
   - name: Cron
     description: Scheduled task management
   - name: Sessions
@@ -495,30 +497,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/personas/{name}:
-    delete:
-      tags: [Persona]
-      summary: Delete a persona
-      parameters:
-        - name: name
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Success"
-        "400":
-          description: Cannot delete active persona
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
   /api/persona/switch:
     post:
       tags: [Persona]
@@ -719,6 +697,112 @@ paths:
             text/event-stream:
               schema:
                 type: string
+
+  # ── Chat ─────────────────────────────────────────────────
+  /api/chat:
+    post:
+      tags: [Chat]
+      summary: Send a message
+      description: |
+        Send a message and receive a response with full conversation state.
+        Uses `sessionId` to maintain conversation history across requests.
+        Optionally provide `userId` and `username` to enable user-scoped memory and session tracking.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, sessionId]
+              properties:
+                message:
+                  type: string
+                  description: The user's message
+                sessionId:
+                  type: string
+                  description: Conversation identifier (maps to internal channelId)
+                userId:
+                  type: string
+                  description: Optional user identifier for memory and tracking
+                username:
+                  type: string
+                  description: Optional display name (required if userId is provided)
+      responses:
+        "200":
+          description: Bot response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                  sessionId:
+                    type: string
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/chat/stream:
+    post:
+      tags: [Chat]
+      summary: Send a message (streaming)
+      description: |
+        Same as POST /api/chat but streams tokens via Server-Sent Events.
+        Each token is sent as `data: {"token":"..."}`.
+        Final event is `data: {"done":true,"reply":"..."}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, sessionId]
+              properties:
+                message:
+                  type: string
+                sessionId:
+                  type: string
+                userId:
+                  type: string
+                username:
+                  type: string
+      responses:
+        "200":
+          description: SSE stream of tokens
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/chat/{sessionId}:
+    delete:
+      tags: [Chat]
+      summary: Clear conversation history
+      description: Wipes the in-memory conversation history for a session. The next message will start fresh.
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The session to clear
+      responses:
+        "200":
+          description: History cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
 
   # ── Cron ────────────────────────────────────────────────
   /api/cron:

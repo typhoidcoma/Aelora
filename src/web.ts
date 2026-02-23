@@ -13,10 +13,9 @@ import {
   createFile,
   deleteFile,
   createPersona,
-  deletePersona,
   type PersonaState,
 } from "./persona.js";
-import { getLLMOneShot } from "./llm.js";
+import { getLLMOneShot, getLLMResponse, clearHistory } from "./llm.js";
 import { getAllTools, toggleTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
@@ -31,12 +30,13 @@ import {
 } from "./cron.js";
 import { getRecentLogs, addSSEClient } from "./logger.js";
 import { reboot } from "./lifecycle.js";
-import { getAllSessions, getSession, deleteSession, clearAllSessions } from "./sessions.js";
+import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMessage } from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
-import { loadMood, resolveLabel } from "./mood.js";
+import { loadMood, resolveLabel, classifyMood } from "./mood.js";
+import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
-import { getAllUsers, getUser, deleteUser } from "./users.js";
+import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { getClient as getCalDAVClient, parseICS, icsDateToISO } from "./tools/calendar.js";
 
 export type AppState = {
@@ -126,6 +126,7 @@ export function startWeb(state: AppState): void {
 
   app.use("/api", apiLimiter);
   app.use("/api/llm/test", llmLimiter);
+  app.use("/api/chat", llmLimiter);
 
   // --- Auth middleware ---
   const PUBLIC_ROUTES = [
@@ -534,18 +535,6 @@ export function startWeb(state: AppState): void {
     res.json({ success: true, name });
   });
 
-  // Delete a persona
-  app.delete("/api/personas/:name", (req, res) => {
-    const { name } = req.params;
-    const result = deletePersona(config.persona.dir, name, config.persona.activePersona);
-    if (!result.success) {
-      res.status(400).json({ error: result.error });
-      return;
-    }
-
-    res.json({ success: true });
-  });
-
   // Test LLM with current persona prompt
   app.post("/api/llm/test", async (req, res) => {
     const message = req.body?.message;
@@ -595,6 +584,96 @@ export function startWeb(state: AppState): void {
     } finally {
       res.end();
     }
+  });
+
+  // --- External Chat API ---
+
+  // Chat — send message with full conversation state
+  app.post("/api/chat", async (req, res) => {
+    const { message, sessionId, userId, username } = req.body ?? {};
+
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ error: "message is required" });
+      return;
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      res.status(400).json({ error: "sessionId is required" });
+      return;
+    }
+
+    // Track session and user if identity provided
+    if (userId && username) {
+      recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
+      updateUser(userId, username, sessionId);
+    }
+
+    try {
+      const reply = await getLLMResponse(sessionId, message, undefined, userId ?? undefined);
+
+      // Side effects (async, best-effort)
+      appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
+      classifyMood(reply, message).catch(() => {});
+
+      res.json({ reply, sessionId });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Chat — streaming version
+  app.post("/api/chat/stream", async (req, res) => {
+    const { message, sessionId, userId, username } = req.body ?? {};
+
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ error: "message is required" });
+      return;
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      res.status(400).json({ error: "sessionId is required" });
+      return;
+    }
+
+    if (userId && username) {
+      recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
+      updateUser(userId, username, sessionId);
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    let closed = false;
+    req.on("close", () => { closed = true; });
+
+    try {
+      const reply = await getLLMResponse(sessionId, message, (token) => {
+        if (!closed) {
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+      }, userId ?? undefined);
+
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
+      }
+
+      appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
+      classifyMood(reply, message).catch(() => {});
+    } catch (err) {
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
+      }
+    } finally {
+      res.end();
+    }
+  });
+
+  // Chat — clear conversation history
+  app.delete("/api/chat/:sessionId", (req, res) => {
+    const { sessionId } = req.params;
+    clearHistory(sessionId);
+    res.json({ success: true });
   });
 
   // List all tools

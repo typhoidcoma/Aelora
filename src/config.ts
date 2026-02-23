@@ -34,6 +34,7 @@ const llmSchema = z.object({
   systemPrompt: z.string().default("You are a helpful assistant."),
   maxTokens: z.number().int().positive().default(1024),
   maxHistory: z.number().int().positive().default(20),
+  lite: z.boolean().default(false),
 });
 
 const webSchema = z.object({

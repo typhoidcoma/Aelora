@@ -7,6 +7,7 @@ import {
   executeTool,
 } from "./tool-registry.js";
 import { getMemoryForPrompt } from "./memory.js";
+import { buildMoodPromptSection } from "./mood.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -123,7 +124,8 @@ export async function getLLMResponse(
   history.push({ role: "user", content: userMessage as string });
   trimHistory(history, channelId);
 
-  const tools = getAllDefinitions();
+  const allDefs = getAllDefinitions();
+  const tools = config.llm.lite ? slimDefinitions(allDefs) : allDefs;
 
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(userId, channelId) },
@@ -148,7 +150,8 @@ export async function getLLMResponse(
  * Stateless one-shot LLM call with tool/agent support (for cron, heartbeat, dashboard).
  */
 export async function getLLMOneShot(prompt: string, onToken?: OnTokenCallback): Promise<string> {
-  const tools = getAllDefinitions();
+  const allDefs = getAllDefinitions();
+  const tools = config.llm.lite ? slimDefinitions(allDefs) : allDefs;
 
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt() },
@@ -206,66 +209,77 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
 
-  // --- System state ---
-  const state = getSystemState?.();
-  if (state) {
-    const lines: string[] = ["\n\n## System Status"];
-    lines.push(`- **Bot**: ${state.botName}${state.discordTag ? ` (${state.discordTag})` : ""}`);
-    lines.push(`- **Discord**: ${state.connected ? "connected" : "disconnected"}, ${state.guildCount} guild(s)`);
-    lines.push(`- **Model**: ${state.model}`);
+  // Sections ordered static → dynamic to maximize OpenAI prompt prefix caching.
+  // The persona base prompt (above) is always the same, so it anchors the cache.
 
-    const h = Math.floor(state.uptime / 3600);
-    const m = Math.floor((state.uptime % 3600) / 60);
-    lines.push(`- **Uptime**: ${h}h ${m}m`);
+  // --- Tool/agent inventory (static — only changes on tool toggle) ---
+  if (!config.llm.lite) {
+    const tools = getEnabledTools();
+    const agents = agentRegistryCache
+      ? agentRegistryCache.getEnabledAgents()
+      : [];
 
-    if (state.heartbeat) {
-      lines.push(`- **Heartbeat**: ${state.heartbeat.running ? "running" : "stopped"}, ${state.heartbeat.handlers} handler(s)`);
+    if (tools.length > 0 || agents.length > 0) {
+      const lines: string[] = ["\n\n## Currently Available"];
+
+      if (tools.length > 0) {
+        lines.push("\n### Tools");
+        for (const t of tools) {
+          lines.push(`- **${t.name}** — ${t.description}`);
+        }
+      }
+
+      if (agents.length > 0) {
+        lines.push("\n### Agents");
+        for (const a of agents) {
+          lines.push(`- **${a.name}** — ${a.description}`);
+        }
+      }
+
+      sections.push(lines.join("\n"));
     }
-
-    const enabledCron = state.cronJobs.filter((j) => j.enabled);
-    if (enabledCron.length > 0) {
-      lines.push(`- **Cron**: ${enabledCron.length} active job(s)`);
-    }
-
-    sections.push(lines.join("\n"));
   }
 
-  // --- Tool/agent inventory ---
-  const tools = getEnabledTools();
-  const agents = agentRegistryCache
-    ? agentRegistryCache.getEnabledAgents()
-    : [];
+  // --- Current mood (semi-static — changes on mood shift) ---
+  const moodSection = buildMoodPromptSection();
+  if (moodSection) sections.push("\n\n" + moodSection);
 
-  if (tools.length > 0 || agents.length > 0) {
-    const lines: string[] = ["\n\n## Currently Available"];
+  // --- Memory (semi-static — changes on fact save) ---
+  const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
+  if (memoryBlock) sections.push("\n\n" + memoryBlock);
 
-    if (tools.length > 0) {
-      lines.push("\n### Tools");
-      for (const t of tools) {
-        lines.push(`- **${t.name}** — ${t.description}`);
-      }
-    }
-
-    if (agents.length > 0) {
-      lines.push("\n### Agents");
-      for (const a of agents) {
-        lines.push(`- **${a.name}** — ${a.description}`);
-      }
-    }
-
-    sections.push(lines.join("\n"));
-  }
-
-  // --- Conversation summary (compacted history) ---
+  // --- Conversation summary (dynamic — changes after compaction) ---
   if (channelId && summaries[channelId]) {
     sections.push(
       "\n\n## Recent Conversation Context\n" + summaries[channelId].summary,
     );
   }
 
-  // --- Memory (per-user + per-channel facts) ---
-  const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
-  if (memoryBlock) sections.push("\n\n" + memoryBlock);
+  // --- System state (most dynamic — uptime changes every request, goes last) ---
+  if (!config.llm.lite) {
+    const state = getSystemState?.();
+    if (state) {
+      const lines: string[] = ["\n\n## System Status"];
+      lines.push(`- **Bot**: ${state.botName}${state.discordTag ? ` (${state.discordTag})` : ""}`);
+      lines.push(`- **Discord**: ${state.connected ? "connected" : "disconnected"}, ${state.guildCount} guild(s)`);
+      lines.push(`- **Model**: ${state.model}`);
+
+      const h = Math.floor(state.uptime / 3600);
+      const m = Math.floor((state.uptime % 3600) / 60);
+      lines.push(`- **Uptime**: ${h}h ${m}m`);
+
+      if (state.heartbeat) {
+        lines.push(`- **Heartbeat**: ${state.heartbeat.running ? "running" : "stopped"}, ${state.heartbeat.handlers} handler(s)`);
+      }
+
+      const enabledCron = state.cronJobs.filter((j) => j.enabled);
+      if (enabledCron.length > 0) {
+        lines.push(`- **Cron**: ${enabledCron.length} active job(s)`);
+      }
+
+      sections.push(lines.join("\n"));
+    }
+  }
 
   if (sections.length === 0) return base;
   return base + sections.join("");
@@ -358,6 +372,43 @@ function getAllDefinitions(): OpenAI.Chat.Completions.ChatCompletionTool[] {
     ];
   }
   return getToolDefinitionsForOpenAI();
+}
+
+/** Shorten tool descriptions for lite mode — first sentence only, trim param descriptions. */
+function slimDefinitions(
+  defs: OpenAI.Chat.Completions.ChatCompletionTool[],
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return defs.map((d) => ({
+    type: "function" as const,
+    function: {
+      name: d.function.name,
+      description: firstSentence(d.function.description ?? ""),
+      ...(d.function.parameters
+        ? { parameters: slimParameters(d.function.parameters as Record<string, unknown>) }
+        : {}),
+    },
+  }));
+}
+
+function firstSentence(s: string): string {
+  const dot = s.indexOf(". ");
+  return dot >= 0 ? s.slice(0, dot + 1) : s;
+}
+
+function slimParameters(params: Record<string, unknown>): Record<string, unknown> {
+  const props = params.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!props) return params;
+
+  const slimmed: Record<string, Record<string, unknown>> = {};
+  for (const [key, val] of Object.entries(props)) {
+    const { description, ...rest } = val;
+    slimmed[key] = {
+      ...rest,
+      ...(typeof description === "string" ? { description: firstSentence(description) } : {}),
+    };
+  }
+
+  return { ...params, properties: slimmed };
 }
 
 /** Filter tool definitions to only those in an agent's allowlist. */

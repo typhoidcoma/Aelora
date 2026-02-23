@@ -57,6 +57,11 @@ llm:
   # How many previous messages to keep in conversation history per channel.
   maxHistory: 20
 
+  # Enable lite mode for small local models (e.g. 4B, 7B).
+  # Shortens tool descriptions and trims the system prompt to reduce
+  # input tokens. Tools still work, just with less verbose schemas.
+  # lite: true
+
 # --- Persona ---
 # Composes the bot's system prompt from markdown files in a persona directory.
 # Each file uses YAML frontmatter (order, enabled, label, section) + markdown body.

@@ -34,6 +34,7 @@ import { reboot } from "./lifecycle.js";
 import { getAllSessions, getSession, deleteSession, clearAllSessions } from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
+import { loadMood, resolveLabel } from "./mood.js";
 
 export type AppState = {
   config: Config;
@@ -749,6 +750,21 @@ export function startWeb(state: AppState): void {
   // Heartbeat status
   app.get("/api/heartbeat", (_req, res) => {
     res.json(getHeartbeatState());
+  });
+
+  // Current mood (Plutchik's wheel)
+  app.get("/api/mood", (_req, res) => {
+    const mood = loadMood();
+    if (!mood) return res.json({ active: false });
+    res.json({
+      active: true,
+      emotion: mood.emotion,
+      intensity: mood.intensity,
+      label: resolveLabel(mood),
+      secondary: mood.secondary ?? null,
+      note: mood.note ?? null,
+      updatedAt: mood.updatedAt,
+    });
   });
 
   // Recent logs (for initial load)

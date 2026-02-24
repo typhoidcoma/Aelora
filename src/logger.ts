@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import type { WebSocket } from "ws";
 
 type LogEntry = {
   ts: string;
@@ -9,6 +10,7 @@ type LogEntry = {
 const MAX_BUFFER = 200;
 const buffer: LogEntry[] = [];
 const sseClients = new Set<Response>();
+const wsClients = new Set<WebSocket>();
 
 // Store originals
 const origLog = console.log;
@@ -60,7 +62,13 @@ export function addSSEClient(res: Response): void {
   res.on("close", () => sseClients.delete(res));
 }
 
-/** Send a named SSE event to all connected clients. */
+/** Register a WebSocket client for live event broadcasts. */
+export function addWSClient(ws: WebSocket): void {
+  wsClients.add(ws);
+  ws.on("close", () => wsClients.delete(ws));
+}
+
+/** Send a named SSE event to all connected clients (SSE + WebSocket). */
 export function broadcastEvent(event: string, data: unknown): void {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) {
@@ -68,6 +76,15 @@ export function broadcastEvent(event: string, data: unknown): void {
       res.write(payload);
     } catch {
       sseClients.delete(res);
+    }
+  }
+
+  const wsPayload = JSON.stringify({ type: "event", event, data });
+  for (const ws of wsClients) {
+    try {
+      ws.send(wsPayload);
+    } catch {
+      wsClients.delete(ws);
     }
   }
 }

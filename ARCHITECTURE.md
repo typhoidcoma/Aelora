@@ -49,6 +49,12 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   └──────┬─────┘    └─────┬──────┘    └──────┬──────────────┘
          │                │                  │
          └───── sendToChannel / getLLMOneShot ┘
+                                             │
+                                    ┌────────▼───────────┐
+                                    │       ws.ts        │
+                                    │  WebSocket server  │
+                                    │  Real-time chat    │
+                                    └────────────────────┘
 
   ┌───────────────────────────────────────────────────────┐
   │              Discord Activity (optional)              │
@@ -72,7 +78,7 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
 | 9 | Register heartbeat handlers (calendar, memory), start ticker | `heartbeat.ts` |
-| 10 | Start web dashboard, set system state provider | `web.ts`, `llm.ts` |
+| 10 | Start web dashboard + WebSocket, set system state provider | `web.ts`, `ws.ts`, `llm.ts` |
 
 Graceful shutdown on SIGINT/SIGTERM: stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged but keep the process alive.
 
@@ -209,6 +215,37 @@ Messages trimmed from history are queued per-channel for async summarization:
 ### External Chat API
 
 `POST /api/chat` and `POST /api/chat/stream` provide the same full conversation experience as Discord — stateful history, user memory, session tracking, mood classification, and daily logs. External apps supply a `sessionId` (maps to internal `channelId`) and optionally `userId`/`username` for identity. `DELETE /api/chat/:sessionId` clears conversation history. Rate-limited to 60 req/min (same as LLM test endpoints).
+
+### WebSocket Chat
+
+**File:** [src/ws.ts](src/ws.ts)
+
+A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirectional real-time chat — ideal for Unity or other game clients where SSE isn't natively supported.
+
+**Connection flow:**
+
+1. Client connects to `ws://host:port/ws` (or `ws://host:port/ws?token=API_KEY` if auth is enabled)
+2. Client sends `init` with `sessionId` and optionally `userId`/`username`
+3. Server responds with `ready`
+4. Client sends `message` → server streams `token` frames, then `done`
+5. Live events (mood changes, etc.) pushed as `event` frames automatically
+
+**Protocol (JSON over WebSocket):**
+
+| Direction | Type | Fields |
+|-----------|------|--------|
+| Client → Server | `init` | `sessionId` (required), `userId?`, `username?` |
+| Client → Server | `message` | `content` (required) |
+| Client → Server | `clear` | — |
+| Server → Client | `ready` | `sessionId` |
+| Server → Client | `token` | `content` (streamed chunk) |
+| Server → Client | `done` | `reply` (full response) |
+| Server → Client | `error` | `error` (message) |
+| Server → Client | `event` | `event` (name), `data` (payload) |
+
+Each message runs the same pipeline as the REST chat: `recordMessage()` → `updateUser()` → `getLLMResponse()` with token streaming → `appendLog()` + `classifyMood()`.
+
+Connection management: ping/pong heartbeat every 30s, automatic cleanup on disconnect.
 
 ### Agent Loop
 
@@ -401,6 +438,7 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
 | `mood` | Manual emotional state override (set_mood) | none |
+| `todo` | Task management via CalDAV VTODO (add/list/complete/update/delete) | `caldav.*` |
 
 ---
 
@@ -712,7 +750,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 52 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 57 endpoints total.
 
 ### Routing
 
@@ -793,7 +831,7 @@ type Config = {
 2. Pushes a `LogEntry` into a 200-entry circular buffer
 3. Broadcasts the entry as an SSE event to all connected dashboard clients
 
-`broadcastEvent(event, data)` sends **named** SSE events to all connected clients. Used by the mood system to push live updates — the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource.
+`broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates — the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames.
 
 ### daily-log.ts — Activity Logging
 
@@ -825,6 +863,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Conversation summaries | `data/memory/summaries.json` (disk) | Yes |
 | Active persona | `data/bot-state.json` (disk) | Yes |
 | User profiles | `data/users.json` (disk) | Yes |
+| Todos | CalDAV server (VTODO) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Persona files | Disk (`persona/` directory) | Yes |

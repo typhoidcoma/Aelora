@@ -52,7 +52,7 @@ export async function getClient(config: {
 // ICS helpers
 // ============================================================
 
-function toICSDateTime(iso: string): string {
+export function toICSDateTime(iso: string): string {
   // Convert ISO 8601 to iCalendar YYYYMMDDTHHMMSSZ
   const d = new Date(iso);
   return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -85,7 +85,7 @@ function buildICS(opts: {
   return lines.join("\r\n");
 }
 
-function getICSProp(ics: string, prop: string): string {
+export function getICSProp(ics: string, prop: string): string {
   // Match PROP:value or PROP;params:value
   const re = new RegExp(`^${prop}[;:](.*)$`, "mi");
   const m = ics.match(re);
@@ -98,7 +98,7 @@ function getICSProp(ics: string, prop: string): string {
   return val;
 }
 
-function getICSDateValue(ics: string, prop: string): string {
+export function getICSDateValue(ics: string, prop: string): string {
   // Handle DTSTART:20250101T120000Z and DTSTART;TZID=America/New_York:20250101T120000
   const re = new RegExp(`^${prop}[^:]*:(.+)$`, "mi");
   const m = ics.match(re);

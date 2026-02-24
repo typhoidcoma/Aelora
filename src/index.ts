@@ -12,6 +12,7 @@ import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js
 import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
 import { startWeb, type AppState } from "./web.js";
+import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
 import { appendSystemEvent } from "./daily-log.js";
 
@@ -91,9 +92,10 @@ async function main(): Promise<void> {
     });
   }
 
-  // 10. Start web dashboard
+  // 10. Start web dashboard + WebSocket
   const appState: AppState = { config, personaState };
-  startWeb(appState);
+  const server = startWeb(appState);
+  if (server) startWebSocket(server, config);
 
   // 11. Register live system state for LLM context
   setSystemStateProvider(() => {

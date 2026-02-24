@@ -31,10 +31,10 @@ info:
     Rate limit headers (`RateLimit-*`) are included in responses.
 
 servers:
+  - url: /
+    description: Current server (auto-detect)
   - url: http://localhost:3000
     description: Local development
-  - url: https://{machine}.{tailnet}.ts.net
-    description: Tailscale Funnel / Serve
 
 tags:
   - name: Status
@@ -55,6 +55,8 @@ tags:
     description: Persistent note storage with scope-based organization
   - name: Calendar
     description: CalDAV calendar event queries (read-only)
+  - name: Todos
+    description: Task management via CalDAV VTODO
   - name: Users
     description: User profile tracking across channels
   - name: Tools
@@ -65,6 +67,25 @@ tags:
     description: Heartbeat, logs, reboot
   - name: Activity
     description: Discord Activity (Unity WebGL) support
+  - name: WebSocket
+    description: |
+      Real-time bidirectional chat via WebSocket at `ws://host:port/ws`.
+
+      **Connection:** `ws://host:port/ws?token=API_KEY` (token required if `web.apiKey` is set).
+
+      **Protocol (JSON):**
+
+      Client → Server:
+      - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` — bind session
+      - `{ "type": "message", "content": "..." }` — send chat message
+      - `{ "type": "clear" }` — clear session history
+
+      Server → Client:
+      - `{ "type": "ready", "sessionId": "..." }` — session bound
+      - `{ "type": "token", "content": "..." }` — streamed response chunk
+      - `{ "type": "done", "reply": "..." }` — full response
+      - `{ "type": "error", "error": "..." }` — error message
+      - `{ "type": "event", "event": "mood", "data": {...} }` — live broadcast event
 
 components:
   securitySchemes:
@@ -325,6 +346,43 @@ components:
             type: string
           description: Channel IDs the user has been active in
       required: [userId, username, firstSeen, lastSeen, messageCount, channels]
+
+    TodoItem:
+      type: object
+      description: A task stored as a CalDAV VTODO
+      properties:
+        uid:
+          type: string
+          description: CalDAV UID (use for complete/update/delete)
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        completed:
+          type: boolean
+        priority:
+          type: string
+          enum: [low, medium, high]
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        url:
+          type: string
+          description: CalDAV object URL
+        etag:
+          type: string
+          description: ETag for conflict detection
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [uid, title, completed, priority, url, etag]
 
 security:
   - BearerAuth: []
@@ -1390,6 +1448,176 @@ paths:
                 properties:
                   error:
                     type: string
+
+  # ── Todos (CalDAV VTODO) ────────────────────────────────
+  /api/todos:
+    get:
+      tags: [Todos]
+      summary: List all todos
+      description: Returns todos from the CalDAV server. Filter by status.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, pending, completed]
+            default: all
+      responses:
+        "200":
+          description: Todo list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  todos:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TodoItem"
+                  count:
+                    type: integer
+        "502":
+          description: CalDAV connection error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: CalDAV not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Todos]
+      summary: Create a new todo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, medium, high]
+                dueDate:
+                  type: string
+                  format: date-time
+              required: [title]
+      responses:
+        "201":
+          description: Todo created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoItem"
+        "400":
+          description: Missing title
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: CalDAV connection error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/todos/{uid}:
+    get:
+      tags: [Todos]
+      summary: Get a single todo
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          description: CalDAV UID of the todo
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Todo item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: [Todos]
+      summary: Update a todo
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          description: CalDAV UID of the todo
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, medium, high]
+                dueDate:
+                  type: string
+                  format: date-time
+                completed:
+                  type: boolean
+                  description: Set to true to mark as completed
+      responses:
+        "200":
+          description: Updated todo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TodoItem"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      tags: [Todos]
+      summary: Delete a todo
+      parameters:
+        - name: uid
+          in: path
+          required: true
+          description: CalDAV UID of the todo
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # ── Users ───────────────────────────────────────────────
   /api/users:

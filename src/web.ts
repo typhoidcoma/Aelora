@@ -1,5 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
+import { createServer, type Server } from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Config } from "./config.js";
@@ -36,6 +37,7 @@ import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel, classifyMood } from "./mood.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
+import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem } from "./tools/todo.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { getClient as getCalDAVClient, parseICS, icsDateToISO } from "./tools/calendar.js";
 
@@ -44,12 +46,12 @@ export type AppState = {
   personaState: PersonaState | null;
 };
 
-export function startWeb(state: AppState): void {
+export function startWeb(state: AppState): Server | null {
   const { config } = state;
 
   if (!config.web.enabled) {
     console.log("Web: dashboard disabled");
-    return;
+    return null;
   }
 
   const app = express();
@@ -901,6 +903,98 @@ export function startWeb(state: AppState): void {
     }
   });
 
+  // --- Todos (CalDAV VTODO) ---
+
+  const getTodoClient = async () => {
+    const caldavConfig = state.config.tools?.caldav as
+      | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
+      | undefined;
+    if (!caldavConfig?.serverUrl) throw new Error("CalDAV not configured");
+    const client = await getCalDAVClient({
+      serverUrl: caldavConfig.serverUrl,
+      username: caldavConfig.username,
+      password: caldavConfig.password,
+      authMethod: caldavConfig.authMethod || "Basic",
+    });
+    return { client, calendarName: caldavConfig.calendarName };
+  };
+
+  // List todos, optionally filter by ?status=pending|completed|all
+  app.get("/api/todos", async (req, res) => {
+    try {
+      const { client, calendarName } = await getTodoClient();
+      const status = (req.query.status as string) || "all";
+      const items = await listTodos(client, calendarName, status as "all" | "pending" | "completed");
+      res.json({ todos: items, count: items.length });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not configured")) {
+        res.status(503).json({ error: "CalDAV not configured" });
+      } else {
+        res.status(502).json({ error: `CalDAV error: ${msg}` });
+      }
+    }
+  });
+
+  // Get single todo by UID
+  app.get("/api/todos/:uid", async (req, res) => {
+    try {
+      const { client, calendarName } = await getTodoClient();
+      const item = await getTodoByUid(client, calendarName, req.params.uid);
+      if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+      res.json(item);
+    } catch (err) {
+      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
+  // Create todo
+  app.post("/api/todos", async (req, res) => {
+    const { title, description, priority, dueDate } = req.body ?? {};
+    if (!title || typeof title !== "string") {
+      res.status(400).json({ error: "title is required" });
+      return;
+    }
+    try {
+      const { client, calendarName } = await getTodoClient();
+      const item = await createTodo(client, calendarName, { title, description, priority, dueDate });
+      res.status(201).json(item);
+    } catch (err) {
+      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
+  // Update todo
+  app.put("/api/todos/:uid", async (req, res) => {
+    const { title, description, priority, dueDate, completed } = req.body ?? {};
+    try {
+      const { client, calendarName } = await getTodoClient();
+      if (completed === true) {
+        const item = await completeTodo(client, calendarName, req.params.uid);
+        if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+        res.json(item);
+      } else {
+        const item = await updateTodoItem(client, calendarName, req.params.uid, { title, description, priority, dueDate });
+        if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+        res.json(item);
+      }
+    } catch (err) {
+      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
+  // Delete todo
+  app.delete("/api/todos/:uid", async (req, res) => {
+    try {
+      const { client, calendarName } = await getTodoClient();
+      const deleted = await deleteTodoItem(client, calendarName, req.params.uid);
+      if (!deleted) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+    }
+  });
+
   // --- Users ---
 
   // Users — list all profiles
@@ -1046,7 +1140,9 @@ export function startWeb(state: AppState): void {
     console.log(`Web: Activity enabled (serving ${activityDir})`);
   }
 
-  app.listen(config.web.port, "0.0.0.0", () => {
+  const server = createServer(app);
+  server.listen(config.web.port, "0.0.0.0", () => {
     console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}`);
   });
+  return server;
 }

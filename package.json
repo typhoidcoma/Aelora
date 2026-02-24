@@ -29,12 +29,14 @@
     "express-rate-limit": "^8.2.1",
     "openai": "^4.77.0",
     "tsdav": "^2.1.8",
+    "ws": "^8.19.0",
     "yaml": "^2.7.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

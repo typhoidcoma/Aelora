@@ -110,7 +110,9 @@ export function icsDateToISO(icsDate: string): string {
   // Convert 20250315T100000Z or 20250315T100000 to ISO
   const m = icsDate.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/);
   if (!m) return icsDate; // Return as-is if we can't parse
-  return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7] || "Z"}`;
+  // If Z suffix present, it's UTC. Otherwise it's a floating/local time — leave without Z
+  // so Date() interprets it as local time (respecting process.env.TZ).
+  return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}${m[7]}`;
 }
 
 export function parseICS(ics: string, url: string, etag: string): ParsedEvent {
@@ -134,6 +136,7 @@ export function formatTime(icsDate: string): string {
   const iso = icsDateToISO(icsDate);
   try {
     return new Date(iso).toLocaleString("en-US", {
+      timeZone: process.env.TZ || "UTC",
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -387,10 +390,10 @@ export default defineTool({
     description: param.string("Event description. Optional for create/update."),
     location: param.string("Event location. Optional for create/update."),
     startDateTime: param.string(
-      "Event start as ISO 8601 datetime (e.g. '2025-03-15T10:00:00'). Required for create.",
+      "Event start as ISO 8601 datetime in the user's local timezone (e.g. '2025-03-15T10:00:00'). Do NOT append Z or a UTC offset — times are interpreted as local. Required for create.",
     ),
     endDateTime: param.string(
-      "Event end as ISO 8601 datetime (e.g. '2025-03-15T11:00:00'). Required for create.",
+      "Event end as ISO 8601 datetime in the user's local timezone (e.g. '2025-03-15T11:00:00'). Do NOT append Z or a UTC offset. Required for create.",
     ),
     eventUrl: param.string("CalDAV event URL. Required for update and delete."),
     etag: param.string("Event ETag for update/delete (from list or create results)."),

@@ -366,7 +366,7 @@ export default defineTool({
     description: param.string("Todo description. Optional for add/update."),
     todoId: param.string("Todo UID (from list results). Required for complete, update, delete."),
     priority: param.enum("Priority level. Default: medium.", ["low", "medium", "high"] as const),
-    dueDate: param.date("Due date. Optional for add/update."),
+    dueDate: param.date("Due date in the user's local timezone (e.g. '2025-03-15' or '2025-03-15T14:00:00'). Do NOT append Z or UTC offset. Optional for add/update."),
     status: param.enum("Filter for list.", ["all", "pending", "completed"] as const),
   },
 

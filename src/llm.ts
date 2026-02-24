@@ -272,6 +272,22 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     );
   }
 
+  // --- Current date/time (dynamic — changes every request) ---
+  {
+    const tz = config.timezone || "UTC";
+    const now = new Date().toLocaleString("en-US", {
+      timeZone: tz,
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+    sections.push(`\n\n## Current Date & Time\n${now} (${tz})`);
+  }
+
   // --- System state (most dynamic — uptime changes every request, goes last) ---
   if (!config.llm.lite) {
     const state = getSystemState?.();

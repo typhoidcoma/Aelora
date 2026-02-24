@@ -441,6 +441,9 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `memory` | Remember/recall/forget facts about users and channels | none |
 | `mood` | Manual emotional state override (set_mood) | none |
 | `todo` | Task management via CalDAV VTODO (add/list/complete/update/delete) | `caldav.*` |
+| `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
+| `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
+| `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
 
 ---
 
@@ -616,6 +619,66 @@ For syncing with external CalDAV clients (Thunderbird, DAVx5, iOS), access Radic
 | `todo` tool | CRUD for VTODO objects (add/list/complete/update/delete tasks) |
 | `heartbeat-calendar.ts` | Polls for upcoming events, sends Discord reminders |
 | `web.ts` REST API | `/api/calendar/events` and `/api/todos` endpoints |
+
+---
+
+## Google Workspace Integration
+
+**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts)
+
+Three tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
+
+### Authentication
+
+`_google-auth.ts` (underscore = skipped by tool registry) manages OAuth2 refresh-token-to-access-token exchange via `https://oauth2.googleapis.com/token`. The access token is cached module-level with a 60-second pre-expiry buffer. `googleFetch()` wraps `fetch()` with automatic Bearer token attachment. On auth errors, `resetGoogleToken()` clears the cache to force re-auth on the next call.
+
+Config (shared by all three tools):
+```yaml
+tools:
+  google:
+    clientId: "..."
+    clientSecret: "..."
+    refreshToken: "..."
+```
+
+### Gmail Tool (`gmail`)
+
+| Action | Description |
+|--------|-------------|
+| `search` | Search emails with Gmail query syntax |
+| `read` | Read full email (headers + decoded body) |
+| `send` | Send a new email |
+| `reply` | Reply to an email (preserves thread) |
+| `forward` | Forward an email to a new recipient |
+| `labels` | List all Gmail labels |
+| `draft` | Create a draft without sending |
+
+Emails are built as RFC 2822 messages, base64url-encoded, and sent via the Gmail API. Body extraction handles multipart messages (text/plain preferred, HTML fallback with tag stripping).
+
+### Google Calendar Tool (`google_calendar`)
+
+Separate from the CalDAV calendar — this operates on Google Calendar via the REST API.
+
+| Action | Description |
+|--------|-------------|
+| `list` | List upcoming events (configurable time range) |
+| `create` | Create a new event |
+| `update` | Update event fields (PATCH) |
+| `delete` | Delete an event |
+| `calendars` | List available calendars |
+
+Uses the system timezone (`process.env.TZ`) for event times. Default calendar is `primary`.
+
+### Google Docs Tool (`google_docs`)
+
+| Action | Description |
+|--------|-------------|
+| `search` | Find docs by name via Google Drive API |
+| `read` | Read document content (extracted as plain text) |
+| `create` | Create a new document (optionally with initial content) |
+| `edit` | Insert text at beginning or end of a document |
+
+Document content is extracted by walking the Docs API structural elements (paragraphs → text runs). Editing uses `batchUpdate` with `InsertTextRequest`.
 
 ---
 

@@ -123,17 +123,11 @@
     }
 
     // ── 2. Unity WebGL Loader ─────────────────────────────────
-    //
-    // Unity build files go in activity/Build/ with these names:
-    //   Build.loader.js, Build.data, Build.framework.js, Build.wasm
-    //
-    // If your build uses different names (e.g. MyGame.loader.js),
-    // update the paths below to match.
 
     async function loadUnity() {
       setStatus("Loading game...");
 
-      // All files go through /.proxy/ (gzip-compressed, small enough for Discord proxy)
+      // All files go through /.proxy/ inside a Discord Activity
       const base = "/.proxy";
 
       // Load the Unity loader script
@@ -152,15 +146,14 @@
 
       const canvas = document.getElementById("unity-canvas");
 
-      // Gzip-compressed files (.data.gz ~8.5MB, .wasm.gz ~15MB)
       unityInstance = await createUnityInstance(canvas, {
         dataUrl:            `${base}/activity/Build/Builds.data.gz`,
         frameworkUrl:       `${base}/activity/Build/Builds.framework.js.gz`,
         codeUrl:            `${base}/activity/Build/Builds.wasm.gz`,
         streamingAssetsUrl: `${base}/activity/StreamingAssets`,
-        companyName:        "Aeveon",
-        productName:        "AeloraActivity",
-        productVersion:     "1.0",
+        companyName:        "Luminora",
+        productName:        "Orion",
+        productVersion:     "0.1.0",
       }, (progress) => {
         setProgress(`${Math.round(progress * 100)}%`);
       });

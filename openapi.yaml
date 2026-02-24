@@ -25,7 +25,7 @@ info:
 
     ## Rate Limiting
 
-    - **General:** 100 requests / 15 minutes per IP on all `/api/*` routes
+    - **General:** 1000 requests / 15 minutes per IP on all `/api/*` routes
     - **Chat:** 60 requests / minute per IP on `/api/chat` and `/api/chat/stream`
 
     Rate limit headers (`RateLimit-*`) are included in responses.
@@ -388,6 +388,35 @@ security:
   - BearerAuth: []
 
 paths:
+  # ── Docs ───────────────────────────────────────────────
+  /api/docs:
+    get:
+      tags: [Status]
+      summary: Interactive API documentation
+      description: Swagger UI for exploring and testing the API. Always public.
+      security: []
+      responses:
+        "200":
+          description: Swagger UI HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/docs/openapi.yaml:
+    get:
+      tags: [Status]
+      summary: OpenAPI specification
+      description: Raw OpenAPI 3.1 YAML specification. Always public.
+      security: []
+      responses:
+        "200":
+          description: OpenAPI YAML
+          content:
+            text/yaml:
+              schema:
+                type: string
+
   # ── Status ──────────────────────────────────────────────
   /api/status:
     get:
@@ -1805,6 +1834,13 @@ paths:
                 properties:
                   running:
                     type: boolean
+                  intervalMs:
+                    type: integer
+                    description: Tick interval in milliseconds
+                  lastTick:
+                    type: string
+                    format: date-time
+                    nullable: true
                   tickCount:
                     type: integer
                   handlers:
@@ -1813,6 +1849,8 @@ paths:
                       type: object
                       properties:
                         name:
+                          type: string
+                        description:
                           type: string
                         enabled:
                           type: boolean

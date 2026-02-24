@@ -32,15 +32,17 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
                      ┌────────▼─────────────▼────────┐
                      │        Tool handlers          │
                      │  ping · notes · calendar ·    │
-                     │  brave-search · cron · memory │
-                     └──────────────┬────────────────┘
-                                    │
-                     ┌──────────────▼────────────────┐
-                     │       Persistence layer       │
-                     │  memory.ts · sessions.ts ·    │
-                     │  users.ts · mood.ts ·         │
-                     │  daily-log.ts · data/*.json   │
-                     └───────────────────────────────┘
+                     │  todo · brave-search · cron · │
+                     │  memory · mood                │
+                     └──────┬───────────────┬────────┘
+                            │               │
+          ┌─────────────────▼──┐   ┌────────▼───────────────┐
+          │  Persistence layer │   │  Radicale CalDAV Server │
+          │  memory · sessions │   │  Events (VEVENT)        │
+          │  users · mood ·    │   │  Todos (VTODO)          │
+          │  daily-log · notes │   │  http://127.0.0.1:5232  │
+          │  data/*.json       │   └────────────────────────┘
+          └────────────────────┘
 
   ┌────────────┐    ┌────────────┐    ┌─────────────────────┐
   │  cron.ts   │    │ heartbeat  │    │       web.ts        │
@@ -534,6 +536,86 @@ registerHeartbeatHandler({
 ```
 
 Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](src/index.ts).
+
+---
+
+## CalDAV Server (Radicale)
+
+**External dependency** — required for the `calendar` and `todo` tools.
+
+Aelora uses a [Radicale](https://radicale.org/) CalDAV server for calendar events (VEVENT) and tasks/todos (VTODO). Radicale is a lightweight Python CalDAV server that runs locally.
+
+### Setup
+
+```bash
+# Install
+pip install radicale passlib bcrypt
+
+# Generate htpasswd file (run from project root)
+python -c "from passlib.hash import bcrypt; print('aelora:' + bcrypt.hash('aelora123'))" > radicale-users
+
+# Start with config
+python -m radicale --config radicale-config
+```
+
+### Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `radicale-config` | Server config: host, auth, storage path, permissions |
+| `radicale-users` | Htpasswd file (bcrypt-hashed credentials) |
+| `data/radicale/` | Calendar/todo data storage (auto-created) |
+
+### Config (`radicale-config`)
+
+```ini
+[server]
+hosts = 0.0.0.0:5232
+
+[auth]
+type = htpasswd
+htpasswd_filename = radicale-users
+htpasswd_encryption = bcrypt
+
+[storage]
+filesystem_folder = data/radicale
+
+[rights]
+type = owner_only
+```
+
+### Connection
+
+Aelora connects via the `tsdav` npm library. Both the `calendar` and `todo` tools share the same CalDAV client and config:
+
+```yaml
+# settings.yaml
+tools:
+  caldav:
+    serverUrl: "http://127.0.0.1:5232"
+    username: "aelora"
+    password: "aelora123"
+    authMethod: "Basic"
+    calendarName: "Aelora"
+```
+
+The calendar must be created on first setup (Radicale web UI at `http://127.0.0.1:5232` or via MKCALENDAR request).
+
+### Remote Access
+
+For syncing with external CalDAV clients (Thunderbird, DAVx5, iOS), access Radicale via Tailscale's internal network:
+
+- **CalDAV URL:** `http://<tailscale-ip>:5232/aelora/Aelora/`
+- Radicale speaks plain HTTP only — Tailscale's WireGuard provides encryption in transit
+
+### What Uses CalDAV
+
+| Component | How |
+|-----------|-----|
+| `calendar` tool | CRUD for VEVENT objects (list/create/update/delete events) |
+| `todo` tool | CRUD for VTODO objects (add/list/complete/update/delete tasks) |
+| `heartbeat-calendar.ts` | Polls for upcoming events, sends Discord reminders |
+| `web.ts` REST API | `/api/calendar/events` and `/api/todos` endpoints |
 
 ---
 

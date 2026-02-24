@@ -7,13 +7,14 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 ## Features
 
 - **LLM Chat** — Works with any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
-- **Streaming Responses** — Token-by-token streaming to Discord messages and the dashboard LLM test
+- **Streaming Responses** — Token-by-token streaming to Discord messages, the dashboard, and WebSocket clients
 - **Persona System** — Composable personality built from layered markdown files with shared bootstrap, per-character souls, switchable personas, and hot-reload
 - **Tool Framework** — Drop a `.ts` file in `src/tools/`, it auto-loads. Typed params, config resolution, runtime toggle
 - **Agent Framework** — Sub-agents with their own system prompts, tool allowlists, and reasoning loops
 - **Memory** — Persistent per-user and per-channel fact storage, automatically injected into the system prompt
 - **Web Search** — Brave Search API integration for real-time web queries
-- **CalDAV Calendar** — Full CRUD for any CalDAV server (Radicale, Nextcloud, Baikal, iCloud)
+- **CalDAV Calendar** — Full CRUD for calendar events via CalDAV (Radicale)
+- **CalDAV Todos** — Task management backed by CalDAV VTODO — syncs with any CalDAV client (Thunderbird, DAVx5, iOS)
 - **Notes** — Persistent note storage scoped to channels or global
 - **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, file-based persistence, runtime CRUD
 - **Sessions** — Conversation session tracking with metadata, persisted to disk
@@ -23,6 +24,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Mood System** — Automatic emotion tracking using Plutchik's wheel (8 emotions × 3 intensities), auto-classified after each response, live dashboard indicator, manual override tool
 - **Config Validation** — Zod-powered runtime schema validation with clear startup error messages
 - **Lite Mode** — Slim tool schemas and trimmed system prompt for running local/small models (4B–7B via LM Studio, Ollama, etc.)
+- **WebSocket Chat** — Real-time bidirectional chat over WebSocket (`/ws`) — ideal for Unity or other game clients
 - **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, mood indicator, Activity preview
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** — Global IANA timezone setting for cron, logs, and date formatting
@@ -32,6 +34,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 22+
+- [Python 3](https://python.org/) (for Radicale CalDAV server)
 - A Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - An LLM API key (OpenAI, or any compatible provider)
 
@@ -52,6 +55,25 @@ cp settings.example.yaml settings.yaml
 # Start in development mode
 npm run dev
 ```
+
+### CalDAV Server (Radicale)
+
+The calendar and todo tools require a [Radicale](https://radicale.org/) CalDAV server:
+
+```bash
+# Install Radicale
+pip install radicale passlib bcrypt
+
+# Generate credentials (from the project root)
+python -c "from passlib.hash import bcrypt; print('aelora:' + bcrypt.hash('aelora123'))" > radicale-users
+
+# Start the server
+python -m radicale --config radicale-config
+```
+
+On first run, create the calendar at `http://127.0.0.1:5232` — log in and create a calendar named **"Aelora"** (matching the `calendarName` in `settings.yaml`).
+
+Radicale stores data in `data/radicale/` and must be running alongside Aelora for calendar/todo features to work.
 
 ### Invite the Bot
 
@@ -260,8 +282,9 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── mood.ts               — Emotion state (Plutchik's wheel) + auto-classification
 │   ├── state.ts              — Persisted bot state (active persona)
 │   ├── web.ts                — Express dashboard + REST API
+│   ├── ws.ts                 — WebSocket server (real-time chat for Unity/etc.)
 │   ├── lifecycle.ts          — Graceful reboot
-│   ├── logger.ts             — Console capture + SSE broadcast + named events
+│   ├── logger.ts             — Console capture + SSE/WS broadcast + named events
 │   ├── utils.ts              — Shared utilities
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
@@ -273,7 +296,8 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   │   ├── types.ts          — Tool type system, defineTool(), param builders
 │   │   ├── ping.ts           — Test tool
 │   │   ├── notes.ts          — Persistent note storage
-│   │   ├── calendar.ts       — CalDAV calendar CRUD
+│   │   ├── calendar.ts       — CalDAV calendar event CRUD (VEVENT)
+│   │   ├── todo.ts           — CalDAV task management (VTODO)
 │   │   ├── brave-search.ts   — Brave Search web queries
 │   │   ├── cron.ts           — Runtime cron job management
 │   │   ├── memory.ts         — Memory save/list/forget tool
@@ -294,6 +318,9 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   └── style.css
 ├── assets/                   — Static assets (bot graphics, etc.)
 ├── data/                     — Runtime data (gitignored)
+│   └── radicale/             — Radicale CalDAV storage (auto-created)
+├── radicale-config           — Radicale server configuration
+├── radicale-users            — Radicale htpasswd credentials (bcrypt)
 ├── settings.yaml             — Your config (gitignored)
 ├── settings.example.yaml     — Config template
 ├── openapi.yaml              — OpenAPI 3.1 spec for the REST API

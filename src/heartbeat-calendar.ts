@@ -13,7 +13,7 @@ const calendarReminder: HeartbeatHandler = {
   description: `Sends a reminder ${REMINDER_MINUTES} minutes before upcoming calendar events`,
   enabled: true,
 
-  execute: async (ctx) => {
+  execute: async (ctx): Promise<string | void> => {
     const caldavConfig = ctx.config.tools?.caldav as
       | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
       | undefined;
@@ -59,6 +59,8 @@ const calendarReminder: HeartbeatHandler = {
       .filter((o) => o.data)
       .map((o) => parseICS(o.data as string, o.url, o.etag ?? ""));
 
+    const reminded: string[] = [];
+
     for (const event of events) {
       if (notifiedEvents.has(event.uid)) continue;
 
@@ -91,10 +93,15 @@ const calendarReminder: HeartbeatHandler = {
             );
             if (channel && "send" in channel) {
               await (channel as any).send(lines.join("\n"));
+              reminded.push(event.summary);
             }
           }
         }
       }
+    }
+
+    if (reminded.length > 0) {
+      return `sent ${reminded.length} reminder(s): ${reminded.join(", ")}`;
     }
 
     // Clean up old notifications (older than 1 hour)

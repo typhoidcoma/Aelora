@@ -10,7 +10,8 @@ export type HeartbeatHandler = {
   name: string;
   description: string;
   enabled: boolean;
-  execute: (ctx: HeartbeatContext) => Promise<void>;
+  /** Return a string to log what was done, or void/undefined for silent ticks. */
+  execute: (ctx: HeartbeatContext) => Promise<string | void>;
 };
 
 export type HeartbeatState = {
@@ -63,11 +64,10 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
 
       const handlerStart = Date.now();
       try {
-        await handler.execute(context!);
-        const elapsed = Date.now() - handlerStart;
-        // Only log when a handler did meaningful work (took >100ms)
-        if (elapsed > 100) {
-          console.log(`Heartbeat: [${handler.name}] completed in ${elapsed}ms`);
+        const result = await handler.execute(context!);
+        if (result) {
+          const elapsed = Date.now() - handlerStart;
+          console.log(`Heartbeat: [${handler.name}] ${result} (${elapsed}ms)`);
         }
       } catch (err) {
         console.error(`Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`, err);

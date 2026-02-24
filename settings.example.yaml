@@ -80,12 +80,14 @@ tools: {}
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
+  # CalDAV (Radicale) — required for calendar and todo tools.
+  # See README.md for Radicale setup instructions.
   # caldav:
-  #   serverUrl: "http://localhost:5232"
-  #   username: "user"
-  #   password: "app-password"
+  #   serverUrl: "http://127.0.0.1:5232"
+  #   username: "aelora"
+  #   password: "aelora123"
   #   authMethod: "Basic"       # Basic, Oauth, or Bearer
-  #   calendarName: ""          # Empty = use first/default calendar
+  #   calendarName: "Aelora"    # Must match the calendar name on the server
 
 # --- Agents ---
 # Sub-agents that perform multi-step tasks with LLM reasoning + tools.

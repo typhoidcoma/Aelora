@@ -7,7 +7,8 @@ const memoryCompaction: HeartbeatHandler = {
   enabled: true,
 
   execute: async () => {
-    await compactPendingHistory(10);
+    const count = await compactPendingHistory(10);
+    if (count > 0) return `compacted ${count} conversation(s)`;
   },
 };
 

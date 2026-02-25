@@ -444,6 +444,7 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
 | `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
+| `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
 
 ---
 
@@ -624,9 +625,9 @@ For syncing with external CalDAV clients (Thunderbird, DAVx5, iOS), access Radic
 
 ## Google Workspace Integration
 
-**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts)
+**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts), [src/tools/google-tasks.ts](src/tools/google-tasks.ts)
 
-Three tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
+Four tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
 
 ### Authentication
 
@@ -679,6 +680,19 @@ Uses the system timezone (`process.env.TZ`) for event times. Default calendar is
 | `edit` | Insert text at beginning or end of a document |
 
 Document content is extracted by walking the Docs API structural elements (paragraphs → text runs). Editing uses `batchUpdate` with `InsertTextRequest`.
+
+### Google Tasks Tool (`google_tasks`)
+
+| Action | Description |
+|--------|-------------|
+| `list` | List tasks (configurable count, completed filter) |
+| `add` | Add a new task with optional notes and due date |
+| `complete` | Mark a task as completed |
+| `update` | Update task fields (PATCH) |
+| `delete` | Delete a task |
+| `lists` | List all task lists |
+
+Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support). Tasks sync with Gmail and Google Calendar.
 
 ---
 

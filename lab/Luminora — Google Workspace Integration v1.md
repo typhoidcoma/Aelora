@@ -1,5 +1,5 @@
 # Luminora — Google Workspace Integration v1
-_Gmail, Google Calendar & Google Docs for AI Personas_
+_Gmail, Google Calendar, Google Docs & Google Tasks for AI Personas_
 
 ---
 
@@ -10,8 +10,9 @@ Give Aelora bots access to a Google Workspace account so they can:
 - Search, read, send, reply to, and forward emails
 - View, create, update, and delete Google Calendar events
 - Search, read, create, and edit Google Docs
+- List, add, complete, update, and delete Google Tasks
 
-All three tools share a single set of OAuth2 credentials and a cached access token. The bot makes direct REST API calls to Google — no SDK dependencies.
+All four tools share a single set of OAuth2 credentials and a cached access token. The bot makes direct REST API calls to Google — no SDK dependencies.
 
 ---
 
@@ -21,7 +22,7 @@ All three tools share a single set of OAuth2 credentials and a cached access tok
 ┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐
 │  Discord /   │     │     Aelora       │     │   Google APIs    │
 │  Web Chat    │────▶│  LLM Tool Call   │────▶│  gmail/calendar/ │
-│  (user msg)  │     │  gmail.ts etc.   │     │  docs/drive      │
+│  (user msg)  │     │  gmail.ts etc.   │     │  docs/drive/tasks │
 └──────────────┘     └──────┬───────────┘     └──────────────────┘
                             │
                      ┌──────▼───────────┐
@@ -47,6 +48,7 @@ The user talks to the bot via Discord or the web dashboard. The LLM decides to c
    - Google Calendar API
    - Google Docs API
    - Google Drive API (for Docs search)
+   - Google Tasks API
 
 ### Obtaining Credentials
 
@@ -67,6 +69,7 @@ The user talks to the bot via Discord or the web dashboard. The LLM decides to c
    - `https://www.googleapis.com/auth/calendar`
    - `https://www.googleapis.com/auth/documents`
    - `https://www.googleapis.com/auth/drive.readonly`
+   - `https://www.googleapis.com/auth/tasks`
 6. Click **Authorize APIs** → sign in with the target Google account → grant access
 7. In Step 2, click **Exchange authorization code for tokens**
 8. Copy the **Refresh token**
@@ -79,6 +82,7 @@ The user talks to the bot via Discord or the web dashboard. The LLM decides to c
 | `redirect_uri_mismatch` | Playground URI not in authorized redirect URIs | Add `https://developers.google.com/oauthplayground` to your OAuth client |
 | `Metadata scope does not support 'q' parameter` | Individual Gmail sub-scopes were selected instead of `mail.google.com` | Use the "Input your own scopes" box, type `https://mail.google.com/` directly |
 | `Gmail API has not been used in project` | API not enabled in Google Cloud Console | Enable it at `console.developers.google.com/apis/api/gmail.googleapis.com` |
+| `Tasks API has not been used in project` | Tasks API not enabled | Enable at `console.developers.google.com/apis/api/tasks.googleapis.com` |
 | 403 after enabling API | Propagation delay | Wait 2-5 minutes and retry |
 
 ---
@@ -95,7 +99,7 @@ tools:
     refreshToken: "1//your-refresh-token"
 ```
 
-All three tools (`gmail`, `google_calendar`, `google_docs`) share this single config block. The refresh token is long-lived and doesn't expire unless revoked.
+All four tools (`gmail`, `google_calendar`, `google_docs`, `google_tasks`) share this single config block. The refresh token is long-lived and doesn't expire unless revoked.
 
 ---
 
@@ -224,7 +228,41 @@ Requires `documents` and `drive.readonly` scopes (Drive is used for searching do
 
 ---
 
-## 8. Required OAuth Scopes
+## 8. Google Tasks Tool — `google_tasks`
+
+**File:** `src/tools/google-tasks.ts`
+
+Manages tasks on Google Tasks. Tasks sync with Gmail and Google Calendar.
+
+### Actions
+
+| Action | Required Params | Description |
+|--------|----------------|-------------|
+| `list` | — | List tasks in a task list (default: primary, up to 100) |
+| `add` | `title` | Add a new task with optional notes and due date |
+| `complete` | `taskId` | Mark a task as completed |
+| `update` | `taskId` | Update task fields (title, notes, dueDate) |
+| `delete` | `taskId` | Delete a task |
+| `lists` | — | List all task lists with IDs |
+
+### Optional Params
+
+- `notes` — Task notes/description
+- `dueDate` — Due date in `YYYY-MM-DD` format (Tasks API only supports dates, not times)
+- `taskListId` — Task list ID (default: `@default` which is the primary list)
+- `showCompleted` — Include completed tasks in list results (default: false)
+- `maxResults` — Max tasks for list (1-100, default 20)
+
+### Technical Details
+
+- Google Tasks API base: `https://tasks.googleapis.com/tasks/v1`
+- Due dates are stored as `YYYY-MM-DDT00:00:00.000Z` (date-only, no time support)
+- Task status is either `needsAction` or `completed`
+- The `@default` task list ID maps to the user's primary "My Tasks" list
+
+---
+
+## 9. Required OAuth Scopes
 
 | Scope | Used By | Access Level |
 |-------|---------|--------------|
@@ -232,14 +270,15 @@ Requires `documents` and `drive.readonly` scopes (Drive is used for searching do
 | `https://www.googleapis.com/auth/calendar` | Google Calendar | Full calendar access (read, write, delete) |
 | `https://www.googleapis.com/auth/documents` | Google Docs | Full document access (read, create, edit) |
 | `https://www.googleapis.com/auth/drive.readonly` | Google Docs (search) | Read-only Drive access (find docs by name) |
+| `https://www.googleapis.com/auth/tasks` | Google Tasks | Full task access (read, create, complete, delete) |
 
 **Important:** Use `https://mail.google.com/` for Gmail — NOT the individual sub-scopes (`gmail.readonly`, `gmail.metadata`, etc.). The sub-scopes restrict search functionality.
 
 ---
 
-## 9. Error Handling
+## 10. Error Handling
 
-All three tools follow the same error pattern:
+All four tools follow the same error pattern:
 
 1. **Config missing** — `defineTool()` auto-checks required config keys and returns helpful error
 2. **Auth failure** — `resetGoogleToken()` clears cached token, next call re-authenticates
@@ -250,7 +289,7 @@ The LLM receives error messages as tool results and can explain them to the user
 
 ---
 
-## 10. File Map
+## 11. File Map
 
 | File | Role |
 |------|------|
@@ -258,11 +297,12 @@ The LLM receives error messages as tool results and can explain them to the user
 | `src/tools/gmail.ts` | Gmail tool (7 actions) |
 | `src/tools/google-calendar.ts` | Google Calendar tool (5 actions) |
 | `src/tools/google-docs.ts` | Google Docs tool (4 actions) |
+| `src/tools/google-tasks.ts` | Google Tasks tool (6 actions) |
 | `settings.yaml` | `tools.google` config block |
 
 ---
 
-## 11. Verification Checklist
+## 12. Verification Checklist
 
 - [ ] OAuth client type is **Web application** (not Desktop)
 - [ ] Redirect URI `https://developers.google.com/oauthplayground` added
@@ -270,8 +310,9 @@ The LLM receives error messages as tool results and can explain them to the user
 - [ ] Google Calendar API enabled
 - [ ] Google Docs API enabled
 - [ ] Google Drive API enabled
+- [ ] Google Tasks API enabled
 - [ ] Refresh token generated with **own credentials** checked in playground
 - [ ] Scopes typed manually (not selected from checkboxes)
 - [ ] `settings.yaml` has `tools.google.clientId`, `clientSecret`, `refreshToken`
 - [ ] Aelora restarted after config changes
-- [ ] Console shows `Tools: loaded "gmail"`, `"google_calendar"`, `"google_docs"` (enabled)
+- [ ] Console shows `Tools: loaded "gmail"`, `"google_calendar"`, `"google_docs"`, `"google_tasks"` (enabled)

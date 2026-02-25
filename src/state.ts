@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "
 
 const STATE_FILE = "data/state.json";
 const CALENDAR_NOTIFIED_FILE = "data/calendar-notified.json";
+const REPLY_CHECKED_FILE = "data/reply-checked.json";
 const ACTIVE_PERSONA_FILE = "data/active-persona.json";
 const TOGGLE_STATE_FILE = "data/toggle-state.json";
 
@@ -103,6 +104,30 @@ export function saveCalendarNotified(uids: string[]): void {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
     writeFileSync(CALENDAR_NOTIFIED_FILE, JSON.stringify(uids), "utf-8");
     console.log(`State: saved ${uids.length} calendar notification UID(s)`);
+  } catch {
+    // Best effort
+  }
+}
+
+// ── Reply checker dedup ─────────────────────────────────────────
+
+/** Load persisted reply-checked message IDs. */
+export function loadReplyChecked(): string[] {
+  try {
+    if (existsSync(REPLY_CHECKED_FILE)) {
+      return JSON.parse(readFileSync(REPLY_CHECKED_FILE, "utf-8"));
+    }
+  } catch {
+    // Start fresh
+  }
+  return [];
+}
+
+/** Persist reply-checked message IDs to disk. */
+export function saveReplyChecked(ids: string[]): void {
+  try {
+    if (!existsSync("data")) mkdirSync("data", { recursive: true });
+    writeFileSync(REPLY_CHECKED_FILE, JSON.stringify(ids), "utf-8");
   } catch {
     // Best effort
   }

@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "
 const STATE_FILE = "data/state.json";
 const CALENDAR_NOTIFIED_FILE = "data/calendar-notified.json";
 const ACTIVE_PERSONA_FILE = "data/active-persona.json";
+const TOGGLE_STATE_FILE = "data/toggle-state.json";
 
 export type ShutdownReason = "clean" | "reboot" | "crash" | "fatal";
 
@@ -132,4 +133,46 @@ export function saveActivePersona(name: string): void {
   } catch {
     // Best effort
   }
+}
+
+// ── Tool & agent toggle persistence ─────────────────────────────
+
+type ToggleState = {
+  tools: Record<string, boolean>;
+  agents: Record<string, boolean>;
+};
+
+/** Load saved tool/agent toggle overrides from disk. */
+export function loadToggleState(): ToggleState | null {
+  try {
+    if (existsSync(TOGGLE_STATE_FILE)) {
+      return JSON.parse(readFileSync(TOGGLE_STATE_FILE, "utf-8"));
+    }
+  } catch {
+    // Start fresh
+  }
+  return null;
+}
+
+function saveToggleState(state: ToggleState): void {
+  try {
+    if (!existsSync("data")) mkdirSync("data", { recursive: true });
+    writeFileSync(TOGGLE_STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+  } catch {
+    // Best effort
+  }
+}
+
+/** Persist a tool toggle change. Read-modify-writes the shared file. */
+export function saveToolToggle(name: string, enabled: boolean): void {
+  const state = loadToggleState() ?? { tools: {}, agents: {} };
+  state.tools[name] = enabled;
+  saveToggleState(state);
+}
+
+/** Persist an agent toggle change. Read-modify-writes the shared file. */
+export function saveAgentToggle(name: string, enabled: boolean): void {
+  const state = loadToggleState() ?? { tools: {}, agents: {} };
+  state.agents[name] = enabled;
+  saveToggleState(state);
 }

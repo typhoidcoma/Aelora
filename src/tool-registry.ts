@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import type { Tool, ToolHandler, ToolContext } from "./tools/types.js";
 import type OpenAI from "openai";
 import { sendToChannel } from "./discord.js";
+import { loadToggleState, saveToolToggle } from "./state.js";
 
 export type RegisteredTool = {
   name: string;
@@ -58,6 +59,18 @@ export async function loadTools(): Promise<void> {
       );
     } catch (err) {
       console.error(`Tools: failed to load ${entry}:`, err);
+    }
+  }
+
+  // Apply saved toggle overrides
+  const saved = loadToggleState();
+  if (saved?.tools) {
+    for (const [name, enabled] of Object.entries(saved.tools)) {
+      const tool = registry.get(name);
+      if (tool && tool.enabled !== enabled) {
+        tool.enabled = enabled;
+        console.log(`Tools: restored "${name}" as ${enabled ? "enabled" : "disabled"}`);
+      }
     }
   }
 
@@ -117,6 +130,7 @@ export function toggleTool(name: string): { found: boolean; enabled: boolean } {
   const tool = registry.get(name);
   if (!tool) return { found: false, enabled: false };
   tool.enabled = !tool.enabled;
+  saveToolToggle(name, tool.enabled);
   console.log(`Tools: "${name}" is now ${tool.enabled ? "enabled" : "disabled"}`);
   return { found: true, enabled: tool.enabled };
 }

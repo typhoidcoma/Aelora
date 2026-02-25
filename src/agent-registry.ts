@@ -3,6 +3,7 @@ import { join, basename, extname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Agent, AgentDefinition } from "./agents/types.js";
 import type OpenAI from "openai";
+import { loadToggleState, saveAgentToggle } from "./state.js";
 
 export type RegisteredAgent = {
   name: string;
@@ -56,6 +57,18 @@ export async function loadAgents(): Promise<void> {
       );
     } catch (err) {
       console.error(`Agents: failed to load ${entry}:`, err);
+    }
+  }
+
+  // Apply saved toggle overrides
+  const saved = loadToggleState();
+  if (saved?.agents) {
+    for (const [name, enabled] of Object.entries(saved.agents)) {
+      const agent = registry.get(name);
+      if (agent && agent.enabled !== enabled) {
+        agent.enabled = enabled;
+        console.log(`Agents: restored "${name}" as ${enabled ? "enabled" : "disabled"}`);
+      }
     }
   }
 
@@ -132,6 +145,7 @@ export function toggleAgent(name: string): { found: boolean; enabled: boolean } 
   const agent = registry.get(name);
   if (!agent) return { found: false, enabled: false };
   agent.enabled = !agent.enabled;
+  saveAgentToggle(name, agent.enabled);
   console.log(`Agents: "${name}" is now ${agent.enabled ? "enabled" : "disabled"}`);
   return { found: true, enabled: agent.enabled };
 }

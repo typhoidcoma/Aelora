@@ -1,7 +1,8 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import type { Config } from "./config.js";
-import { getLLMResponse, clearHistory } from "./llm.js";
+import { getLLMResponse, clearSession } from "./llm.js";
+import { deleteSession } from "./sessions.js";
 import { recordMessage } from "./sessions.js";
 import { classifyMood } from "./mood.js";
 import { appendLog } from "./daily-log.js";
@@ -180,15 +181,16 @@ export function startWebSocket(server: Server, config: Config): void {
           break;
         }
 
-        // ---- Clear: reset session history ----
+        // ---- New session: full reset ----
         case "clear": {
           if (!state.sessionId) {
             send(ws, { type: "error", error: "Send init first." });
             return;
           }
-          clearHistory(state.sessionId);
+          clearSession(state.sessionId);
+          deleteSession(state.sessionId);
           send(ws, { type: "ready", sessionId: state.sessionId });
-          console.log(`WS: cleared history for session=${state.sessionId}`);
+          console.log(`WS: new session for session=${state.sessionId}`);
           break;
         }
 

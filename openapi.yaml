@@ -80,7 +80,7 @@ tags:
       Client → Server:
       - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` — bind session
       - `{ "type": "message", "content": "..." }` — send chat message
-      - `{ "type": "clear" }` — clear session history
+      - `{ "type": "clear" }` — start new session (clears history, summary, context, and session stats)
 
       Server → Client:
       - `{ "type": "ready", "sessionId": "..." }` — session bound
@@ -811,18 +811,18 @@ paths:
   /api/chat/{sessionId}:
     delete:
       tags: [Chat]
-      summary: Clear conversation history
-      description: Wipes the in-memory conversation history for a session. The next message will start fresh.
+      summary: Start new session
+      description: Full session reset — clears conversation history, summary, compaction queue, and session stats. The next message starts completely fresh.
       parameters:
         - name: sessionId
           in: path
           required: true
           schema:
             type: string
-          description: The session to clear
+          description: The session to reset
       responses:
         "200":
-          description: History cleared
+          description: Session reset
           content:
             application/json:
               schema:

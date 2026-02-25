@@ -4,9 +4,11 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { getLLMResponse, clearHistory } from "../llm.js";
+import { getLLMResponse, clearSession } from "../llm.js";
+import { deleteSession } from "../sessions.js";
 import { getAllTools, executeTool } from "../tool-registry.js";
 import { buildResponseEmbed, buildErrorEmbed, buildToolListEmbed, buildSuccessEmbed, buildStreamingEmbed } from "./embeds.js";
 import { reboot } from "../lifecycle.js";
@@ -49,8 +51,8 @@ export function getSlashCommandDefinitions() {
       .setDescription("Check if the bot is responsive"),
 
     new SlashCommandBuilder()
-      .setName("clear")
-      .setDescription("Clear conversation history for this channel"),
+      .setName("new")
+      .setDescription("Start a fresh session — clears history, summary, and context"),
 
     new SlashCommandBuilder()
       .setName("websearch")
@@ -153,8 +155,8 @@ export async function handleSlashCommand(
     case "ping":
       await handlePing(interaction);
       break;
-    case "clear":
-      await handleClear(interaction);
+    case "new":
+      await handleNew(interaction);
       break;
     case "websearch":
       await handleWebSearch(interaction);
@@ -180,7 +182,7 @@ export async function handleSlashCommand(
     default:
       await interaction.reply({
         embeds: [buildErrorEmbed(`Unknown command: ${interaction.commandName}`)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
   }
 }
@@ -261,13 +263,13 @@ async function handlePing(
   });
 }
 
-async function handleClear(
+async function handleNew(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
-  clearHistory(interaction.channelId);
+  clearSession(interaction.channelId);
+  deleteSession(interaction.channelId);
   await interaction.reply({
-    embeds: [buildSuccessEmbed("Conversation history cleared for this channel.")],
-    ephemeral: true,
+    embeds: [buildSuccessEmbed("New session started — history, summary, and context cleared.")],
   });
 }
 
@@ -314,7 +316,7 @@ async function handlePlay(
   if (!applicationId) {
     await interaction.reply({
       embeds: [buildErrorEmbed("Activity not available: could not determine application ID.")],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -352,7 +354,7 @@ async function handleMemory(
       if (facts.length === 0) {
         await interaction.reply({
           embeds: [buildSuccessEmbed("No facts remembered about you yet.")],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -363,7 +365,7 @@ async function handleMemory(
         .setColor(0xa78bfa)
         .setFooter({ text: `${facts.length} fact(s)` })
         .setTimestamp();
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       break;
     }
     case "add": {
@@ -372,12 +374,12 @@ async function handleMemory(
       if (result.success) {
         await interaction.reply({
           embeds: [buildSuccessEmbed(`Remembered: "${fact}"`)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           embeds: [buildErrorEmbed(result.error ?? "Failed to save fact")],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       break;
@@ -386,7 +388,7 @@ async function handleMemory(
       const count = clearScope(scope);
       await interaction.reply({
         embeds: [buildSuccessEmbed(`Cleared ${count} fact(s) about you.`)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       break;
     }
@@ -400,7 +402,7 @@ async function handleMood(
   if (!mood) {
     await interaction.reply({
       embeds: [buildSuccessEmbed("No mood data yet — I haven't had any conversations recently.")],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -425,7 +427,7 @@ async function handleMood(
     .setFooter({ text: `Updated ${new Date(mood.updatedAt).toLocaleString()}` })
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
 
 async function handleNote(
@@ -441,7 +443,7 @@ async function handleNote(
       if (titles.length === 0) {
         await interaction.reply({
           embeds: [buildSuccessEmbed(`No notes in scope "${scope}".`)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -452,7 +454,7 @@ async function handleNote(
         .setColor(0xa78bfa)
         .setFooter({ text: `${titles.length} note(s)` })
         .setTimestamp();
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       break;
     }
     case "get": {
@@ -461,7 +463,7 @@ async function handleNote(
       if (!note) {
         await interaction.reply({
           embeds: [buildErrorEmbed(`Note "${title}" not found in scope "${scope}".`)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -471,7 +473,7 @@ async function handleNote(
         .setColor(0xa78bfa)
         .setFooter({ text: `Updated ${new Date(note.updatedAt).toLocaleDateString()}` })
         .setTimestamp();
-      await interaction.reply({ embeds: [embed], ephemeral: true });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       break;
     }
     case "save": {
@@ -480,7 +482,7 @@ async function handleNote(
       upsertNote(scope, title, content);
       await interaction.reply({
         embeds: [buildSuccessEmbed(`Note "${title}" saved in scope "${scope}".`)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       break;
     }
@@ -490,12 +492,12 @@ async function handleNote(
       if (deleted) {
         await interaction.reply({
           embeds: [buildSuccessEmbed(`Note "${title}" deleted from scope "${scope}".`)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           embeds: [buildErrorEmbed(`Note "${title}" not found in scope "${scope}".`)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       break;
@@ -510,7 +512,7 @@ async function handleHelp(
     { name: "/ask", desc: "Ask the bot a question or give it a prompt" },
     { name: "/tools", desc: "List available tools and agents" },
     { name: "/ping", desc: "Check if the bot is responsive" },
-    { name: "/clear", desc: "Clear conversation history for this channel" },
+    { name: "/new", desc: "Start a fresh session — clears history, summary, and context" },
     { name: "/websearch", desc: "Search the web using Brave Search" },
     { name: "/memory view", desc: "View your remembered facts" },
     { name: "/memory add", desc: "Remember a fact about you" },
@@ -533,5 +535,5 @@ async function handleHelp(
     .setColor(0xa78bfa)
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed], ephemeral: true });
+  await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }

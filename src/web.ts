@@ -16,7 +16,7 @@ import {
   createPersona,
   type PersonaState,
 } from "./persona.js";
-import { getLLMResponse, clearHistory } from "./llm.js";
+import { getLLMResponse, clearSession } from "./llm.js";
 import { getAllTools, toggleTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
@@ -619,10 +619,11 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // Chat — clear conversation history
+  // Chat — start new session (clear history, summary, context, and session stats)
   app.delete("/api/chat/:sessionId", (req, res) => {
     const { sessionId } = req.params;
-    clearHistory(sessionId);
+    clearSession(sessionId);
+    deleteSession(sessionId);
     res.json({ success: true });
   });
 

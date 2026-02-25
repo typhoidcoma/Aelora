@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 
 const STATE_FILE = "data/state.json";
+const LAST_ALIVE_FILE = "data/last-alive.json";
 const CALENDAR_NOTIFIED_FILE = "data/calendar-notified.json";
 const REPLY_CHECKED_FILE = "data/reply-checked.json";
 const ACTIVE_PERSONA_FILE = "data/active-persona.json";
@@ -26,15 +27,28 @@ export type StateFile = {
 
 /** Save shutdown state to disk. Fully synchronous — safe in signal handlers. */
 export function saveState(reason: ShutdownReason, error?: string): void {
-  const state: StateFile = {
-    timestamp: new Date().toISOString(),
-    reason,
-    uptimeSeconds: Math.floor(process.uptime()),
-    ...(error ? { error: error.slice(0, 2000) } : {}),
-  };
-
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
+
+    // If a state file already exists, preserve the original timestamp.
+    // This prevents startup crash loops from resetting the downtime clock.
+    let originalTimestamp: string | undefined;
+    if (existsSync(STATE_FILE)) {
+      try {
+        const existing: StateFile = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
+        originalTimestamp = existing.timestamp;
+      } catch {
+        // Corrupted file — fall through with fresh timestamp
+      }
+    }
+
+    const state: StateFile = {
+      timestamp: originalTimestamp ?? new Date().toISOString(),
+      reason,
+      uptimeSeconds: Math.floor(process.uptime()),
+      ...(error ? { error: error.slice(0, 2000) } : {}),
+    };
+
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
     console.log(`State: saved shutdown context (reason=${reason})`);
   } catch (err) {
@@ -45,14 +59,54 @@ export function saveState(reason: ShutdownReason, error?: string): void {
 /** Read and delete previous state. Returns null on first boot or after clean consume. */
 export function consumePreviousState(): StateFile | null {
   try {
-    if (!existsSync(STATE_FILE)) return null;
-    const raw = readFileSync(STATE_FILE, "utf-8");
-    unlinkSync(STATE_FILE);
-    const prev: StateFile = JSON.parse(raw);
-    console.log(`State: restored previous state (reason=${prev.reason})`);
-    return prev;
+    if (existsSync(STATE_FILE)) {
+      const raw = readFileSync(STATE_FILE, "utf-8");
+      unlinkSync(STATE_FILE);
+      const prev: StateFile = JSON.parse(raw);
+      console.log(`State: restored previous state (reason=${prev.reason})`);
+      clearLastAlive();
+      return prev;
+    }
+
+    // No state file — check for a last-alive timestamp as fallback.
+    // Covers force-kill scenarios (Task Manager, power loss) where no
+    // signal handler ran and no state file was written.
+    if (existsSync(LAST_ALIVE_FILE)) {
+      const raw = readFileSync(LAST_ALIVE_FILE, "utf-8");
+      const { timestamp } = JSON.parse(raw);
+      clearLastAlive();
+      if (timestamp) {
+        console.log("State: no state file found, using last-alive timestamp as fallback");
+        return {
+          timestamp,
+          reason: "crash",
+          uptimeSeconds: 0,
+          error: "Process was killed without a clean shutdown (no state file written)",
+        };
+      }
+    }
   } catch {
-    return null;
+    // Fall through
+  }
+  return null;
+}
+
+/** Update the last-alive timestamp on disk. Called from heartbeat. */
+export function updateLastAlive(): void {
+  try {
+    if (!existsSync("data")) mkdirSync("data", { recursive: true });
+    writeFileSync(LAST_ALIVE_FILE, JSON.stringify({ timestamp: new Date().toISOString() }), "utf-8");
+  } catch {
+    // Best effort
+  }
+}
+
+/** Clear the last-alive file (called after consuming it on startup). */
+function clearLastAlive(): void {
+  try {
+    if (existsSync(LAST_ALIVE_FILE)) unlinkSync(LAST_ALIVE_FILE);
+  } catch {
+    // Best effort
   }
 }
 

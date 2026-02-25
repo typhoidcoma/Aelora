@@ -30,8 +30,16 @@ function start(): void {
 
   // Forward signals to child for clean shutdown (systemd sends SIGTERM to stop)
   const onSIGTERM = () => child.kill("SIGTERM");
-  const onSIGINT = () => child.kill("SIGINT");
   process.on("SIGTERM", onSIGTERM);
+
+  // On Windows, SIGINT (Ctrl+C) is delivered directly to all processes in the
+  // console group via CTRL_C_EVENT. Calling child.kill("SIGINT") on Windows
+  // invokes TerminateProcess(), which force-kills the child before its SIGINT
+  // handler can run saveState(). Register a no-op handler to keep boot.ts alive
+  // while the child shuts down on its own.
+  const onSIGINT = process.platform === "win32"
+    ? () => {}
+    : () => child.kill("SIGINT");
   process.on("SIGINT", onSIGINT);
 
   child.on("exit", (code) => {

@@ -9,6 +9,7 @@ import {
 import { getMemoryForPrompt } from "./memory.js";
 import { buildMoodPromptSection } from "./mood.js";
 import { getUser } from "./users.js";
+import { getSession } from "./sessions.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -75,6 +76,50 @@ function saveSummaries(): void {
   }
 }
 
+// --- Conversation persistence ---
+
+const CONVERSATIONS_FILE = "data/memory/conversations.json";
+
+/** Persist all active conversations to disk. Synchronous for use in signal handlers. */
+export function saveConversations(): void {
+  try {
+    const dir = "data/memory";
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const data: { channelId: string; messages: ChatMessage[]; savedAt: string }[] = [];
+    for (const [channelId, messages] of conversations.entries()) {
+      if (messages.length === 0) continue;
+      data.push({ channelId, messages, savedAt: new Date().toISOString() });
+    }
+
+    writeFileSync(CONVERSATIONS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    console.log(`LLM: saved ${data.length} conversation(s) to disk`);
+  } catch (err) {
+    console.error("LLM: failed to save conversations:", err);
+  }
+}
+
+function loadConversations(): void {
+  try {
+    if (!existsSync(CONVERSATIONS_FILE)) return;
+
+    const raw = readFileSync(CONVERSATIONS_FILE, "utf-8");
+    const data: { channelId: string; messages: ChatMessage[] }[] = JSON.parse(raw);
+
+    let loaded = 0;
+    for (const entry of data) {
+      if (entry.channelId && Array.isArray(entry.messages) && entry.messages.length > 0) {
+        conversations.set(entry.channelId, entry.messages);
+        loaded++;
+      }
+    }
+
+    console.log(`LLM: restored ${loaded} conversation(s) from disk`);
+  } catch (err) {
+    console.error("LLM: failed to load conversations:", err);
+  }
+}
+
 // Queue of messages trimmed from history, keyed by channelId
 const compactionQueue = new Map<string, ChatMessage[]>();
 
@@ -85,14 +130,21 @@ export function initLLM(cfg: Config): void {
     apiKey: cfg.llm.apiKey || undefined,
   });
   loadSummaries();
+  loadConversations();
 }
 
 /** Expose the initialized OpenAI client for lightweight direct calls (e.g. mood classification). */
 export function getLLMClient(): OpenAI { return client; }
 export function getLLMModel(): string { return config.llm.model; }
 
-export function clearHistory(channelId: string): void {
+/** Full session reset: clears history, summary, and compaction queue for a channel. */
+export function clearSession(channelId: string): void {
   conversations.delete(channelId);
+  compactionQueue.delete(channelId);
+  if (summaries[channelId]) {
+    delete summaries[channelId];
+    saveSummaries();
+  }
 }
 
 function getHistory(channelId: string): ChatMessage[] {
@@ -256,6 +308,20 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
       }
       userLine += ".";
       sections.push("\n\n" + userLine);
+    }
+  }
+
+  // --- Current session (semi-static — changes on new message/participant) ---
+  if (channelId) {
+    const session = getSession(channelId);
+    if (session) {
+      const parts: string[] = [];
+      if (session.channelName) parts.push(`Channel: #${session.channelName}`);
+      const names = Object.values(session.users).map((u) => u.username);
+      if (names.length > 0) parts.push(`Participants: ${names.join(", ")}`);
+      if (parts.length > 0) {
+        sections.push("\n\n## Current Session\n" + parts.join(" | "));
+      }
     }
   }
 

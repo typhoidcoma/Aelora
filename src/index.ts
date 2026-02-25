@@ -1,7 +1,7 @@
 import { installLogger } from "./logger.js";
 import { loadConfig } from "./config.js";
 import { loadPersona, type PersonaState } from "./persona.js";
-import { initLLM, getLLMOneShot, setSystemStateProvider } from "./llm.js";
+import { initLLM, getLLMOneShot, setSystemStateProvider, saveConversations } from "./llm.js";
 import { loadTools } from "./tool-registry.js";
 import { loadAgents } from "./agent-registry.js";
 import { enableAgentDispatch } from "./llm.js";
@@ -13,6 +13,8 @@ import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
 import { registerDataCleanup } from "./heartbeat-cleanup.js";
 import { registerReplyCheck } from "./heartbeat-reply-check.js";
+import { registerLastAlive } from "./heartbeat-alive.js";
+import { registerConversationSave } from "./heartbeat-conversations.js";
 import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
@@ -94,6 +96,8 @@ async function main(): Promise<void> {
     registerMemoryCompaction();
     registerDataCleanup();
     registerReplyCheck();
+    registerLastAlive();
+    registerConversationSave();
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,
@@ -130,6 +134,7 @@ async function main(): Promise<void> {
 
 process.on("SIGINT", () => {
   console.log("\nShutting down...");
+  saveConversations();
   saveState("clean");
   stopHeartbeat();
   stopCron();
@@ -138,6 +143,7 @@ process.on("SIGINT", () => {
 
 process.on("SIGTERM", () => {
   console.log("Received SIGTERM, shutting down...");
+  saveConversations();
   saveState("clean");
   stopHeartbeat();
   stopCron();
@@ -146,18 +152,21 @@ process.on("SIGTERM", () => {
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
+  saveConversations();
   saveState("crash", err?.stack ?? String(err));
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
+  saveConversations();
   saveState("crash", reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason));
   process.exit(1);
 });
 
 main().catch((err) => {
   console.error("Fatal error:", err);
+  saveConversations();
   saveState("fatal", err?.stack ?? String(err));
   process.exit(1);
 });

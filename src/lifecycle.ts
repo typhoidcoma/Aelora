@@ -7,12 +7,14 @@
 import { stopHeartbeat } from "./heartbeat.js";
 import { stopCron } from "./cron.js";
 import { saveState } from "./state.js";
+import { saveConversations } from "./llm.js";
 
 const REBOOT_CODE = 100;
 
 /** Gracefully shut down all subsystems and exit with the reboot code. */
 export function reboot(): void {
   console.log("Reboot requested — shutting down...");
+  saveConversations();
   saveState("reboot");
   stopHeartbeat();
   stopCron();

@@ -78,8 +78,6 @@ function saveSummaries(): void {
 // Queue of messages trimmed from history, keyed by channelId
 const compactionQueue = new Map<string, ChatMessage[]>();
 
-const MAX_TOOL_ITERATIONS = 10;
-
 export function initLLM(cfg: Config): void {
   config = cfg;
   client = new OpenAI({
@@ -475,7 +473,7 @@ async function runCompletionLoop(
   messages: ChatMessage[],
   tools: OpenAI.Chat.Completions.ChatCompletionTool[],
   channelId: string | null,
-  maxIterations = MAX_TOOL_ITERATIONS,
+  maxIterations = config.llm.maxToolIterations,
   model?: string,
   allowAgentDispatch = true,
   onToken?: OnTokenCallback,

@@ -19,6 +19,7 @@
     </div>
     <span id="last-updated" class="last-updated"></span>
     <button class="btn" id="logout-btn" onclick="clearApiKey()" style="display:none; font-size:0.75rem;">Logout</button>
+    <button class="btn" onclick="exportData()">Export Data</button>
     <button class="btn btn-danger" id="reboot-btn" onclick="rebootBot()">Reboot</button>
   </header>
 
@@ -302,6 +303,145 @@
             </thead>
             <tbody id="tools-body">
               <tr><td colspan="4" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Notes -->
+      <section>
+        <div class="section-header" data-section="notes">
+          <span class="chevron">&#9660;</span>
+          <h2>Notes</h2>
+          <button class="btn btn-primary btn-xs" onclick="showNoteForm()">+ New</button>
+        </div>
+        <div class="section-body" data-section="notes">
+          <!-- Create/edit form (hidden by default) -->
+          <div id="note-form" class="card" style="display: none; margin-bottom: 0.5rem;">
+            <div class="cron-form-grid">
+              <div class="form-row">
+                <label>Scope</label>
+                <input type="text" id="note-f-scope" placeholder="global, channel:123, user:456">
+              </div>
+              <div class="form-row">
+                <label>Title</label>
+                <input type="text" id="note-f-title" placeholder="my-note">
+              </div>
+              <div class="form-row">
+                <label>Content</label>
+                <textarea id="note-f-content" rows="4" placeholder="Note content..."></textarea>
+              </div>
+            </div>
+            <div class="cron-form-actions">
+              <button class="btn btn-primary" id="note-f-submit-btn" onclick="submitNote()">Save</button>
+              <button class="btn" onclick="hideNoteForm()">Cancel</button>
+            </div>
+          </div>
+
+          <div id="notes-content" class="card"><span class="muted">Loading...</span></div>
+        </div>
+      </section>
+
+      <!-- Todos -->
+      <section>
+        <div class="section-header" data-section="todos">
+          <span class="chevron">&#9660;</span>
+          <h2>Todos</h2>
+          <button class="btn btn-primary btn-xs" onclick="showTodoForm()">+ New</button>
+        </div>
+        <div class="section-body" data-section="todos">
+          <!-- Create form (hidden by default) -->
+          <div id="todo-form" class="card" style="display: none; margin-bottom: 0.5rem;">
+            <div class="cron-form-grid">
+              <div class="form-row">
+                <label>Title</label>
+                <input type="text" id="todo-f-title" placeholder="Buy groceries">
+              </div>
+              <div class="form-row">
+                <label>Description</label>
+                <textarea id="todo-f-desc" rows="2" placeholder="Optional details..."></textarea>
+              </div>
+              <div class="form-row">
+                <label>Priority</label>
+                <select id="todo-f-priority">
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Due Date</label>
+                <input type="date" id="todo-f-due">
+              </div>
+            </div>
+            <div class="cron-form-actions">
+              <button class="btn btn-primary" onclick="submitTodo()">Create</button>
+              <button class="btn" onclick="hideTodoForm()">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Todo list table -->
+          <table id="todo-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Title</th>
+                <th>Priority</th>
+                <th>Due</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="todos-body">
+              <tr><td colspan="5" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Users -->
+      <section>
+        <div class="section-header" data-section="users">
+          <span class="chevron">&#9660;</span>
+          <h2>Users</h2>
+        </div>
+        <div class="section-body" data-section="users">
+          <table>
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>User ID</th>
+                <th>Messages</th>
+                <th>First Seen</th>
+                <th>Last Seen</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="users-body">
+              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Agents -->
+      <section>
+        <div class="section-header" data-section="agents">
+          <span class="chevron">&#9660;</span>
+          <h2>Agents</h2>
+        </div>
+        <div class="section-body" data-section="agents">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Tools</th>
+                <th>Enabled</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="agents-body">
+              <tr><td colspan="5" class="muted">Loading...</td></tr>
             </tbody>
           </table>
         </div>

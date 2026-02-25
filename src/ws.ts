@@ -171,7 +171,7 @@ export function startWebSocket(server: Server, config: Config): void {
               username: state.username ?? "anonymous",
               summary: `**User:** ${msg.content.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}`,
             });
-            classifyMood(reply, msg.content).catch(() => {});
+            classifyMood(reply, msg.content).catch((err) => console.warn("Mood classify failed:", err));
           } catch (err) {
             send(ws, { type: "error", error: String(err) });
           } finally {

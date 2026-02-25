@@ -926,6 +926,385 @@ async function toggleTool(name) {
   }
 }
 
+// --- Users ---
+
+async function fetchUsers() {
+  try {
+    const res = await apiFetch("/api/users");
+    const data = await res.json();
+    const tbody = document.getElementById("users-body");
+    const users = Object.values(data);
+
+    if (users.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No users tracked yet</td></tr>';
+      return;
+    }
+
+    // Sort by last seen (most recent first)
+    users.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+
+    tbody.innerHTML = users
+      .map(
+        (u) => `
+      <tr>
+        <td>${esc(u.username)}</td>
+        <td><code>${esc(u.userId)}</code></td>
+        <td>${u.messageCount}</td>
+        <td>${timeAgo(u.firstSeen)}</td>
+        <td>${timeAgo(u.lastSeen)}</td>
+        <td><button class="btn btn-danger btn-xs" onclick="deleteUserDash('${esc(u.userId)}')">&times;</button></td>
+      </tr>`,
+      )
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function deleteUserDash(userId) {
+  if (!confirm(`Delete user profile for "${userId}"? This only removes the profile, not their memory facts.`)) return;
+
+  try {
+    const res = await apiFetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("User deleted");
+      fetchUsers();
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+// --- Notes ---
+
+async function fetchNotes() {
+  try {
+    const res = await apiFetch("/api/notes");
+    const data = await res.json();
+    const container = document.getElementById("notes-content");
+    const scopes = Object.keys(data);
+
+    if (scopes.length === 0) {
+      container.innerHTML = '<span class="muted">No notes yet</span>';
+      return;
+    }
+
+    container.innerHTML = scopes
+      .map((scope) => {
+        const notes = data[scope];
+        const titles = Object.keys(notes);
+
+        const noteRows = titles
+          .map((title) => {
+            const n = notes[title];
+            const preview = n.content.slice(0, 100) + (n.content.length > 100 ? "..." : "");
+            return `
+              <div class="memory-fact">
+                <code>${esc(title)}</code>
+                <span class="memory-fact-text">${esc(preview)}</span>
+                <span class="memory-fact-time muted">${timeAgo(n.updatedAt)}</span>
+                <button class="btn btn-xs" onclick="editNote('${esc(scope)}', '${esc(title)}')">Edit</button>
+                <button class="btn btn-danger btn-xs" onclick="deleteNoteDash('${esc(scope)}', '${esc(title)}')">&times;</button>
+              </div>`;
+          })
+          .join("");
+
+        return `
+          <div class="memory-scope">
+            <div class="memory-scope-header">
+              <code>${esc(scope)}</code>
+              <span class="muted">${titles.length} note(s)</span>
+            </div>
+            ${noteRows}
+          </div>`;
+      })
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+function showNoteForm(scope, title, content) {
+  document.getElementById("note-form").style.display = "";
+  document.getElementById("note-f-scope").value = scope || "global";
+  document.getElementById("note-f-title").value = title || "";
+  document.getElementById("note-f-content").value = content || "";
+  document.getElementById("note-f-scope").disabled = !!title;
+  document.getElementById("note-f-title").disabled = !!title;
+  document.getElementById("note-f-submit-btn").textContent = title ? "Update" : "Save";
+  if (!title) document.getElementById("note-f-scope").focus();
+  else document.getElementById("note-f-content").focus();
+}
+
+function hideNoteForm() {
+  document.getElementById("note-form").style.display = "none";
+  document.getElementById("note-f-scope").disabled = false;
+  document.getElementById("note-f-title").disabled = false;
+}
+
+async function editNote(scope, title) {
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(scope)}/${encodeURIComponent(title)}`);
+    if (!res.ok) {
+      showToast("Note not found", "error");
+      fetchNotes();
+      return;
+    }
+    const data = await res.json();
+    showNoteForm(scope, title, data.content);
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function submitNote() {
+  const scope = document.getElementById("note-f-scope").value.trim();
+  const title = document.getElementById("note-f-title").value.trim();
+  const content = document.getElementById("note-f-content").value.trim();
+
+  if (!scope || !title) {
+    showToast("Scope and title are required", "error");
+    return;
+  }
+  if (!content) {
+    showToast("Content is required", "error");
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(scope)}/${encodeURIComponent(title)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+
+    if (data.title) {
+      showToast(data.created ? "Note created" : "Note updated");
+      hideNoteForm();
+      fetchNotes();
+    } else {
+      showToast(data.error || "Save failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function deleteNoteDash(scope, title) {
+  if (!confirm(`Delete note "${title}" from "${scope}"?`)) return;
+
+  try {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(scope)}/${encodeURIComponent(title)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Note deleted");
+      fetchNotes();
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+// --- Todos ---
+
+async function fetchTodos() {
+  try {
+    const res = await apiFetch("/api/todos");
+    if (res.status === 503) {
+      document.getElementById("todos-body").innerHTML =
+        '<tr><td colspan="5" class="muted">CalDAV not configured</td></tr>';
+      return;
+    }
+    const data = await res.json();
+    const todos = data.todos || [];
+    const tbody = document.getElementById("todos-body");
+
+    if (todos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No todos</td></tr>';
+      return;
+    }
+
+    // Sort: pending first, then by due date, then by priority
+    const priOrder = { high: 0, medium: 1, low: 2 };
+    todos.sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return (priOrder[a.priority] ?? 1) - (priOrder[b.priority] ?? 1);
+    });
+
+    tbody.innerHTML = todos
+      .map((t) => {
+        const priClass = t.priority === "high" ? "error" : t.priority === "low" ? "muted" : "";
+        const dueStr = t.dueDate ? formatTodoDate(t.dueDate) : "--";
+        const overdue = t.dueDate && !t.completed && new Date(t.dueDate) < new Date() ? ' class="error"' : "";
+
+        return `
+      <tr${t.completed ? ' class="disabled-row"' : ""}>
+        <td><input type="checkbox" ${t.completed ? "checked disabled" : ""} onchange="completeTodo('${esc(t.uid)}')"></td>
+        <td>${t.completed ? "<s>" : ""}${esc(t.title)}${t.completed ? "</s>" : ""}${t.description ? `<br><span class="muted">${esc(t.description.slice(0, 80))}</span>` : ""}</td>
+        <td><span class="${priClass}">${esc(t.priority)}</span></td>
+        <td${overdue}>${dueStr}</td>
+        <td><button class="btn btn-danger btn-xs" onclick="deleteTodo('${esc(t.uid)}')">&times;</button></td>
+      </tr>`;
+      })
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+function formatTodoDate(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === tomorrow.toDateString()) return "Tomorrow";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function showTodoForm() {
+  document.getElementById("todo-form").style.display = "";
+  document.getElementById("todo-f-title").value = "";
+  document.getElementById("todo-f-desc").value = "";
+  document.getElementById("todo-f-priority").value = "medium";
+  document.getElementById("todo-f-due").value = "";
+  document.getElementById("todo-f-title").focus();
+}
+
+function hideTodoForm() {
+  document.getElementById("todo-form").style.display = "none";
+}
+
+async function submitTodo() {
+  const title = document.getElementById("todo-f-title").value.trim();
+  if (!title) {
+    showToast("Title is required", "error");
+    return;
+  }
+
+  const body = {
+    title,
+    description: document.getElementById("todo-f-desc").value.trim() || undefined,
+    priority: document.getElementById("todo-f-priority").value,
+    dueDate: document.getElementById("todo-f-due").value || undefined,
+  };
+
+  try {
+    const res = await apiFetch("/api/todos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (data.uid) {
+      showToast("Todo created");
+      hideTodoForm();
+      fetchTodos();
+    } else {
+      showToast(data.error || "Create failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function completeTodo(uid) {
+  try {
+    const res = await apiFetch(`/api/todos/${encodeURIComponent(uid)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: true }),
+    });
+    const data = await res.json();
+
+    if (data.uid) {
+      showToast("Todo completed");
+      fetchTodos();
+    } else {
+      showToast(data.error || "Complete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function deleteTodo(uid) {
+  if (!confirm("Delete this todo?")) return;
+
+  try {
+    const res = await apiFetch(`/api/todos/${encodeURIComponent(uid)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Todo deleted");
+      fetchTodos();
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+// --- Agents ---
+
+async function fetchAgents() {
+  try {
+    const res = await apiFetch("/api/agents");
+    const agents = await res.json();
+    const tbody = document.getElementById("agents-body");
+
+    if (agents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No agents loaded</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = agents
+      .map(
+        (a) => `
+      <tr>
+        <td><code>${esc(a.name)}</code></td>
+        <td>${esc(a.description)}</td>
+        <td>${a.tools.length > 0 ? esc(a.tools.join(", ")) : '<span class="muted">none</span>'}</td>
+        <td>${a.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        <td><button class="btn" onclick="toggleAgent('${esc(a.name)}')">${a.enabled ? "Disable" : "Enable"}</button></td>
+      </tr>`,
+      )
+      .join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function toggleAgent(name) {
+  try {
+    const res = await apiFetch(`/api/agents/${encodeURIComponent(name)}/toggle`, { method: "POST" });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(`Toggle failed: ${data.error}`, "error");
+    } else {
+      showToast(`Agent "${name}" is now ${data.enabled ? "enabled" : "disabled"}`);
+      fetchAgents();
+    }
+  } catch (err) {
+    showToast(`Toggle error: ${err.message}`, "error");
+  }
+}
+
 // --- Console / Log stream ---
 
 const MAX_CONSOLE_LINES = 200;
@@ -1528,6 +1907,27 @@ function hideCronHistory() {
   document.getElementById("cron-history").style.display = "none";
 }
 
+// --- Export ---
+
+async function exportData() {
+  try {
+    const res = await apiFetch("/api/export");
+    const blob = await res.blob();
+    const date = new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `aelora-export-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Export downloaded");
+  } catch (err) {
+    showToast(`Export failed: ${err.message}`, "error");
+  }
+}
+
 // --- Reboot ---
 
 async function rebootBot() {
@@ -1569,6 +1969,10 @@ fetchCron();
 fetchPersonas();
 fetchPersona();
 fetchTools();
+fetchAgents();
+fetchUsers();
+fetchNotes();
+fetchTodos();
 fetchHeartbeat();
 initConsole();
 
@@ -1577,4 +1981,8 @@ setInterval(fetchSessions, 10000);
 setInterval(fetchMemory, 10000);
 setInterval(fetchCron, 10000);
 setInterval(fetchTools, 10000);
+setInterval(fetchAgents, 10000);
+setInterval(fetchUsers, 10000);
+setInterval(fetchNotes, 10000);
+setInterval(fetchTodos, 30000);
 setInterval(fetchHeartbeat, 10000);

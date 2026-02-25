@@ -34,7 +34,24 @@ const llmSchema = z.object({
   systemPrompt: z.string().default("You are a helpful assistant."),
   maxTokens: z.number().int().positive().default(1024),
   maxHistory: z.number().int().positive().default(20),
+  maxToolIterations: z.number().int().positive().default(10),
   lite: z.boolean().default(false),
+});
+
+const memorySchema = z.object({
+  maxFactsPerScope: z.number().int().positive().default(100),
+  maxFactLength: z.number().int().positive().default(1000),
+  maxAgeDays: z.number().int().nonnegative().default(0),
+});
+
+const loggerSchema = z.object({
+  maxBuffer: z.number().int().positive().default(200),
+  fileEnabled: z.boolean().default(false),
+  retainDays: z.number().int().positive().default(7),
+});
+
+const cronSchema = z.object({
+  maxHistory: z.number().int().positive().default(10),
 });
 
 const webSchema = z.object({
@@ -77,6 +94,9 @@ const configSchema = z.object({
   agents: agentsSchema.default({}),
   tools: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   activity: activitySchema.default({}),
+  memory: memorySchema.default({}),
+  logger: loggerSchema.default({}),
+  cron: cronSchema.default({}),
 });
 
 export type Config = z.infer<typeof configSchema>;

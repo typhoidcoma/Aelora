@@ -124,5 +124,30 @@ export function clearAllSessions(): number {
   return count;
 }
 
+/**
+ * Remove sessions older than maxAgeDays (based on lastMessage).
+ * Returns the number of sessions archived.
+ */
+export function archiveOldSessions(maxAgeDays: number): number {
+  if (maxAgeDays <= 0) return 0;
+
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  let archived = 0;
+
+  for (const [channelId, session] of Object.entries(store)) {
+    if (new Date(session.lastMessage).getTime() < cutoff) {
+      delete store[channelId];
+      archived++;
+    }
+  }
+
+  if (archived > 0) {
+    save();
+    console.log(`Sessions: archived ${archived} session(s) older than ${maxAgeDays} days`);
+  }
+
+  return archived;
+}
+
 // Load from disk on module init
 load();

@@ -7,13 +7,16 @@ import { loadAgents } from "./agent-registry.js";
 import { enableAgentDispatch } from "./llm.js";
 import { setToolConfigStore } from "./tools/types.js";
 import { startDiscord, sendToChannel, discordClient } from "./discord.js";
-import { startCron, stopCron, getCronJobs } from "./cron.js";
+import { startCron, stopCron, getCronJobs, configureCron } from "./cron.js";
 import { startHeartbeat, stopHeartbeat, getHeartbeatState } from "./heartbeat.js";
 import { registerCalendarReminder } from "./heartbeat-calendar.js";
 import { registerMemoryCompaction } from "./heartbeat-memory.js";
+import { registerDataCleanup } from "./heartbeat-cleanup.js";
 import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
+import { configureMemory } from "./memory.js";
+import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
 
 // Install logger first so all console output is captured
@@ -27,6 +30,9 @@ async function main(): Promise<void> {
   const config = loadConfig();
   process.env.TZ = config.timezone;
   setToolConfigStore(config.tools);
+  configureLogger(config.logger);
+  configureMemory(config.memory);
+  configureCron(config.cron);
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 
   // 2. Load persona (compose system prompt from persona/ directory)
@@ -85,6 +91,7 @@ async function main(): Promise<void> {
   if (config.heartbeat.enabled) {
     registerCalendarReminder();
     registerMemoryCompaction();
+    registerDataCleanup();
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,

@@ -562,7 +562,7 @@ export function startWeb(state: AppState): Server | null {
 
       // Side effects (async, best-effort)
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message).catch(() => {});
+      classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
 
       res.json({ reply, sessionId });
     } catch (err) {
@@ -609,7 +609,7 @@ export function startWeb(state: AppState): Server | null {
       }
 
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message).catch(() => {});
+      classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
     } catch (err) {
       if (!closed) {
         res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
@@ -1022,7 +1022,11 @@ export function startWeb(state: AppState): Server | null {
       res.status(404).json({ error: `User "${userId}" not found` });
       return;
     }
-    res.json({ success: true });
+
+    // Cascade: also clear user memory facts
+    const memoryCleared = clearScope(`user:${userId}`);
+
+    res.json({ success: true, memoryCleared });
   });
 
   // Heartbeat status
@@ -1139,6 +1143,29 @@ export function startWeb(state: AppState): Server | null {
 
     console.log(`Web: Activity enabled (serving ${activityDir})`);
   }
+
+  // --- Data export ---
+
+  app.get("/api/export", async (req, res) => {
+    const requested = typeof req.query.sections === "string"
+      ? req.query.sections.split(",").map((s) => s.trim())
+      : null;
+
+    const include = (name: string) => !requested || requested.includes(name);
+
+    const bundle: Record<string, unknown> = {};
+    if (include("memory")) bundle.memory = getAllMemory();
+    if (include("sessions")) bundle.sessions = getAllSessions();
+    if (include("notes")) bundle.notes = listAllNotes();
+    if (include("users")) bundle.users = getAllUsers();
+    if (include("cron")) bundle.cron = getCronJobsForAPI();
+    if (include("mood")) bundle.mood = loadMood();
+    if (include("personas")) bundle.personas = getPersonaDescriptions(config.persona.dir);
+
+    const date = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename=aelora-export-${date}.json`);
+    res.json(bundle);
+  });
 
   const server = createServer(app);
   server.listen(config.web.port, "0.0.0.0", () => {

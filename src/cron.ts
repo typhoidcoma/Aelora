@@ -44,8 +44,13 @@ export type CronJobInfo = {
 
 const CRON_JOBS_FILE = "data/cron-jobs.json";
 const CRON_JOBS_TMP = "data/cron-jobs.tmp.json";
-const MAX_HISTORY = 10;
+let maxHistory = 10;
 const OUTPUT_PREVIEW_LENGTH = 300;
+
+/** Apply config overrides. Call after config is loaded. */
+export function configureCron(opts: { maxHistory?: number }): void {
+  if (opts.maxHistory) maxHistory = opts.maxHistory;
+}
 
 // --- State ---
 // The ONLY module-level mutable state. Not exported.
@@ -195,8 +200,8 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
 
   if (freshJob) {
     freshJob.history.push(record);
-    if (freshJob.history.length > MAX_HISTORY) {
-      freshJob.history = freshJob.history.slice(-MAX_HISTORY);
+    if (freshJob.history.length > maxHistory) {
+      freshJob.history = freshJob.history.slice(-maxHistory);
     }
     saveJobs(freshJobs);
   }

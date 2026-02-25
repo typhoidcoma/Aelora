@@ -192,7 +192,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     // Keep typing indicator alive throughout response generation
     await channel.sendTyping();
     typingTimer = setInterval(() => {
-      channel.sendTyping().catch(() => {});
+      channel.sendTyping().catch((err) => console.warn("Discord: sendTyping failed:", err.message ?? err));
     }, TYPING_INTERVAL);
 
     const userContent = await processAttachments(message, content, config.llm.model);

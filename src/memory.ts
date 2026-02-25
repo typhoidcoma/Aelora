@@ -1,8 +1,16 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 const MEMORY_FILE = "data/memory.json";
-const MAX_FACTS_PER_SCOPE = 100;
-const MAX_FACT_LENGTH = 1000;
+
+// Defaults — overridden by configureMemory() after config loads
+let maxFactsPerScope = 100;
+let maxFactLength = 1000;
+
+/** Apply config overrides. Call after config is loaded. */
+export function configureMemory(opts: { maxFactsPerScope?: number; maxFactLength?: number }): void {
+  if (opts.maxFactsPerScope) maxFactsPerScope = opts.maxFactsPerScope;
+  if (opts.maxFactLength) maxFactLength = opts.maxFactLength;
+}
 
 // Prompt injection caps — keep system prompt bounded
 const MAX_GLOBAL_INJECTED = 10;
@@ -37,7 +45,7 @@ function save(): void {
 }
 
 export function saveFact(scope: string, fact: string): { success: boolean; error?: string } {
-  const trimmed = fact.trim().slice(0, MAX_FACT_LENGTH);
+  const trimmed = fact.trim().slice(0, maxFactLength);
   if (!trimmed) return { success: false, error: "Fact cannot be empty" };
 
   if (!store[scope]) store[scope] = [];
@@ -50,8 +58,8 @@ export function saveFact(scope: string, fact: string): { success: boolean; error
   store[scope].push({ fact: trimmed, savedAt: new Date().toISOString() });
 
   // Cap at max
-  if (store[scope].length > MAX_FACTS_PER_SCOPE) {
-    store[scope] = store[scope].slice(-MAX_FACTS_PER_SCOPE);
+  if (store[scope].length > maxFactsPerScope) {
+    store[scope] = store[scope].slice(-maxFactsPerScope);
   }
 
   save();
@@ -157,6 +165,32 @@ export function getMemoryForPrompt(userId: string | null, channelId: string | nu
 
   if (sections.length === 0) return "";
   return "\n\n## Memory\n" + sections.join("\n");
+}
+
+/**
+ * Remove facts older than maxAgeDays across all scopes.
+ * Returns the number of facts pruned.
+ */
+export function pruneFacts(maxAgeDays: number): number {
+  if (maxAgeDays <= 0) return 0;
+
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  let pruned = 0;
+
+  for (const [scope, facts] of Object.entries(store)) {
+    const before = facts.length;
+    store[scope] = facts.filter((f) => new Date(f.savedAt).getTime() >= cutoff);
+    pruned += before - store[scope].length;
+
+    if (store[scope].length === 0) delete store[scope];
+  }
+
+  if (pruned > 0) {
+    save();
+    console.log(`Memory: pruned ${pruned} fact(s) older than ${maxAgeDays} days`);
+  }
+
+  return pruned;
 }
 
 // Load from disk on module init

@@ -125,7 +125,7 @@ export default defineTool({
   params: {
     action: param.enum(
       "The action to perform.",
-      ["search", "read", "send", "reply", "forward", "labels", "draft"] as const,
+      ["search", "read", "send", "reply", "forward", "labels", "modify", "draft"] as const,
       { required: true },
     ),
     query: param.string("Gmail search query (e.g. 'from:boss is:unread', 'subject:invoice newer_than:7d'). Required for search."),
@@ -135,11 +135,13 @@ export default defineTool({
     subject: param.string("Email subject line. Required for send, draft."),
     body: param.string("Email body text. Required for send, reply, forward, draft."),
     maxResults: param.number("Max emails for search (1-20, default 5).", { minimum: 1, maximum: 20 }),
+    addLabels: param.string("Comma-separated label IDs to add (for modify). e.g. 'STARRED,IMPORTANT' or 'TRASH'."),
+    removeLabels: param.string("Comma-separated label IDs to remove (for modify). e.g. 'INBOX' to archive, 'UNREAD' to mark read."),
   },
 
   config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
 
-  handler: async ({ action, query, messageId, to, cc, subject, body, maxResults }, { toolConfig }) => {
+  handler: async ({ action, query, messageId, to, cc, subject, body, maxResults, addLabels, removeLabels }, { toolConfig }) => {
     const config = extractGoogleConfig(toolConfig);
 
     try {
@@ -373,6 +375,34 @@ export default defineTool({
           return result;
         }
 
+        // ── Modify ─────────────────────────────────────────
+        case "modify": {
+          if (!messageId) return "Error: messageId is required for modify.";
+          if (!addLabels && !removeLabels) return "Error: at least one of addLabels or removeLabels is required for modify.";
+
+          const payload: { addLabelIds?: string[]; removeLabelIds?: string[] } = {};
+          if (addLabels) payload.addLabelIds = addLabels.split(",").map((l) => l.trim());
+          if (removeLabels) payload.removeLabelIds = removeLabels.split(",").map((l) => l.trim());
+
+          const res = await googleFetch(`${GMAIL_BASE}/messages/${messageId}/modify`, config, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          if (!res.ok) {
+            if (res.status === 404) return `Error: email not found (ID: ${messageId}).`;
+            const errBody = await res.text();
+            return `Error: failed to modify email (${res.status}): ${errBody.slice(0, 300)}`;
+          }
+
+          const modified = (await res.json()) as { id: string; labelIds: string[] };
+          const parts: string[] = [];
+          if (addLabels) parts.push(`added: ${addLabels}`);
+          if (removeLabels) parts.push(`removed: ${removeLabels}`);
+          return `Email modified (${parts.join(", ")}).\nCurrent labels: ${modified.labelIds.join(", ")}\nMessage ID: ${modified.id}`;
+        }
+
         // ── Draft ────────────────────────────────────────────
         case "draft": {
           if (!to) return "Error: to is required for draft.";
@@ -392,7 +422,7 @@ export default defineTool({
         }
 
         default:
-          return `Error: unknown action "${action}". Use: search, read, send, reply, forward, labels, draft.`;
+          return `Error: unknown action "${action}". Use: search, read, send, reply, forward, labels, modify, draft.`;
       }
     } catch (err) {
       resetGoogleToken();

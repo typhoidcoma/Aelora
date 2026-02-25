@@ -65,6 +65,8 @@ tags:
     description: Agent registry management
   - name: System
     description: Heartbeat, logs, reboot
+  - name: Export
+    description: Data export (full or selective JSON bundle)
   - name: Activity
     description: Discord Activity (Unity WebGL) support
   - name: WebSocket
@@ -1703,7 +1705,7 @@ paths:
     delete:
       tags: [Users]
       summary: Delete user profile
-      description: Removes a user profile. Does not delete their memory facts or session data.
+      description: Removes a user profile and cascade-deletes their memory facts (user:{userId} scope).
       parameters:
         - name: userId
           in: path
@@ -1942,6 +1944,56 @@ paths:
                     type: boolean
                   message:
                     type: string
+
+  # ── Export ─────────────────────────────────────────────
+  /api/export:
+    get:
+      tags: [Export]
+      summary: Export bot data
+      description: |
+        Returns a JSON bundle of all bot data. Use the `sections` query parameter to
+        selectively export specific sections. Response includes a Content-Disposition
+        header for browser download.
+      parameters:
+        - name: sections
+          in: query
+          schema:
+            type: string
+          description: "Comma-separated list of sections to include (e.g. `memory,sessions,notes`). Omit for all."
+      responses:
+        "200":
+          description: Data export bundle
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: "attachment; filename=aelora-export-YYYY-MM-DD.json"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memory:
+                    type: object
+                    description: All memory facts by scope
+                  sessions:
+                    type: array
+                    description: All channel sessions
+                  notes:
+                    type: object
+                    description: All notes by scope
+                  users:
+                    type: object
+                    description: All user profiles
+                  cron:
+                    type: array
+                    description: All cron jobs
+                  mood:
+                    type: object
+                    description: Current mood state
+                  personas:
+                    type: array
+                    description: All persona descriptions
 
   # ── Activity ────────────────────────────────────────────
   /api/activity/config:

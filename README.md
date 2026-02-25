@@ -19,13 +19,16 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, file-based persistence, runtime CRUD
 - **Sessions** — Conversation session tracking with metadata, persisted to disk
 - **Daily Log** — Automatic daily activity logging
-- **Heartbeat** — Periodic handler system for proactive actions (calendar reminders, memory compaction)
+- **User Profiles** — Automatic per-user tracking across all channels with cascading delete
+- **Heartbeat** — Periodic handler system for proactive actions (calendar reminders, memory compaction, data cleanup)
 - **Discord Activity** — Host a Unity WebGL build (or any web app) as an embedded Discord Activity with OAuth2, SDK integration, and a `/play` command
 - **Mood System** — Automatic emotion tracking using Plutchik's wheel (8 emotions × 3 intensities), auto-classified after each response, live dashboard indicator, manual override tool
+- **Data Export** — Download a JSON bundle of all bot data (memory, sessions, notes, users, cron, mood, personas) via API or dashboard
+- **File Logging** — Optional daily log files with automatic rotation
 - **Config Validation** — Zod-powered runtime schema validation with clear startup error messages
 - **Lite Mode** — Slim tool schemas and trimmed system prompt for running local/small models (4B–7B via LM Studio, Ollama, etc.)
 - **WebSocket Chat** — Real-time bidirectional chat over WebSocket (`/ws`) — ideal for Unity or other game clients
-- **Web Dashboard** — Real-time status, tool/agent management, live console, LLM testing, mood indicator, Activity preview
+- **Web Dashboard** — Real-time status, persona/tool/agent management, notes, todos, users, live console, LLM testing, mood indicator, data export, Activity preview
 - **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** — Global IANA timezone setting for cron, logs, and date formatting
 
@@ -96,6 +99,9 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `tools` | Per-tool config (API keys, CalDAV credentials, etc.) |
 | `agents` | Agent system toggle, max iterations |
 | `heartbeat` | Periodic handler system interval |
+| `memory` | Max facts per scope, max fact length, TTL for auto-pruning |
+| `logger` | SSE buffer size, file logging toggle, log file retention |
+| `cron` | Max execution history records per job |
 | `web` | Dashboard toggle and port |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 
@@ -257,6 +263,11 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 - **Memory** — Stored facts by scope, delete individual facts or clear scopes
 - **Scheduled Tasks** — Create, edit, delete, trigger, toggle cron jobs; human-readable schedules, last/next run, execution history
 - **Tools** — Enable/disable tools at runtime
+- **Agents** — Enable/disable agents at runtime, view tool allowlists
+- **Notes** — Create, edit, delete scoped notes (global or channel-specific)
+- **Todos** — CalDAV-backed task list with priority, due dates, and completion
+- **Users** — User profile table with cascading delete (profile + memory facts)
+- **Export** — One-click JSON export of all bot data (memory, sessions, notes, users, cron, mood, personas)
 - **Activity Preview** — Test Unity WebGL build locally without Discord (stub user data)
 - **Mood** — Live emotion indicator on the active persona card, auto-updated via SSE
 - **Console** — Live log stream via SSE
@@ -279,17 +290,19 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── heartbeat.ts          — Periodic handler system
 │   ├── heartbeat-calendar.ts — Calendar reminder handler
 │   ├── heartbeat-memory.ts   — Memory compaction handler
+│   ├── heartbeat-cleanup.ts  — Data cleanup handler (prune old facts/sessions)
 │   ├── mood.ts               — Emotion state (Plutchik's wheel) + auto-classification
 │   ├── state.ts              — Persisted bot state (active persona)
 │   ├── web.ts                — Express dashboard + REST API
 │   ├── ws.ts                 — WebSocket server (real-time chat for Unity/etc.)
 │   ├── lifecycle.ts          — Graceful reboot
-│   ├── logger.ts             — Console capture + SSE/WS broadcast + named events
+│   ├── users.ts              — User profile tracking + persistence
+│   ├── logger.ts             — Console capture + SSE/WS broadcast + file logging + named events
 │   ├── utils.ts              — Shared utilities
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
 │   │   ├── client.ts         — Discord.js client, message routing, streaming
-│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /reboot, /play)
+│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /memory, /mood, /note, /help, /reboot, /play)
 │   │   ├── attachments.ts    — Image vision + text file processing
 │   │   └── embeds.ts         — Embed builders
 │   ├── tools/
@@ -302,6 +315,11 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   │   ├── cron.ts           — Runtime cron job management
 │   │   ├── memory.ts         — Memory save/list/forget tool
 │   │   ├── mood.ts           — Emotional state override (set_mood)
+│   │   ├── gmail.ts          — Gmail (search, read, send, reply, forward, labels, drafts)
+│   │   ├── google-calendar.ts — Google Calendar (list, create, update, delete events)
+│   │   ├── google-docs.ts    — Google Docs (search, read, create, edit)
+│   │   ├── google-tasks.ts   — Google Tasks (list, add, complete, update, delete)
+│   │   ├── _google-auth.ts   — Google OAuth2 token management (shared, skipped on load)
 │   │   ├── _example-gmail.ts — Example tool template (skipped on load)
 │   │   └── _example-multi-action.ts — Multi-action tool template
 │   └── agents/

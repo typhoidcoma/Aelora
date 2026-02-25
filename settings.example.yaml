@@ -57,6 +57,9 @@ llm:
   # How many previous messages to keep in conversation history per channel.
   maxHistory: 20
 
+  # Max tool-calling rounds per LLM request (prevents infinite loops).
+  # maxToolIterations: 10
+
   # Enable lite mode for small local models (e.g. 4B, 7B).
   # Shortens tool descriptions and trims the system prompt to reduce
   # input tokens. Tools still work, just with less verbose schemas.
@@ -89,6 +92,13 @@ tools: {}
   #   authMethod: "Basic"       # Basic, Oauth, or Bearer
   #   calendarName: "Aelora"    # Must match the calendar name on the server
 
+  # Google Workspace — required for gmail, google_calendar, google_docs, google_tasks tools.
+  # Uses OAuth2 refresh token flow. See ARCHITECTURE.md for setup details.
+  # google:
+  #   clientId: "YOUR_GOOGLE_CLIENT_ID"
+  #   clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
+  #   refreshToken: "YOUR_REFRESH_TOKEN"
+
 # --- Agents ---
 # Sub-agents that perform multi-step tasks with LLM reasoning + tools.
 # Auto-discovered from src/agents/.
@@ -115,6 +125,28 @@ web:
   # When set, /api/* routes (except /api/status) require
   # an Authorization: Bearer <key> header.
   # apiKey: "your-secret-api-key"
+
+# --- Memory ---
+# Controls per-user/channel fact storage behavior.
+
+memory:
+  maxFactsPerScope: 100       # Max facts per scope (user, channel, global)
+  maxFactLength: 1000         # Max characters per individual fact
+  maxAgeDays: 0               # Auto-prune facts older than N days (0 = keep forever)
+
+# --- Logger ---
+# Controls console capture and optional file logging.
+
+logger:
+  maxBuffer: 200              # SSE circular buffer size (log entries kept in memory)
+  fileEnabled: false           # Write logs to data/logs/YYYY-MM-DD.log
+  retainDays: 7               # How many days of log files to keep (auto-rotation)
+
+# --- Cron ---
+# Controls scheduled job behavior.
+
+cron:
+  maxHistory: 10              # Max execution history records per cron job
 
 # --- Discord Activity ---
 # Embed a web app (e.g. Unity WebGL) as a Discord Activity.

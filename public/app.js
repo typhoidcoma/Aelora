@@ -962,7 +962,7 @@ async function fetchUsers() {
 }
 
 async function deleteUserDash(userId) {
-  if (!confirm(`Delete user profile for "${userId}"? This only removes the profile, not their memory facts.`)) return;
+  if (!confirm(`Delete user profile for "${userId}"? This will also clear their stored memory facts.`)) return;
 
   try {
     const res = await apiFetch(`/api/users/${encodeURIComponent(userId)}`, { method: "DELETE" });

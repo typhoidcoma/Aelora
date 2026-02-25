@@ -79,7 +79,7 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
-| 9 | Register heartbeat handlers (calendar, memory), start ticker | `heartbeat.ts` |
+| 9 | Register heartbeat handlers (calendar, memory, data cleanup), start ticker | `heartbeat.ts` |
 | 10 | Start web dashboard + WebSocket, set system state provider | `web.ts`, `ws.ts`, `llm.ts` |
 
 Graceful shutdown on SIGINT/SIGTERM: stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged but keep the process alive.
@@ -178,7 +178,7 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### Tool Calling Loop
 
-`runCompletionLoop()` — up to `MAX_TOOL_ITERATIONS` (10) rounds:
+`runCompletionLoop()` — up to `config.llm.maxToolIterations` (default 10) rounds:
 
 1. Call `client.chat.completions.create()` with messages + tool definitions
 2. If response has `tool_calls`: parse args, dispatch each to tool or agent, push results, loop
@@ -489,7 +489,7 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 60 seconds).
 
@@ -523,6 +523,11 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 **Memory Compaction** (`heartbeat-memory.ts`):
 - Periodically compacts memory facts for efficiency
 - Runs on the heartbeat tick cycle
+
+**Data Cleanup** (`heartbeat-cleanup.ts`):
+- Runs hourly (skips most ticks via timestamp check)
+- Prunes memory facts older than `memory.maxAgeDays` (0 = disabled)
+- Archives sessions older than the configured TTL (defaults to 30 days if memory TTL is off)
 
 ### Adding a Handler
 
@@ -791,7 +796,7 @@ Persisted to `data/users.json`. Updated on every Discord message via `updateUser
 
 - `GET /api/users` — all profiles
 - `GET /api/users/:userId` — single profile + memory facts (from `user:{userId}` scope)
-- `DELETE /api/users/:userId` — remove profile (does not affect memory facts or sessions)
+- `DELETE /api/users/:userId` — remove profile and cascade-delete user memory facts (`user:{userId}` scope)
 
 ### Difference from Sessions
 
@@ -865,7 +870,7 @@ Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job main
 
 ### commands.ts
 
-Seven slash commands, registered on startup:
+Eleven slash commands, registered on startup:
 
 | Command | Description |
 |---------|-------------|
@@ -874,6 +879,10 @@ Seven slash commands, registered on startup:
 | `/ping` | Latency check |
 | `/clear` | Clear conversation history for this channel |
 | `/websearch [query]` | Search the web via Brave Search |
+| `/memory [view/add/clear]` | View, add, or clear per-user memory facts |
+| `/mood` | Show the bot's current emotional state |
+| `/note [list/get/save/delete]` | Manage scoped notes |
+| `/help` | List all available commands |
 | `/reboot` | Graceful restart |
 | `/play` | Launch the Discord Activity (embed with Link button) |
 
@@ -909,7 +918,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2) — 57 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2), Export (1) — 58 endpoints total.
 
 ### Routing
 
@@ -923,7 +932,9 @@ When `activity.enabled` is false:
 
 ### Frontend
 
-Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events — no page refresh needed. Includes an **Activity Preview** panel that loads the Unity WebGL test page in an iframe (uses stub Discord data).
+Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events — no page refresh needed.
+
+Dashboard sections: Status, Persona (card grid + file editor), LLM Test, Sessions, Memory, Scheduled Tasks (cron), Tools, Agents, Notes (CRUD with scoped organization), Todos (CalDAV-backed task list), Users (profile table with cascading delete), Activity Preview (Unity WebGL test iframe), and Console (live log stream). An **Export Data** button in the header downloads a JSON bundle of all bot data.
 
 ---
 
@@ -952,10 +963,11 @@ type Config = {
     baseURL: string;
     apiKey: string;
     model: string;
-    systemPrompt: string;     // Overwritten by persona system at startup
-    maxTokens: number;        // Default: 1024
-    maxHistory: number;       // Default: 20
-    lite: boolean;            // Default: false — slim tool schemas for local models
+    systemPrompt: string;       // Overwritten by persona system at startup
+    maxTokens: number;          // Default: 1024
+    maxHistory: number;         // Default: 20
+    maxToolIterations: number;  // Default: 10 — max tool-calling rounds per request
+    lite: boolean;              // Default: false — slim tool schemas for local models
   };
   web: { enabled: boolean; port: number; apiKey?: string };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
@@ -967,6 +979,19 @@ type Config = {
     clientId: string;           // Discord Application ID
     clientSecret: string;       // OAuth2 Client Secret
     serverUrl: string;          // Optional direct server URL
+  };
+  memory: {
+    maxFactsPerScope: number;   // Default: 100
+    maxFactLength: number;      // Default: 1000
+    maxAgeDays: number;         // Default: 0 (0 = no TTL, keep forever)
+  };
+  logger: {
+    maxBuffer: number;          // Default: 200 — SSE circular buffer size
+    fileEnabled: boolean;       // Default: false — write logs to data/logs/
+    retainDays: number;         // Default: 7 — how many days of log files to keep
+  };
+  cron: {
+    maxHistory: number;         // Default: 10 — execution records per job
   };
 };
 ```
@@ -983,12 +1008,15 @@ type Config = {
 
 `reboot()` stops heartbeat, stops cron, then calls `process.exit(100)`. The boot wrapper catches code 100 and restarts.
 
-### logger.ts — Console Capture
+### logger.ts — Console Capture + File Logging
 
 `installLogger()` patches `console.log`, `console.warn`, `console.error` at startup. Every call:
 1. Passes through to the original console method (terminal output)
-2. Pushes a `LogEntry` into a 200-entry circular buffer
+2. Pushes a `LogEntry` into a configurable circular buffer (default 200 entries)
 3. Broadcasts the entry as an SSE event to all connected dashboard clients
+4. Appends to `data/logs/YYYY-MM-DD.log` when `logger.fileEnabled` is true
+
+**File logging:** When enabled, each log line is written as `[ISO timestamp] [LEVEL] message`. One file per day, append-only. On startup, log files older than `logger.retainDays` (default 7) are automatically deleted.
 
 `broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates — the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames.
 
@@ -1013,7 +1041,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Conversation history | In-memory Map (per channel) | No |
 | Notes | `data/notes.json` (disk) | Yes |
 | Calendar events | External CalDAV server | Yes |
-| Tool/agent enabled state | In-memory registry | No (resets to code defaults) |
+| Tool/agent enabled state | `data/toggle-state.json` (disk) | Yes |
 | Cron jobs + execution history | `data/cron-jobs.json` (disk, atomic writes) | Yes |
 | Memory facts | `data/memory.json` (disk) | Yes |
 | Sessions | `data/sessions.json` (disk) | Yes |
@@ -1025,6 +1053,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Todos | CalDAV server (VTODO) | Yes |
 | Heartbeat notified events | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
+| Log files | `data/logs/YYYY-MM-DD.log` (disk, when `logger.fileEnabled`) | Yes |
 | Persona files | Disk (`persona/` directory) | Yes |
 
 ---

@@ -18,6 +18,15 @@ type UserContent = string | ContentPart[];
 /** Called for each text token during streaming. */
 export type OnTokenCallback = (token: string) => void;
 
+// --- Error detection for models whose templates don't support tool calling ---
+
+function isToolTemplateError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message
+    : typeof err === "object" && err !== null ? JSON.stringify(err)
+    : String(err);
+  return /jinja template|no user query found/i.test(msg);
+}
+
 // --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
 
 /** Strip reasoning/thinking content from LLM output (handles multiple model formats). */
@@ -628,7 +637,12 @@ async function runCompletionLoop(
   onToken?: OnTokenCallback,
   userId?: string,
 ): Promise<string> {
-  const baseParams = {
+  const baseParams: {
+    model: string;
+    messages: ChatMessage[];
+    max_completion_tokens: number | undefined;
+    tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
+  } = {
     model: model ?? config.llm.model,
     messages,
     max_completion_tokens: config.llm.maxTokens || undefined,
@@ -644,7 +658,18 @@ async function runCompletionLoop(
     if (onToken) {
       // --- Streaming path ---
       const apiStart = Date.now();
-      const stream = await client.chat.completions.create({ ...baseParams, stream: true });
+      let stream;
+      try {
+        stream = await client.chat.completions.create({ ...baseParams, stream: true });
+      } catch (err) {
+        if (baseParams.tools && isToolTemplateError(err)) {
+          console.warn("LLM: model template incompatible with tool calling, retrying without tools");
+          delete baseParams.tools;
+          stream = await client.chat.completions.create({ ...baseParams, stream: true });
+        } else {
+          throw err;
+        }
+      }
 
       let contentAccum = "";
       const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
@@ -696,7 +721,18 @@ async function runCompletionLoop(
     } else {
       // --- Non-streaming path ---
       const apiStart = Date.now();
-      const completion = await client.chat.completions.create(baseParams);
+      let completion;
+      try {
+        completion = await client.chat.completions.create(baseParams);
+      } catch (err) {
+        if (baseParams.tools && isToolTemplateError(err)) {
+          console.warn("LLM: model template incompatible with tool calling, retrying without tools");
+          delete baseParams.tools;
+          completion = await client.chat.completions.create(baseParams);
+        } else {
+          throw err;
+        }
+      }
       const apiMs = Date.now() - apiStart;
       const choice = completion.choices[0];
       if (!choice) return "(no response)";

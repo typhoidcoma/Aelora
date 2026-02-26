@@ -121,9 +121,10 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const client = getLLMClient();
   const model = getLLMModel();
 
-  const result = await client.chat.completions.create({
+  const result = await (client.chat.completions.create as Function)({
     model,
     max_completion_tokens: 150,
+    enable_thinking: false,
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
       { role: "user", content: `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },

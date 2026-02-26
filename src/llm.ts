@@ -20,18 +20,25 @@ export type OnTokenCallback = (token: string) => void;
 
 // --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
 
-/** Strip `<think>…</think>` blocks from LLM output. Also strips unclosed trailing `<think>` blocks. */
+/** Strip reasoning/thinking content from LLM output (handles multiple model formats). */
 function stripThinkBlocks(text: string): string {
   return text
+    // <think>…</think> tags (Qwen, DeepSeek)
     .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
     .replace(/<think>[\s\S]*$/g, "")
+    // <reasoning>…</reasoning> tags (some models)
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>\s*/g, "")
+    .replace(/<reasoning>[\s\S]*$/g, "")
+    // Grok-style plain-text "Thinking Process:" blocks at the start
+    .replace(/^Thinking Process:[\s\S]*?\n\n/i, "")
     .trim();
 }
 
-/** Streaming filter that suppresses `<think>…</think>` content from reaching the token callback. */
+/** Streaming filter that suppresses thinking/reasoning blocks from reaching the token callback. */
 class ThinkBlockFilter {
   private buffer = "";
   private inThink = false;
+  private closeTag = "</think>";
   private onToken: OnTokenCallback;
   constructor(onToken: OnTokenCallback) { this.onToken = onToken; }
 
@@ -48,14 +55,23 @@ class ThinkBlockFilter {
   private drain(): void {
     while (this.buffer) {
       if (this.inThink) {
-        const end = this.buffer.indexOf("</think>");
+        const end = this.buffer.indexOf(this.closeTag);
         if (end === -1) return; // still waiting for close tag
         this.inThink = false;
-        let after = end + 8;
+        let after = end + this.closeTag.length;
         while (after < this.buffer.length && "\n\r ".includes(this.buffer[after])) after++;
         this.buffer = this.buffer.slice(after);
       } else {
-        const start = this.buffer.indexOf("<think>");
+        // Check for <think> or <reasoning> open tags
+        const thinkStart = this.buffer.indexOf("<think>");
+        const reasonStart = this.buffer.indexOf("<reasoning>");
+        let start = -1;
+        if (thinkStart !== -1 && (reasonStart === -1 || thinkStart < reasonStart)) {
+          start = thinkStart; this.closeTag = "</think>";
+        } else if (reasonStart !== -1) {
+          start = reasonStart; this.closeTag = "</reasoning>";
+        }
+
         if (start === -1) {
           const partial = this.partialTagLen();
           if (partial > 0) {
@@ -69,15 +85,17 @@ class ThinkBlockFilter {
         }
         if (start > 0) this.onToken(this.buffer.slice(0, start));
         this.inThink = true;
-        this.buffer = this.buffer.slice(start + 7);
+        const openLen = this.closeTag === "</think>" ? 7 : 11; // "<think>".length or "<reasoning>".length
+        this.buffer = this.buffer.slice(start + openLen);
       }
     }
   }
 
   private partialTagLen(): number {
-    const tag = "<think>";
-    for (let len = tag.length - 1; len > 0; len--) {
-      if (this.buffer.endsWith(tag.slice(0, len))) return len;
+    for (const tag of ["<think>", "<reasoning>"]) {
+      for (let len = tag.length - 1; len > 0; len--) {
+        if (this.buffer.endsWith(tag.slice(0, len))) return len;
+      }
     }
     return 0;
   }
@@ -733,9 +751,10 @@ async function runCompletionLoop(
       continue;
     }
 
-    // No tool calls — final text response
+    // No tool calls — final text response (safety-net strip for any leaked reasoning)
     console.log(`LLM: completed in ${i + 1} iteration(s)`);
-    return content?.trim() || "(no response)";
+    const final = content ? stripThinkBlocks(content) : null;
+    return final?.trim() || "(no response)";
   }
 
   console.warn(`LLM: hit max tool iterations (${maxIterations})`);

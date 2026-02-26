@@ -28,6 +28,15 @@ export type MoodState = {
 const MOOD_FILE = "data/current-mood.json";
 const CLASSIFY_COOLDOWN_MS = 30 * 1000; // 30 seconds minimum between API calls
 
+const MOOD_EMOJI: Record<PrimaryEmotion, string> = {
+  joy: "✨", trust: "🤝", fear: "😰", surprise: "😲",
+  sadness: "😢", disgust: "😒", anger: "🔥", anticipation: "👀",
+};
+
+// Callback for Discord status updates (avoids circular import with discord/client)
+let moodChangeCallback: ((emoji: string, label: string) => void) | null = null;
+export function onMoodChange(cb: (emoji: string, label: string) => void): void { moodChangeCallback = cb; }
+
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
@@ -58,6 +67,11 @@ export function saveMood(mood: MoodState): void {
     note: mood.note ?? null,
     updatedAt: mood.updatedAt,
   });
+
+  // Update Discord bot status with emoji + mood label
+  if (moodChangeCallback) {
+    moodChangeCallback(MOOD_EMOJI[mood.emotion], resolveLabel(mood));
+  }
 }
 
 export function loadMood(): MoodState | null {

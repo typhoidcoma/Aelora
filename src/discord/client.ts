@@ -13,7 +13,7 @@ import { setEmbedColor } from "./embeds.js";
 import { getSlashCommandDefinitions, handleSlashCommand } from "./commands.js";
 import { recordMessage } from "../sessions.js";
 import { appendLog } from "../daily-log.js";
-import { classifyMood } from "../mood.js";
+import { classifyMood, onMoodChange } from "../mood.js";
 import { updateUser } from "../users.js";
 
 export let discordClient: Client | null = null;
@@ -63,6 +63,14 @@ export async function startDiscord(config: Config): Promise<Client> {
       readyClient.user.setPresence({
         status: "online",
         activities: [{ name: config.discord.status, type: 3 }],
+      });
+
+      // Update Discord status when mood changes
+      onMoodChange((emoji, label) => {
+        readyClient.user.setPresence({
+          status: "online",
+          activities: [{ name: `${emoji} ${label}`, type: 4 }],
+        });
       });
 
       // Register slash commands

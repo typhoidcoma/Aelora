@@ -104,10 +104,10 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
-| 9 | Register heartbeat handlers (calendar, memory, data cleanup), start ticker | `heartbeat.ts` |
+| 9 | Register heartbeat handlers (calendar, memory, cleanup, reply-check, last-alive, conversation-save), start ticker | `heartbeat.ts` |
 | 10 | Start web dashboard + WebSocket, set system state provider | `web.ts`, `ws.ts`, `llm.ts` |
 
-Graceful shutdown on SIGINT/SIGTERM: stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged but keep the process alive.
+Graceful shutdown on SIGINT/SIGTERM: saves conversations, saves state, stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged, conversations and state are saved, then the process exits with code 1.
 
 Persona loading is wrapped in try-catch — if the active persona fails to load, the bot continues with the fallback `llm.systemPrompt` from config.
 
@@ -173,7 +173,8 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 - Stored in a `Map<string, ChatMessage[]>` keyed by Discord channel ID
 - Each channel has independent history
 - Trimmed to `maxHistory` (default 20) messages after each exchange
-- **In-memory only** — lost on restart, isolated per channel
+- Periodically persisted to `data/memory/conversations.json` by the conversation-save heartbeat handler (every 5 minutes)
+- Also saved on graceful shutdown (SIGINT/SIGTERM) and before crash exits
 
 ### System Prompt Composition
 
@@ -209,6 +210,21 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 2. If response has `tool_calls`: parse args, dispatch each to tool or agent, push results, loop
 3. If response is text: return as final answer
 4. Safety cap: returns error message if loop exceeds max iterations
+
+**Tool message format:** Tool results are stored as plain assistant/user messages rather than OpenAI's `tool` role format. After tools execute, the results are pushed as:
+- An `assistant` message: `[Used tools: name1, name2]` (or the model's content if any)
+- A `user` message: `[toolName]: result` for each tool
+
+This avoids template errors with models like Qwen3 in LM Studio, whose Jinja chat templates cannot render `tool` role messages. The format is compatible with all OpenAI-compatible providers.
+
+If a model's chat template is incompatible with tool *definitions*, the system falls back to retrying without tools and logs a warning.
+
+### Think Block Stripping
+
+Models that use extended thinking (Qwen3, DeepSeek, Grok) may emit `<think>...</think>` or `<reasoning>...</reasoning>` blocks in their output. These are stripped before the response reaches the user:
+
+- **Post-processing** (`stripThinkBlocks()`): Removes complete blocks, unclosed blocks at end of string, orphaned closing tags at start of string, and Grok-style `Thinking Process:` prefixes
+- **Streaming** (`ThinkBlockFilter`): Real-time filter that suppresses think/reasoning blocks token-by-token during streaming, maintaining a buffer to handle tags split across chunk boundaries
 
 ### One-Shot Mode
 
@@ -514,7 +530,7 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 60 seconds).
 
@@ -525,7 +541,7 @@ type HeartbeatHandler = {
   name: string;
   description: string;
   enabled: boolean;
-  execute: (ctx: HeartbeatContext) => Promise<void>;
+  execute: (ctx: HeartbeatContext) => Promise<string | void>;
 };
 
 type HeartbeatContext = {
@@ -535,7 +551,7 @@ type HeartbeatContext = {
 };
 ```
 
-Handlers receive Discord send capability, LLM access, and full config. They run sequentially on each tick, with errors caught per-handler.
+Handlers receive Discord send capability, LLM access, and full config. They run sequentially on each tick, with errors caught per-handler. If a handler returns a string, it is logged with elapsed time.
 
 ### Built-in Handlers
 
@@ -553,6 +569,21 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 - Runs hourly (skips most ticks via timestamp check)
 - Prunes memory facts older than `memory.maxAgeDays` (0 = disabled)
 - Archives sessions older than the configured TTL (defaults to 30 days if memory TTL is off)
+
+**Reply Check** (`heartbeat-reply-check.ts`):
+- Every 5 minutes: scans last 20 messages in each text channel across all guilds
+- Catches missed @mentions and replies-to-bot that the main message listener did not respond to
+- Only processes messages younger than 30 minutes that haven't been seen before
+- Capped at 3 replies per tick; tracks seen message IDs (pruned to 500 entries)
+
+**Last Alive** (`heartbeat-alive.ts`):
+- Every tick: writes the current timestamp to disk via `updateLastAlive()`
+- Used for crash/force-kill detection by external monitors or the restart logic
+- Silent (returns nothing)
+
+**Conversation Save** (`heartbeat-conversations.ts`):
+- Every 5 minutes: persists in-memory conversation history to `data/memory/conversations.json`
+- Guards with its own timestamp check independent of the heartbeat tick rate
 
 ### Adding a Handler
 
@@ -663,7 +694,7 @@ Four tools provide access to the user's Google Workspace via OAuth2. All share a
 
 `_google-auth.ts` (underscore = skipped by tool registry) manages OAuth2 refresh-token-to-access-token exchange via `https://oauth2.googleapis.com/token`. The access token is cached module-level with a 60-second pre-expiry buffer. `googleFetch()` wraps `fetch()` with automatic Bearer token attachment. On auth errors, `resetGoogleToken()` clears the cache to force re-auth on the next call.
 
-Config (shared by all three tools):
+Config (shared by all four tools):
 ```yaml
 tools:
   google:
@@ -671,6 +702,23 @@ tools:
     clientSecret: "..."
     refreshToken: "..."
 ```
+
+### OAuth2 Setup
+
+The refresh token must be obtained externally (no interactive auth flow). Use the [Google OAuth Playground](https://developers.google.com/oauthplayground/):
+
+1. Create a Google Cloud project and enable: Gmail API, Google Calendar API, Google Docs API, Google Tasks API, Google Drive API
+2. Create an **OAuth client ID** (Web application) with redirect URI `https://developers.google.com/oauthplayground`
+3. In the OAuth Playground, use your own credentials (gear icon > "Use your own OAuth credentials")
+4. Authorize these scopes:
+   - `https://www.googleapis.com/auth/gmail.modify`
+   - `https://www.googleapis.com/auth/calendar`
+   - `https://www.googleapis.com/auth/documents`
+   - `https://www.googleapis.com/auth/tasks`
+   - `https://www.googleapis.com/auth/drive.readonly`
+5. Exchange the authorization code for tokens and copy the **Refresh Token**
+
+See [README.md > Google Workspace Setup](README.md#google-workspace-setup) for step-by-step instructions.
 
 ### Gmail Tool (`gmail`)
 
@@ -709,7 +757,7 @@ Uses the system timezone (`process.env.TZ`) for event times. Default calendar is
 | `create` | Create a new document (optionally with initial content) |
 | `edit` | Insert text at beginning or end of a document |
 
-Document content is extracted by walking the Docs API structural elements (paragraphs → text runs). Editing uses `batchUpdate` with `InsertTextRequest`.
+Document content is extracted by walking the Docs API structural elements (paragraphs → text runs). Read content is truncated at 25,000 characters. Editing uses `batchUpdate` with `InsertTextRequest`.
 
 ### Google Tasks Tool (`google_tasks`)
 
@@ -717,12 +765,13 @@ Document content is extracted by walking the Docs API structural elements (parag
 |--------|-------------|
 | `list` | List tasks (configurable count, completed filter) |
 | `add` | Add a new task with optional notes and due date |
+| `add_many` | Batch-add multiple tasks from a JSON array (each with title, optional notes and dueDate) |
 | `complete` | Mark a task as completed |
 | `update` | Update task fields (PATCH) |
 | `delete` | Delete a task |
 | `lists` | List all task lists |
 
-Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support). Tasks sync with Gmail and Google Calendar.
+Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support). Tasks sync with Gmail and Google Calendar. The `add_many` action accepts a JSON string array and creates tasks sequentially, returning a summary of successes and failures.
 
 ---
 
@@ -766,10 +815,11 @@ Persisted to `data/current-mood.json`. Survives restarts.
 After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
 
 1. Checks throttle — skips if mood was updated less than 30 seconds ago
-2. Makes a lightweight direct LLM call (no tools, no persona, ~150 token prompt)
-3. Parses JSON response into `{ emotion, intensity, secondary?, note? }`
-4. Validates against Plutchik's emotions enum
-5. Calls `saveMood()` → persists to disk + broadcasts SSE event
+2. Makes a lightweight direct LLM call (`max_completion_tokens: 300`, no tools, no persona)
+3. Uses `enable_thinking: false` and a `/no_think` prefix in the user message to suppress extended thinking on models like Qwen3
+4. Parses JSON response by extracting the first `{...}` object found anywhere in the output (tolerates models that emit surrounding text)
+5. Validates against Plutchik's emotions enum
+6. Calls `saveMood()` → persists to disk + broadcasts SSE event
 
 The classification uses `getLLMClient()` and `getLLMModel()` from `llm.ts` for a minimal API call — no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
 
@@ -895,15 +945,15 @@ Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job main
 
 ### commands.ts
 
-Eleven slash commands, registered on startup:
+Slash commands registered on startup:
 
 | Command | Description |
 |---------|-------------|
 | `/ask [prompt]` | Ask the bot with a rich embed response |
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
-| `/clear` | Clear conversation history for this channel |
-| `/websearch [query]` | Search the web via Brave Search |
+| `/new` | Start a fresh session (clears history, summary, and context) |
+| `/websearch [query] [count]` | Search the web via Brave Search (1-10 results, default 5) |
 | `/memory [view/add/clear]` | View, add, or clear per-user memory facts |
 | `/mood` | Show the bot's current emotional state |
 | `/note [list/get/save/delete]` | Manage scoped notes |
@@ -1055,7 +1105,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 
 ### Process Error Handlers
 
-`index.ts` registers handlers for `uncaughtException` and `unhandledRejection` that log the error but keep the process alive, preventing silent crashes from unhandled async errors.
+`index.ts` registers handlers for `uncaughtException` and `unhandledRejection` that log the error, save conversations and state, then exit with code 1. The boot wrapper (`boot.ts`) only restarts on exit code 100 (graceful reboot), so crashes exit cleanly.
 
 ---
 
@@ -1063,7 +1113,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 
 | Data | Storage | Survives restart? |
 |------|---------|-------------------|
-| Conversation history | In-memory Map (per channel) | No |
+| Conversation history | In-memory Map + periodic disk save (`data/memory/conversations.json`) | Yes (saved every 5 min by heartbeat) |
 | Notes | `data/notes.json` (disk) | Yes |
 | Calendar events | External CalDAV server | Yes |
 | Tool/agent enabled state | `data/toggle-state.json` (disk) | Yes |

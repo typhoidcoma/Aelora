@@ -208,6 +208,76 @@ A `researcher` agent is included out of the box — it searches the web, synthes
 
 For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ask [prompt]` | Ask the bot with a rich embed response |
+| `/tools` | List all tools and agents with status |
+| `/ping` | Latency check |
+| `/new` | Start a fresh session (clears history, summary, and context) |
+| `/websearch [query] [count]` | Search the web via Brave Search (1-10 results) |
+| `/memory view` | View your remembered facts |
+| `/memory add [fact]` | Remember a fact about you |
+| `/memory clear` | Clear all your remembered facts |
+| `/mood` | Show the bot's current emotional state |
+| `/note list [scope]` | List notes in a scope |
+| `/note get [scope] [title]` | Read a note |
+| `/note save [scope] [title] [content]` | Create or update a note |
+| `/note delete [scope] [title]` | Delete a note |
+| `/help` | List all available commands |
+| `/reboot` | Graceful restart |
+| `/play` | Launch the Discord Activity in a voice channel |
+
+## Google Workspace Setup
+
+The Gmail, Google Calendar, Google Docs, and Google Tasks tools all use OAuth2 with a refresh token. You need a Google Cloud project with the appropriate APIs enabled.
+
+### 1. Create a Google Cloud Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or use an existing one)
+3. Enable these APIs under **APIs & Services > Library**:
+   - Gmail API
+   - Google Calendar API
+   - Google Docs API
+   - Google Tasks API
+   - Google Drive API (used by Docs search)
+
+### 2. Create OAuth2 Credentials
+
+1. Go to **APIs & Services > Credentials**
+2. Click **Create Credentials > OAuth client ID**
+3. Application type: **Web application**
+4. Under **Authorized redirect URIs**, add: `https://developers.google.com/oauthplayground`
+5. Copy the **Client ID** and **Client Secret**
+
+### 3. Generate a Refresh Token
+
+1. Go to [Google OAuth Playground](https://developers.google.com/oauthplayground/)
+2. Click the gear icon (Settings) in the top right
+3. Check **Use your own OAuth credentials**
+4. Enter your Client ID and Client Secret
+5. In the left panel, select these scopes:
+   - `https://www.googleapis.com/auth/gmail.modify`
+   - `https://www.googleapis.com/auth/calendar`
+   - `https://www.googleapis.com/auth/documents`
+   - `https://www.googleapis.com/auth/tasks`
+   - `https://www.googleapis.com/auth/drive.readonly`
+6. Click **Authorize APIs** and complete the consent flow
+7. Click **Exchange authorization code for tokens**
+8. Copy the **Refresh Token**
+
+### 4. Add to Settings
+
+```yaml
+tools:
+  google:
+    clientId: "your-client-id.apps.googleusercontent.com"
+    clientSecret: "your-client-secret"
+    refreshToken: "1//your-refresh-token"
+```
+
 ## Discord Activity
 
 Host a Unity WebGL build (or any web app) as an embedded [Discord Activity](https://discord.com/developers/docs/activities/overview) — a full-screen interactive app that runs inside Discord voice channels.
@@ -291,6 +361,9 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── heartbeat-calendar.ts — Calendar reminder handler
 │   ├── heartbeat-memory.ts   — Memory compaction handler
 │   ├── heartbeat-cleanup.ts  — Data cleanup handler (prune old facts/sessions)
+│   ├── heartbeat-reply-check.ts — Catch missed @mentions and replies
+│   ├── heartbeat-alive.ts    — Last-alive timestamp for crash detection
+│   ├── heartbeat-conversations.ts — Periodic conversation persistence
 │   ├── mood.ts               — Emotion state (Plutchik's wheel) + auto-classification
 │   ├── state.ts              — Persisted bot state (active persona)
 │   ├── web.ts                — Express dashboard + REST API
@@ -302,7 +375,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   ├── discord.ts            — Discord barrel export
 │   ├── discord/
 │   │   ├── client.ts         — Discord.js client, message routing, streaming
-│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /clear, /websearch, /memory, /mood, /note, /help, /reboot, /play)
+│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /new, /websearch, /memory, /mood, /note, /help, /reboot, /play)
 │   │   ├── attachments.ts    — Image vision + text file processing
 │   │   └── embeds.ts         — Embed builders
 │   ├── tools/
@@ -318,7 +391,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 │   │   ├── gmail.ts          — Gmail (search, read, send, reply, forward, labels, drafts)
 │   │   ├── google-calendar.ts — Google Calendar (list, create, update, delete events)
 │   │   ├── google-docs.ts    — Google Docs (search, read, create, edit)
-│   │   ├── google-tasks.ts   — Google Tasks (list, add, complete, update, delete)
+│   │   ├── google-tasks.ts   — Google Tasks (list, add, add_many, complete, update, delete)
 │   │   ├── _google-auth.ts   — Google OAuth2 token management (shared, skipped on load)
 │   │   ├── _example-gmail.ts — Example tool template (skipped on load)
 │   │   └── _example-multi-action.ts — Multi-action tool template

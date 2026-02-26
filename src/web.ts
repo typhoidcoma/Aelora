@@ -566,7 +566,9 @@ export function startWeb(state: AppState): Server | null {
 
       res.json({ reply, sessionId });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      console.error("Web chat error:", errMsg);
+      res.status(500).json({ error: errMsg });
     }
   });
 
@@ -611,8 +613,10 @@ export function startWeb(state: AppState): Server | null {
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
       classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      console.error("Web chat/stream error:", errMsg);
       if (!closed) {
-        res.write(`data: ${JSON.stringify({ error: String(err) })}\n\n`);
+        res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
       }
     } finally {
       res.end();

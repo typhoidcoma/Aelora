@@ -323,13 +323,18 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
   } catch (err) {
     if (editTimer) clearInterval(editTimer);
     if (typingTimer) clearInterval(typingTimer);
-    console.error("Discord handler error:", err);
+    const errMsg = err instanceof Error ? err.message
+      : typeof err === "object" && err !== null && "error" in err
+        ? JSON.stringify((err as Record<string, unknown>).error)
+        : String(err);
+    console.error("Discord handler error:", errMsg);
     try {
+      const short = errMsg.length > 200 ? errMsg.slice(0, 200) + "..." : errMsg;
       const errorTarget = activeMsg ?? replyMsg;
       if (errorTarget) {
-        await errorTarget.edit("Sorry, I encountered an error processing your message.");
+        await errorTarget.edit(`Something went wrong: \`${short}\``);
       } else {
-        await message.reply("Sorry, I encountered an error processing your message.");
+        await message.reply(`Something went wrong: \`${short}\``);
       }
     } catch (err) {
       console.warn("Discord: failed to send error message:", err);

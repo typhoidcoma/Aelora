@@ -174,7 +174,9 @@ export function startWebSocket(server: Server, config: Config): void {
             });
             classifyMood(reply, msg.content).catch((err) => console.warn("Mood classify failed:", err));
           } catch (err) {
-            send(ws, { type: "error", error: String(err) });
+            const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+            console.error("WS handler error:", errMsg);
+            send(ws, { type: "error", error: errMsg });
           } finally {
             state.busy = false;
           }

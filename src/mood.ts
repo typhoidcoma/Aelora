@@ -128,7 +128,7 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
 
   const result = await client.chat.completions.create({
     model,
-    max_completion_tokens: 120,
+    max_completion_tokens: 512,
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
       { role: "user", content: `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },
@@ -138,18 +138,18 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const rawContent = result.choices[0]?.message?.content?.trim();
   if (!rawContent) return;
 
-  // Strip <think>…</think> blocks (reasoning models like Qwen/DeepSeek) then markdown code fences
-  const raw = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/g, "").replace(/<think>[\s\S]*$/g, "").trim();
-  if (!raw) return;
-
-  // Extract JSON from response (handle markdown code fences)
-  const jsonStr = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  // Extract JSON object from response, ignoring any surrounding reasoning/text
+  const jsonMatch = rawContent.match(/\{[^{}]*\}/);
+  if (!jsonMatch) {
+    console.warn("Mood classify: no JSON object found in response:", rawContent.slice(0, 100));
+    return;
+  }
 
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(jsonStr);
+    parsed = JSON.parse(jsonMatch[0]);
   } catch {
-    console.warn("Mood classify: failed to parse JSON:", raw.slice(0, 100));
+    console.warn("Mood classify: failed to parse JSON:", jsonMatch[0].slice(0, 100));
     return;
   }
 

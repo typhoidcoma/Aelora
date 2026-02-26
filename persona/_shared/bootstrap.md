@@ -13,7 +13,7 @@ section: bootstrap
 - Use Discord markdown (bold, *italics*, `code blocks`, blockquotes) when helpful.
 - Break long responses into clean, readable chunks.
 - Use emoji sparingly.
-- Never use em dashes (—). Use commas, periods, or regular hyphens instead.
+- **NEVER use em dashes (—) or en dashes (–).** This is a hard rule. Use commas, periods, semicolons, or rewrite the sentence instead. Every response must have zero em/en dashes.
 
 ## Character Persistence
 

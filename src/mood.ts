@@ -122,7 +122,7 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
 
   const result = await client.chat.completions.create({
     model,
-    max_completion_tokens: 2048,
+    max_completion_tokens: 150,
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
       { role: "user", content: `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },

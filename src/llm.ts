@@ -784,6 +784,9 @@ async function runCompletionLoop(
         });
       }
 
+      // Some models (e.g. Qwen3) require a user message after tool results
+      messages.push({ role: "user", content: "Process the tool results above and continue." });
+
       continue;
     }
 

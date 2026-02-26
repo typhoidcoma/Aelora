@@ -40,7 +40,8 @@ export function onMoodChange(cb: (emoji: string, label: string) => void): void {
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
-const CLASSIFY_SYSTEM = `Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
+const CLASSIFY_SYSTEM = `/no_think
+Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
 {"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
 Example: {"emotion":"joy","intensity":"mid","secondary":"trust","note":"warm helpful exchange"}`;
 

@@ -27,31 +27,6 @@ function isToolTemplateError(err: unknown): boolean {
   return /jinja template|no user query found/i.test(msg);
 }
 
-/**
- * Flatten tool-call message cycles into plain assistant/user messages.
- * Used when a model's chat template can't render tool role messages.
- */
-function flattenToolMessages(msgs: ChatMessage[]): ChatMessage[] {
-  const out: ChatMessage[] = [];
-  for (const m of msgs) {
-    if (m.role === "assistant" && (m as Record<string, unknown>).tool_calls) {
-      // Convert assistant tool_call into plain assistant text
-      const tc = (m as Record<string, unknown>).tool_calls as Array<{
-        function: { name: string; arguments: string };
-      }>;
-      const names = tc.map((t) => t.function.name).join(", ");
-      const text = (m.content as string) || "";
-      out.push({ role: "assistant", content: text || `[Used tools: ${names}]` });
-    } else if (m.role === "tool") {
-      // Convert tool result into a user message
-      const result = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      out.push({ role: "user", content: `[Tool result]: ${result}` });
-    } else {
-      out.push(m);
-    }
-  }
-  return out;
-}
 
 // --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
 
@@ -698,9 +673,9 @@ async function runCompletionLoop(
       try {
         stream = await client.chat.completions.create({ ...baseParams, stream: true });
       } catch (err) {
-        if (isToolTemplateError(err)) {
-          console.warn("LLM: model template can't render tool messages, flattening and retrying");
-          baseParams.messages = flattenToolMessages(baseParams.messages);
+        if (baseParams.tools && isToolTemplateError(err)) {
+          console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+          delete baseParams.tools;
           stream = await client.chat.completions.create({ ...baseParams, stream: true });
         } else {
           throw err;
@@ -761,9 +736,9 @@ async function runCompletionLoop(
       try {
         completion = await client.chat.completions.create(baseParams);
       } catch (err) {
-        if (isToolTemplateError(err)) {
-          console.warn("LLM: model template can't render tool messages, flattening and retrying");
-          baseParams.messages = flattenToolMessages(baseParams.messages);
+        if (baseParams.tools && isToolTemplateError(err)) {
+          console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+          delete baseParams.tools;
           completion = await client.chat.completions.create(baseParams);
         } else {
           throw err;
@@ -786,11 +761,8 @@ async function runCompletionLoop(
 
     // If the model wants to call tools/agents
     if (toolCalls && toolCalls.length > 0) {
-      messages.push({
-        role: "assistant",
-        content: content ?? null,
-        tool_calls: toolCalls,
-      });
+      // Collect tool names and results for flattened format
+      const toolResults: { name: string; result: string }[] = [];
 
       for (const toolCall of toolCalls) {
         let args: Record<string, unknown> = {};
@@ -813,12 +785,20 @@ async function runCompletionLoop(
           result = await executeTool(toolCall.function.name, args, channelId, userId);
         }
 
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: result,
-        });
+        toolResults.push({ name: toolCall.function.name, result });
       }
+
+      // Use flattened plain-text format instead of tool role messages
+      // to avoid template errors with models like Qwen3 in LM Studio
+      const names = toolResults.map((t) => t.name).join(", ");
+      messages.push({
+        role: "assistant",
+        content: content || `[Used tools: ${names}]`,
+      });
+      const resultsText = toolResults
+        .map((t) => `[${t.name}]: ${t.result}`)
+        .join("\n\n");
+      messages.push({ role: "user", content: resultsText });
 
       continue;
     }

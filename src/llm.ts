@@ -64,6 +64,9 @@ function stripThinkBlocks(text: string): string {
     // <reasoning>…</reasoning> tags (some models)
     .replace(/<reasoning>[\s\S]*?<\/reasoning>\s*/g, "")
     .replace(/<reasoning>[\s\S]*$/g, "")
+    // Orphaned closing tags (model splits thinking across content boundaries)
+    .replace(/^\s*<\/think>\s*/g, "")
+    .replace(/^\s*<\/reasoning>\s*/g, "")
     // Grok-style plain-text "Thinking Process:" blocks at the start
     .replace(/^Thinking Process:[\s\S]*?\n\n/i, "")
     .trim();
@@ -97,6 +100,13 @@ class ThinkBlockFilter {
         while (after < this.buffer.length && "\n\r ".includes(this.buffer[after])) after++;
         this.buffer = this.buffer.slice(after);
       } else {
+        // Strip orphaned closing tags (model splits thinking across content boundaries)
+        const orphanClose = this.buffer.match(/^\s*<\/(think|reasoning)>\s*/);
+        if (orphanClose) {
+          this.buffer = this.buffer.slice(orphanClose[0].length);
+          continue;
+        }
+
         // Check for <think> or <reasoning> open tags
         const thinkStart = this.buffer.indexOf("<think>");
         const reasonStart = this.buffer.indexOf("<reasoning>");

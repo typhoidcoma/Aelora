@@ -41,7 +41,7 @@ discord:
 
 # --- LLM ---
 # Any OpenAI-compatible endpoint works (OpenAI, Ollama, OpenRouter,
-# Together, Groq, LM Studio, etc.).
+# Together, Groq, LM Studio, xAI/Grok, etc.).
 
 llm:
   baseURL: "https://api.openai.com/v1"

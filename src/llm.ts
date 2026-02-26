@@ -18,6 +18,71 @@ type UserContent = string | ContentPart[];
 /** Called for each text token during streaming. */
 export type OnTokenCallback = (token: string) => void;
 
+// --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
+
+/** Strip `<think>…</think>` blocks from LLM output. Also strips unclosed trailing `<think>` blocks. */
+function stripThinkBlocks(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
+    .replace(/<think>[\s\S]*$/g, "")
+    .trim();
+}
+
+/** Streaming filter that suppresses `<think>…</think>` content from reaching the token callback. */
+class ThinkBlockFilter {
+  private buffer = "";
+  private inThink = false;
+  private onToken: OnTokenCallback;
+  constructor(onToken: OnTokenCallback) { this.onToken = onToken; }
+
+  push(token: string): void {
+    this.buffer += token;
+    this.drain();
+  }
+
+  flush(): void {
+    if (!this.inThink && this.buffer) this.onToken(this.buffer);
+    this.buffer = "";
+  }
+
+  private drain(): void {
+    while (this.buffer) {
+      if (this.inThink) {
+        const end = this.buffer.indexOf("</think>");
+        if (end === -1) return; // still waiting for close tag
+        this.inThink = false;
+        let after = end + 8;
+        while (after < this.buffer.length && "\n\r ".includes(this.buffer[after])) after++;
+        this.buffer = this.buffer.slice(after);
+      } else {
+        const start = this.buffer.indexOf("<think>");
+        if (start === -1) {
+          const partial = this.partialTagLen();
+          if (partial > 0) {
+            const safe = this.buffer.length - partial;
+            if (safe > 0) { this.onToken(this.buffer.slice(0, safe)); this.buffer = this.buffer.slice(safe); }
+            return;
+          }
+          this.onToken(this.buffer);
+          this.buffer = "";
+          return;
+        }
+        if (start > 0) this.onToken(this.buffer.slice(0, start));
+        this.inThink = true;
+        this.buffer = this.buffer.slice(start + 7);
+      }
+    }
+  }
+
+  private partialTagLen(): number {
+    const tag = "<think>";
+    for (let len = tag.length - 1; len > 0; len--) {
+      if (this.buffer.endsWith(tag.slice(0, len))) return len;
+    }
+    return 0;
+  }
+}
+
 // --- System state provider (avoids circular deps with discord/cron/heartbeat) ---
 
 export type SystemState = {
@@ -565,6 +630,7 @@ async function runCompletionLoop(
 
       let contentAccum = "";
       const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
+      const thinkFilter = new ThinkBlockFilter(onToken);
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
@@ -572,7 +638,7 @@ async function runCompletionLoop(
 
         if (delta.content) {
           contentAccum += delta.content;
-          onToken(delta.content);
+          thinkFilter.push(delta.content);
         }
 
         if (delta.tool_calls) {
@@ -595,9 +661,10 @@ async function runCompletionLoop(
         }
       }
 
+      thinkFilter.flush();
       console.log(`LLM: stream complete ${Date.now() - apiStart}ms`);
 
-      content = contentAccum || null;
+      content = stripThinkBlocks(contentAccum) || null;
 
       if (toolCallAccum.size > 0) {
         toolCalls = [...toolCallAccum.entries()]
@@ -623,7 +690,7 @@ async function runCompletionLoop(
         console.log(`LLM: response ${apiMs}ms`);
       }
 
-      content = choice.message.content;
+      content = choice.message.content ? stripThinkBlocks(choice.message.content) || null : null;
       toolCalls = choice.message.tool_calls ?? undefined;
     }
 

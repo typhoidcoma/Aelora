@@ -138,8 +138,8 @@ export default defineTool({
 
           if (!content) {
             result += "(empty document)";
-          } else if (content.length > 6000) {
-            result += content.slice(0, 6000);
+          } else if (content.length > 25000) {
+            result += content.slice(0, 25000);
             result += `\n\n(content truncated — ${content.length} characters total)`;
           } else {
             result += content;

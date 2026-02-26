@@ -27,6 +27,32 @@ function isToolTemplateError(err: unknown): boolean {
   return /jinja template|no user query found/i.test(msg);
 }
 
+/**
+ * Flatten tool-call message cycles into plain assistant/user messages.
+ * Used when a model's chat template can't render tool role messages.
+ */
+function flattenToolMessages(msgs: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const m of msgs) {
+    if (m.role === "assistant" && (m as Record<string, unknown>).tool_calls) {
+      // Convert assistant tool_call into plain assistant text
+      const tc = (m as Record<string, unknown>).tool_calls as Array<{
+        function: { name: string; arguments: string };
+      }>;
+      const names = tc.map((t) => t.function.name).join(", ");
+      const text = (m.content as string) || "";
+      out.push({ role: "assistant", content: text || `[Used tools: ${names}]` });
+    } else if (m.role === "tool") {
+      // Convert tool result into a user message
+      const result = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      out.push({ role: "user", content: `[Tool result]: ${result}` });
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
+}
+
 // --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
 
 /** Strip reasoning/thinking content from LLM output (handles multiple model formats). */
@@ -662,9 +688,9 @@ async function runCompletionLoop(
       try {
         stream = await client.chat.completions.create({ ...baseParams, stream: true });
       } catch (err) {
-        if (baseParams.tools && isToolTemplateError(err)) {
-          console.warn("LLM: model template incompatible with tool calling, retrying without tools");
-          delete baseParams.tools;
+        if (isToolTemplateError(err)) {
+          console.warn("LLM: model template can't render tool messages, flattening and retrying");
+          baseParams.messages = flattenToolMessages(baseParams.messages);
           stream = await client.chat.completions.create({ ...baseParams, stream: true });
         } else {
           throw err;
@@ -725,9 +751,9 @@ async function runCompletionLoop(
       try {
         completion = await client.chat.completions.create(baseParams);
       } catch (err) {
-        if (baseParams.tools && isToolTemplateError(err)) {
-          console.warn("LLM: model template incompatible with tool calling, retrying without tools");
-          delete baseParams.tools;
+        if (isToolTemplateError(err)) {
+          console.warn("LLM: model template can't render tool messages, flattening and retrying");
+          baseParams.messages = flattenToolMessages(baseParams.messages);
           completion = await client.chat.completions.create(baseParams);
         } else {
           throw err;
@@ -783,9 +809,6 @@ async function runCompletionLoop(
           content: result,
         });
       }
-
-      // Some models (e.g. Qwen3) require a user message after tool results
-      messages.push({ role: "user", content: "Process the tool results above and continue." });
 
       continue;
     }

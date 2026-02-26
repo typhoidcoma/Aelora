@@ -121,7 +121,11 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
     ],
   });
 
-  const raw = result.choices[0]?.message?.content?.trim();
+  const rawContent = result.choices[0]?.message?.content?.trim();
+  if (!rawContent) return;
+
+  // Strip <think>…</think> blocks (reasoning models like Qwen/DeepSeek) then markdown code fences
+  const raw = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/g, "").replace(/<think>[\s\S]*$/g, "").trim();
   if (!raw) return;
 
   // Extract JSON from response (handle markdown code fences)

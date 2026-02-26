@@ -40,8 +40,7 @@ export function onMoodChange(cb: (emoji: string, label: string) => void): void {
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
-const CLASSIFY_SYSTEM = `/no_think
-Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
+const CLASSIFY_SYSTEM = `Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
 {"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
 Example: {"emotion":"joy","intensity":"mid","secondary":"trust","note":"warm helpful exchange"}`;
 
@@ -123,11 +122,11 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
 
   const result = await (client.chat.completions.create as Function)({
     model,
-    max_completion_tokens: 150,
+    max_completion_tokens: 300,
     enable_thinking: false,
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
-      { role: "user", content: `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },
+      { role: "user", content: `/no_think\nUser: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },
     ],
   });
 

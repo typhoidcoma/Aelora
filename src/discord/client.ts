@@ -69,7 +69,7 @@ export async function startDiscord(config: Config): Promise<Client> {
       onMoodChange((emoji, label) => {
         readyClient.user.setPresence({
           status: "online",
-          activities: [{ name: `${emoji} ${label}`, type: 4 }],
+          activities: [{ name: `${emoji} ${label}`, type: 3 }],
         });
       });
 

@@ -40,14 +40,8 @@ export function onMoodChange(cb: (emoji: string, label: string) => void): void {
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
-const CLASSIFY_SYSTEM = `You are an emotion classifier. Given a bot's response and the user message it replied to, classify the bot's emotional tone using Plutchik's wheel.
-
-Return ONLY a JSON object with these fields:
-- "emotion": one of ${EMOTIONS.join(", ")}
-- "intensity": one of low, mid, high
-- "secondary": (optional) a second emotion if blended
-- "note": (optional) 1-sentence reason, max 100 chars
-
+const CLASSIFY_SYSTEM = `Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
+{"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
 Example: {"emotion":"joy","intensity":"mid","secondary":"trust","note":"warm helpful exchange"}`;
 
 export function saveMood(mood: MoodState): void {
@@ -128,7 +122,7 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
 
   const result = await client.chat.completions.create({
     model,
-    max_completion_tokens: 512,
+    max_completion_tokens: 2048,
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
       { role: "user", content: `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },

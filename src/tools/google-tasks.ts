@@ -53,15 +53,18 @@ function formatTask(t: Task, index: number): string {
 export default defineTool({
   name: "google_tasks",
   description:
-    "Manage tasks on Google Tasks. Add, list, complete, update, and delete tasks. Tasks sync with Gmail and Google Calendar.",
+    "Manage tasks on Google Tasks. Add, list, complete, update, and delete tasks. Use add_many to create multiple tasks in one call. Tasks sync with Gmail and Google Calendar.",
 
   params: {
     action: param.enum(
       "The action to perform.",
-      ["list", "add", "complete", "update", "delete", "lists"] as const,
+      ["list", "add", "add_many", "complete", "update", "delete", "lists"] as const,
       { required: true },
     ),
     title: param.string("Task title. Required for add."),
+    tasks: param.string(
+      "JSON array of tasks for add_many. Each item: {\"title\": \"...\", \"notes?\": \"...\", \"dueDate?\": \"YYYY-MM-DD\"}. Required for add_many.",
+    ),
     notes: param.string("Task notes/description. Optional for add and update."),
     dueDate: param.string(
       "Due date in YYYY-MM-DD format. Optional for add and update. Google Tasks only supports dates, not times.",
@@ -75,7 +78,7 @@ export default defineTool({
   config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
 
   handler: async (
-    { action, title, notes, dueDate, taskId, taskListId, showCompleted, maxResults },
+    { action, title, tasks, notes, dueDate, taskId, taskListId, showCompleted, maxResults },
     { toolConfig },
   ) => {
     const config = extractGoogleConfig(toolConfig);
@@ -146,6 +149,58 @@ export default defineTool({
           result += `\nID: ${created.id}`;
 
           return result;
+        }
+
+        // ── Add many tasks ─────────────────────────────────
+        case "add_many": {
+          if (!tasks) return "Error: tasks JSON array is required for add_many.";
+
+          let items: { title: string; notes?: string; dueDate?: string }[];
+          try {
+            items = JSON.parse(tasks);
+          } catch {
+            return "Error: tasks must be a valid JSON array.";
+          }
+
+          if (!Array.isArray(items) || items.length === 0) {
+            return "Error: tasks must be a non-empty array.";
+          }
+
+          const results: string[] = [];
+          let added = 0;
+
+          for (const item of items) {
+            if (!item.title) {
+              results.push(`Skipped: missing title`);
+              continue;
+            }
+
+            const task: Record<string, unknown> = { title: item.title };
+            if (item.notes) task.notes = item.notes;
+            if (item.dueDate) task.due = `${item.dueDate}T00:00:00.000Z`;
+
+            const res = await googleFetch(
+              `${TASKS_BASE}/lists/${encodeURIComponent(listId)}/tasks`,
+              config,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(task),
+              },
+            );
+
+            if (!res.ok) {
+              results.push(`Failed: ${item.title} (${res.status})`);
+            } else {
+              const created = (await res.json()) as Task;
+              let line = `Added: ${created.title}`;
+              if (created.due) line += ` (due ${formatDate(created.due)})`;
+              results.push(line);
+              added++;
+            }
+          }
+
+          return `Added ${added}/${items.length} tasks:\n${results.join("\n")}`;
         }
 
         // ── Complete task ────────────────────────────────────
@@ -252,7 +307,7 @@ export default defineTool({
         }
 
         default:
-          return `Error: unknown action "${action}". Use: list, add, complete, update, delete, lists.`;
+          return `Error: unknown action "${action}". Use: list, add, add_many, complete, update, delete, lists.`;
       }
     } catch (err) {
       resetGoogleToken();

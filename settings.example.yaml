@@ -55,7 +55,7 @@ llm:
   maxTokens: 1024
 
   # How many previous messages to keep in conversation history per channel.
-  maxHistory: 20
+  maxHistory: 50
 
   # Max tool-calling rounds per LLM request (prevents infinite loops).
   # maxToolIterations: 10
@@ -135,6 +135,7 @@ memory:
   maxFactsPerScope: 100       # Max facts per scope (user, channel, global)
   maxFactLength: 1000         # Max characters per individual fact
   maxAgeDays: 0               # Auto-prune facts older than N days (0 = keep forever)
+  autoExtract: true           # Automatically learn facts from conversations
 
 # --- Logger ---
 # Controls console capture and optional file logging.

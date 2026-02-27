@@ -153,7 +153,7 @@ const conversations = new Map<string, ChatMessage[]>();
 // --- Conversation summaries (compacted history) ---
 
 const SUMMARIES_FILE = "data/memory/summaries.json";
-const MAX_SUMMARY_LENGTH = 3000;
+const MAX_SUMMARY_LENGTH = 4000;
 
 type SummaryStore = Record<string, { summary: string; updatedAt: string }>;
 
@@ -492,7 +492,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
  * Uses a direct LLM call (no tool dispatch) to avoid recursion.
  * Only fires the LLM call when a channel has >= minQueueSize queued messages.
  */
-export async function compactPendingHistory(minQueueSize = 10): Promise<number> {
+export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
   let compacted = 0;
 
   for (const [channelId, queue] of compactionQueue.entries()) {
@@ -507,7 +507,7 @@ export async function compactPendingHistory(minQueueSize = 10): Promise<number> 
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => {
         const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-        return `${m.role}: ${text.slice(0, 300)}`;
+        return `${m.role}: ${text.slice(0, 500)}`;
       })
       .join("\n");
 
@@ -522,14 +522,19 @@ export async function compactPendingHistory(minQueueSize = 10): Promise<number> 
       const compactStart = Date.now();
       const completion = await client.chat.completions.create({
         model: config.llm.model,
-        max_completion_tokens: 500,
+        max_completion_tokens: 800,
         messages: [
           {
             role: "system",
             content:
-              "You are a conversation summarizer. Produce a concise summary of the conversation, " +
-              "preserving key topics, decisions, and any important context. " +
-              "Keep the summary under 2000 characters. Output ONLY the summary, no preamble.",
+              "You are a conversation history compressor. Preserve maximum useful information in minimum space.\n\n" +
+              "Preserve specifically:\n" +
+              "- Names and identifiers (people, projects, tools, places)\n" +
+              "- Decisions made or preferences expressed\n" +
+              "- Key facts shared (personal details, technical context)\n" +
+              "- Action items, commitments, or plans\n" +
+              "- Emotional tone and relationship context\n\n" +
+              "Dense paragraph form. No bullet lists. No preamble. Keep under 2000 characters.",
           },
           { role: "user", content: contextNote + formatted },
         ],

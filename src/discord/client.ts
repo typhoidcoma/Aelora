@@ -22,6 +22,7 @@ import {
   buildDisabledRow,
   parseOptionCustomId,
 } from "./options.js";
+import { extractFacts, trackMessage } from "../fact-extractor.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -193,6 +194,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     username: message.author.displayName ?? message.author.username,
   });
   updateUser(message.author.id, message.author.displayName ?? message.author.username, message.channelId);
+  trackMessage(message.channelId);
 
   const channel = message.channel;
   if (!channel.isSendable()) return;
@@ -348,6 +350,12 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     // Auto-classify mood from the response (async, best-effort)
     const userText = typeof userContent === "string" ? userContent : content;
     classifyMood(text, userText).catch((err) => console.warn("Mood classify failed:", err));
+
+    // Auto-extract facts from the conversation (async, best-effort)
+    if (config.memory.autoExtract !== false) {
+      extractFacts(userText, text, message.channelId, message.author.id)
+        .catch((err) => console.warn("Fact extraction failed:", err));
+    }
   } catch (err) {
     if (editTimer) clearInterval(editTimer);
     if (typingTimer) clearInterval(typingTimer);
@@ -416,6 +424,7 @@ async function handleOptionButton(
     username,
   });
   updateUser(userId, username, parsed.channelId);
+  trackMessage(parsed.channelId);
 
   // Stream a new LLM response into the channel
   const channel = interaction.channel;
@@ -527,6 +536,12 @@ async function handleOptionButton(
     classifyMood(text, selectionText).catch((err) =>
       console.warn("Mood classify failed:", err),
     );
+
+    // Auto-extract facts (async, best-effort)
+    if (config.memory.autoExtract !== false) {
+      extractFacts(selectionText, text, parsed.channelId, userId)
+        .catch((err) => console.warn("Fact extraction failed:", err));
+    }
   } catch (err) {
     clearInterval(editTimer);
     const errMsg = err instanceof Error ? err.message : String(err);

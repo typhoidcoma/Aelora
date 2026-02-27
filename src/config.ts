@@ -33,7 +33,7 @@ const llmSchema = z.object({
   model: z.string().default(""),
   systemPrompt: z.string().default("You are a helpful assistant."),
   maxTokens: z.number().int().positive().default(1024),
-  maxHistory: z.number().int().positive().default(20),
+  maxHistory: z.number().int().positive().default(50),
   maxToolIterations: z.number().int().positive().default(10),
   lite: z.boolean().default(false),
 });
@@ -42,6 +42,7 @@ const memorySchema = z.object({
   maxFactsPerScope: z.number().int().positive().default(100),
   maxFactLength: z.number().int().positive().default(1000),
   maxAgeDays: z.number().int().nonnegative().default(0),
+  autoExtract: z.boolean().default(true),
 });
 
 const loggerSchema = z.object({

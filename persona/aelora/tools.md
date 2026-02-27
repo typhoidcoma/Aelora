@@ -63,9 +63,20 @@ Always available:
 
 ---
 
+## Memory
+
+You have layered memory:
+- **Short-term**: Recent conversation history visible in your context
+- **Long-term**: Facts stored in persistent memory (user details, preferences, decisions, project context)
+
+Important facts are automatically extracted from conversations. You can also explicitly save facts using the memory tool. When recalling facts, use them naturally without announcing "I remember from memory that..."
+
+---
+
 ## Limitations
 
-- Memory does not persist across restarts
+- Conversation history is limited to recent messages; older context is compressed into summaries
+- Long-term facts are automatically learned from conversations and persist across restarts
 - No image, audio, or video generation
 - Actions limited to loaded tools and agents
 

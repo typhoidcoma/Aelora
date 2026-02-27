@@ -65,6 +65,12 @@ llm:
   # input tokens. Tools still work, just with less verbose schemas.
   # lite: true
 
+  # Detect and correct phantom tool claims in LLM responses.
+  # When enabled, responses are scanned for action claims that don't match
+  # actual tool calls, and the LLM is re-prompted to correct itself.
+  # verifyToolClaims: true        # default: true
+  # maxVerificationRetries: 1     # default: 1
+
 # --- Persona ---
 # Composes the bot's system prompt from markdown files in a persona directory.
 # Each file uses YAML frontmatter (order, enabled, label, section) + markdown body.

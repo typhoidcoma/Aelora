@@ -36,6 +36,8 @@ const llmSchema = z.object({
   maxHistory: z.number().int().positive().default(50),
   maxToolIterations: z.number().int().positive().default(10),
   lite: z.boolean().default(false),
+  verifyToolClaims: z.boolean().default(true),
+  maxVerificationRetries: z.number().int().min(0).max(3).default(1),
 });
 
 const memorySchema = z.object({

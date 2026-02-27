@@ -10,6 +10,7 @@ import { getMemoryForPrompt } from "./memory.js";
 import { buildMoodPromptSection } from "./mood.js";
 import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
+import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -667,6 +668,8 @@ async function runCompletionLoop(
 
   console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
 
+  const allToolRecords: ToolRecord[] = [];
+
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
     let toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined;
@@ -793,6 +796,15 @@ async function runCompletionLoop(
         toolResults.push({ name: toolCall.function.name, result });
       }
 
+      // Track tool records for post-response verification
+      for (const t of toolResults) {
+        allToolRecords.push({
+          name: t.name,
+          result: t.result,
+          failed: t.result.startsWith("Error:"),
+        });
+      }
+
       // Use flattened plain-text format instead of tool role messages
       // to avoid template errors with models like Qwen3 in LM Studio
       const names = toolResults.map((t) => t.name).join(", ");
@@ -801,7 +813,12 @@ async function runCompletionLoop(
         content: content || `[Used tools: ${names}]`,
       });
       const resultsText = toolResults
-        .map((t) => `[${t.name}]: ${t.result}`)
+        .map((t) => {
+          if (t.result.startsWith("Error:")) {
+            return `[${t.name}]: TOOL FAILED - ${t.result}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
+          }
+          return `[${t.name}]: ${t.result}`;
+        })
         .join("\n\n");
       messages.push({ role: "user", content: resultsText });
 
@@ -811,9 +828,60 @@ async function runCompletionLoop(
     // No tool calls — final text response (safety-net strip for any leaked reasoning)
     console.log(`LLM: completed in ${i + 1} iteration(s)`);
     const final = content ? stripThinkBlocks(content) : null;
-    return final?.trim() || "(no response)";
+    const finalText = final?.trim() || "(no response)";
+
+    // Post-response verification: detect phantom claims and ignored errors
+    if (config.llm.verifyToolClaims && finalText !== "(no response)") {
+      const correction = detectPhantomClaims(finalText, allToolRecords);
+      if (correction) {
+        console.warn("LLM: phantom tool claim detected, running correction pass");
+        const corrected = await runCorrectionPass(messages, finalText, correction);
+        if (corrected) return corrected;
+      }
+    }
+
+    return finalText;
   }
 
   console.warn(`LLM: hit max tool iterations (${maxIterations})`);
   return "(reached maximum tool call depth)";
+}
+
+/**
+ * Run a correction pass when phantom tool claims are detected.
+ * Asks the LLM to rewrite its response without tool access.
+ */
+async function runCorrectionPass(
+  messages: ChatMessage[],
+  originalResponse: string,
+  correctionPrompt: string,
+): Promise<string | null> {
+  try {
+    const correctionMessages: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: originalResponse },
+      { role: "user", content: correctionPrompt },
+    ];
+
+    const completion = await client.chat.completions.create({
+      model: config.llm.model,
+      messages: correctionMessages,
+      max_completion_tokens: config.llm.maxTokens || undefined,
+      // No tools — prevent further tool calls during correction
+    });
+
+    const corrected = completion.choices[0]?.message?.content;
+    if (corrected) {
+      const final = stripThinkBlocks(corrected).trim();
+      if (final) {
+        console.log("LLM: correction pass produced revised response");
+        return final;
+      }
+    }
+  } catch (err) {
+    console.error("LLM: correction pass failed:", err);
+  }
+
+  // Fall back to original if correction fails
+  return null;
 }

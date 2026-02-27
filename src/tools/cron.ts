@@ -120,8 +120,8 @@ export default defineTool({
         if (!schedule) return "Error: schedule is required for create.";
         if (!type) return "Error: type is required for create (\"static\" or \"llm\").";
 
-        const targetChannel = channelId ?? context.channelId;
-        if (!targetChannel) return "Error: channelId is required (no current channel available).";
+        const targetChannel = channelId || context.channelId;
+        if (!targetChannel) return "Error: channelId is required. Specify a target Discord channel ID for this cron job.";
 
         const result = createCronJob({
           name,

@@ -4,6 +4,7 @@ import {
   GatewayIntentBits,
   Partials,
   type Message,
+  type ButtonInteraction,
 } from "discord.js";
 import type { Config } from "../config.js";
 import { getLLMResponse } from "../llm.js";
@@ -15,6 +16,12 @@ import { recordMessage } from "../sessions.js";
 import { appendLog } from "../daily-log.js";
 import { classifyMood, onMoodChange } from "../mood.js";
 import { updateUser } from "../users.js";
+import {
+  detectOptions,
+  buildOptionRow,
+  buildDisabledRow,
+  parseOptionCustomId,
+} from "./options.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -138,11 +145,13 @@ export async function startDiscord(config: Config): Promise<Client> {
     await handleMessage(message, config);
   });
 
-  // --- Interaction handler (slash commands) ---
+  // --- Interaction handler (slash commands + option buttons) ---
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       if (interaction.isChatInputCommand()) {
         await handleSlashCommand(interaction, config.llm.model);
+      } else if (interaction.isButton() && interaction.customId.startsWith("opt:")) {
+        await handleOptionButton(interaction as ButtonInteraction, config);
       }
     } catch (err: unknown) {
       // Interaction expired (10062) or already acknowledged (40060) — not a crash
@@ -297,21 +306,40 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       });
     } catch (err) { console.warn("Discord: daily log append failed:", err); }
 
-    // Finalize: properly chunk the remaining text
+    // Finalize: properly chunk the remaining text, detect option buttons
     const remaining = text.slice(activeOffset);
     const chunks = chunkMessage(remaining);
 
+    const lastChunk = chunks[chunks.length - 1];
+    const detectedOptions = detectOptions(lastChunk);
+    const components = detectedOptions
+      ? [buildOptionRow(detectedOptions, message.channelId, message.author.id)]
+      : [];
+
     if (activeMsg) {
-      await (activeMsg as Message).edit(chunks[0]);
-      for (let i = 1; i < chunks.length; i++) {
-        await channel.send(chunks[i]);
+      if (chunks.length > 1) {
+        await (activeMsg as Message).edit(chunks[0]);
+        for (let i = 1; i < chunks.length - 1; i++) {
+          await channel.send(chunks[i]);
+        }
+        // Last chunk gets the option buttons (if any)
+        await channel.send({ content: lastChunk, components });
+      } else {
+        // Single chunk — edit in place with buttons
+        await (activeMsg as Message).edit({ content: chunks[0], components });
       }
     } else {
       // No streaming content was sent yet — send final reply directly
-      replyMsg = await message.reply(chunks[0]);
-      activeMsg = replyMsg;
-      for (let i = 1; i < chunks.length; i++) {
-        await channel.send(chunks[i]);
+      if (chunks.length === 1) {
+        replyMsg = await message.reply({ content: chunks[0], components });
+        activeMsg = replyMsg;
+      } else {
+        replyMsg = await message.reply(chunks[0]);
+        activeMsg = replyMsg;
+        for (let i = 1; i < chunks.length - 1; i++) {
+          await channel.send(chunks[i]);
+        }
+        await channel.send({ content: lastChunk, components });
       }
     }
 
@@ -338,6 +366,179 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       }
     } catch (err) {
       console.warn("Discord: failed to send error message:", err);
+    }
+  }
+}
+
+// ── Option Button Handler ─────────────────────────────────
+
+async function handleOptionButton(
+  interaction: ButtonInteraction,
+  config: Config,
+): Promise<void> {
+  const parsed = parseOptionCustomId(interaction.customId);
+  if (!parsed) return;
+
+  // Acknowledge within 3 seconds
+  await interaction.deferUpdate();
+
+  // Disable buttons on the clicked message (selected = green, rest = gray)
+  const messageContent = interaction.message.content;
+  const detectedOptions = detectOptions(messageContent);
+  if (detectedOptions) {
+    const disabledRow = buildDisabledRow(
+      detectedOptions,
+      parsed.channelId,
+      parsed.userId,
+      parsed.marker,
+    );
+    await interaction.editReply({ components: [disabledRow] });
+  } else {
+    await interaction.editReply({ components: [] });
+  }
+
+  const selectionText = `${parsed.marker}. ${parsed.label}`;
+  const userId = interaction.user.id;
+  const username = interaction.user.displayName ?? interaction.user.username;
+  const channelName =
+    interaction.channel && "name" in interaction.channel
+      ? (interaction.channel.name as string)
+      : "DM";
+
+  console.log(`Discord: option button clicked by ${username} in ${channelName}: "${selectionText}"`);
+
+  // Track side-effects
+  recordMessage({
+    channelId: parsed.channelId,
+    guildId: interaction.guild?.id ?? null,
+    channelName,
+    userId,
+    username,
+  });
+  updateUser(userId, username, parsed.channelId);
+
+  // Stream a new LLM response into the channel
+  const channel = interaction.channel;
+  if (!channel || !channel.isSendable()) return;
+
+  let activeMsg: Message | null = null;
+  let buffer = "";
+  let lastEditTime = 0;
+  let streamDone = false;
+  let inflightEdit: Promise<unknown> | null = null;
+
+  const doEdit = async () => {
+    if (streamDone) return;
+    const pending = buffer;
+    if (pending.length === 0) return;
+    const now = Date.now();
+    if (now - lastEditTime < STREAM_EDIT_INTERVAL) return;
+    lastEditTime = now;
+
+    if (!activeMsg) {
+      const p = channel
+        .send(pending + " \u25CF")
+        .then((msg) => {
+          activeMsg = msg;
+        })
+        .catch((err) => {
+          console.warn("Discord: option reply send failed:", (err as Error).message ?? err);
+        });
+      inflightEdit = p;
+      await p;
+      return;
+    }
+
+    const p = (activeMsg as Message)
+      .edit(pending + " \u25CF")
+      .catch((err) => {
+        console.warn("Discord: option reply edit failed:", (err as Error).message ?? err);
+      });
+    inflightEdit = p;
+    await p;
+  };
+
+  const editTimer = setInterval(doEdit, STREAM_EDIT_INTERVAL);
+
+  try {
+    const text = await getLLMResponse(
+      parsed.channelId,
+      selectionText,
+      (token) => {
+        buffer += token;
+      },
+      userId,
+    );
+
+    streamDone = true;
+    clearInterval(editTimer);
+    if (inflightEdit) await inflightEdit;
+
+    if (!text || text.trim().length === 0) {
+      if (activeMsg) {
+        await (activeMsg as Message).edit("_(no response)_");
+      } else {
+        await channel.send("_(no response)_");
+      }
+      return;
+    }
+
+    // Finalize with option detection on the new response
+    const chunks = chunkMessage(text);
+    const lastChunk = chunks[chunks.length - 1];
+    const newOptions = detectOptions(lastChunk);
+    const components = newOptions
+      ? [buildOptionRow(newOptions, parsed.channelId, userId)]
+      : [];
+
+    if (activeMsg) {
+      if (chunks.length > 1) {
+        await (activeMsg as Message).edit(chunks[0]);
+        for (let i = 1; i < chunks.length - 1; i++) {
+          await channel.send(chunks[i]);
+        }
+        await channel.send({ content: lastChunk, components });
+      } else {
+        await (activeMsg as Message).edit({ content: chunks[0], components });
+      }
+    } else {
+      if (chunks.length === 1) {
+        await channel.send({ content: chunks[0], components });
+      } else {
+        await channel.send(chunks[0]);
+        for (let i = 1; i < chunks.length - 1; i++) {
+          await channel.send(chunks[i]);
+        }
+        await channel.send({ content: lastChunk, components });
+      }
+    }
+
+    // Side-effects: daily log + mood (best-effort)
+    try {
+      appendLog({
+        channelName,
+        userId,
+        username,
+        summary: `**User (button):** ${selectionText.slice(0, 200)}\n**Bot:** ${text.slice(0, 200)}`,
+      });
+    } catch {
+      /* best-effort */
+    }
+    classifyMood(text, selectionText).catch((err) =>
+      console.warn("Mood classify failed:", err),
+    );
+  } catch (err) {
+    clearInterval(editTimer);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("Discord: option button handler error:", errMsg);
+    try {
+      if (activeMsg) {
+        await (activeMsg as Message).edit(`Something went wrong: \`${errMsg.slice(0, 200)}\``);
+      } else {
+        await channel.send(`Something went wrong: \`${errMsg.slice(0, 200)}\``);
+      }
+    } catch {
+      /* best-effort */
     }
   }
 }

@@ -177,84 +177,9 @@
         <div class="section-header" data-section="cron">
           <span class="chevron">&#9660;</span>
           <h2>Scheduled Tasks</h2>
-          <button class="btn btn-primary btn-xs" onclick="showCronForm()">+ New</button>
+          <button class="btn btn-primary btn-xs" onclick="openCronEditor()">+ New</button>
         </div>
         <div class="section-body" data-section="cron">
-          <!-- Create form (hidden by default) -->
-          <div id="cron-form" class="card" style="display: none; margin-bottom: 0.5rem;">
-            <div class="cron-form-grid">
-              <div class="form-row">
-                <label>Name</label>
-                <input type="text" id="cron-f-name" placeholder="my-daily-task">
-              </div>
-              <div class="form-row schedule-builder" id="cron-f-schedule-row">
-                <label>Schedule</label>
-                <div class="schedule-builder-row">
-                  <select id="cron-f-freq" onchange="updateCronSchedule()">
-                    <option value="daily">Daily</option>
-                    <option value="minutes">Every N minutes</option>
-                    <option value="hours">Every N hours</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  <span id="cron-f-interval-wrap" style="display:none">
-                    every <input type="number" id="cron-f-interval" min="1" max="59" value="5" oninput="updateCronSchedule()" style="width:3rem"> <span id="cron-f-interval-unit">min</span>
-                  </span>
-                  <span id="cron-f-time-wrap">
-                    at <input type="time" id="cron-f-time" value="09:00" oninput="updateCronSchedule()">
-                  </span>
-                  <span id="cron-f-dow-wrap" style="display:none">
-                    on <select id="cron-f-dow" onchange="updateCronSchedule()">
-                      <option value="1">Monday</option>
-                      <option value="2">Tuesday</option>
-                      <option value="3">Wednesday</option>
-                      <option value="4">Thursday</option>
-                      <option value="5">Friday</option>
-                      <option value="6">Saturday</option>
-                      <option value="0">Sunday</option>
-                    </select>
-                  </span>
-                  <span id="cron-f-dom-wrap" style="display:none">
-                    on day <input type="number" id="cron-f-dom" min="1" max="28" value="1" oninput="updateCronSchedule()" style="width:2.5rem">
-                  </span>
-                </div>
-                <div class="schedule-preview">
-                  <span id="cron-f-schedule-human">Daily at 9:00 AM</span>
-                  <code id="cron-f-schedule-preview">0 9 * * *</code>
-                  <input type="text" id="cron-f-schedule" placeholder="0 9 * * *" style="display:none" oninput="updateCronPreviewFromCustom()">
-                </div>
-              </div>
-              <div class="form-row">
-                <label>Timezone</label>
-                <input type="text" id="cron-f-timezone" placeholder="America/New_York (optional)">
-              </div>
-              <div class="form-row">
-                <label>Channel ID</label>
-                <input type="text" id="cron-f-channel" placeholder="123456789012345678">
-              </div>
-              <div class="form-row">
-                <label>Type</label>
-                <select id="cron-f-type" onchange="toggleCronFormFields()">
-                  <option value="llm">LLM (AI prompt)</option>
-                  <option value="static">Static (fixed message)</option>
-                </select>
-              </div>
-              <div class="form-row" id="cron-f-prompt-row">
-                <label>Prompt</label>
-                <textarea id="cron-f-prompt" placeholder="Search for today's top AI news and summarize..." rows="3"></textarea>
-              </div>
-              <div class="form-row" id="cron-f-message-row" style="display: none;">
-                <label>Message</label>
-                <textarea id="cron-f-message" placeholder="Good morning everyone!" rows="2"></textarea>
-              </div>
-            </div>
-            <div class="cron-form-actions">
-              <button class="btn btn-primary" id="cron-f-submit-btn" onclick="submitCronJob()">Create</button>
-              <button class="btn" onclick="hideCronForm()">Cancel</button>
-            </div>
-          </div>
-
           <!-- Job list table -->
           <table id="cron-table">
             <thead>
@@ -479,6 +404,102 @@
   <div id="session-overlay" class="overlay" style="display: none;" onclick="if(event.target===this)hideSessionDetail()">
     <div class="overlay-window">
       <div id="session-overlay-body"></div>
+    </div>
+  </div>
+
+  <!-- Cron editor modal -->
+  <div id="cron-editor" class="overlay" style="display: none;" onclick="if(event.target===this)closeCronEditor()">
+    <div class="overlay-window cron-editor-window">
+      <div class="cron-editor-header">
+        <h3 id="cron-editor-title">New Scheduled Task</h3>
+        <button class="btn btn-xs" onclick="closeCronEditor()">Close</button>
+      </div>
+
+      <div class="cron-editor-body">
+        <!-- Row 1: Name + Type -->
+        <div class="cron-editor-row">
+          <div class="cron-editor-field">
+            <label>Name</label>
+            <input type="text" id="ce-name" placeholder="my-daily-task">
+          </div>
+          <div class="cron-editor-field">
+            <label>Type</label>
+            <select id="ce-type" onchange="ceToggleType()">
+              <option value="llm">LLM (AI prompt)</option>
+              <option value="static">Static (fixed message)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row 2: Schedule builder (full width) -->
+        <div class="cron-editor-field cron-editor-full">
+          <label>Schedule</label>
+          <div class="ce-schedule-row">
+            <select id="ce-freq" onchange="ceUpdateSchedule()">
+              <option value="daily">Daily</option>
+              <option value="minutes">Every N minutes</option>
+              <option value="hours">Every N hours</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="custom">Custom cron</option>
+            </select>
+            <span id="ce-interval-wrap" style="display:none">
+              every <input type="number" id="ce-interval" min="1" max="59" value="5" oninput="ceUpdateSchedule()" style="width:3rem"> <span id="ce-interval-unit">min</span>
+            </span>
+            <span id="ce-time-wrap">
+              at <input type="time" id="ce-time" value="09:00" oninput="ceUpdateSchedule()">
+            </span>
+            <span id="ce-dow-wrap" style="display:none">
+              on <select id="ce-dow" onchange="ceUpdateSchedule()">
+                <option value="1">Monday</option><option value="2">Tuesday</option>
+                <option value="3">Wednesday</option><option value="4">Thursday</option>
+                <option value="5">Friday</option><option value="6">Saturday</option>
+                <option value="0">Sunday</option>
+              </select>
+            </span>
+            <span id="ce-dom-wrap" style="display:none">
+              on day <input type="number" id="ce-dom" min="1" max="28" value="1" oninput="ceUpdateSchedule()" style="width:2.5rem">
+            </span>
+          </div>
+          <div class="ce-schedule-preview">
+            <span id="ce-schedule-human">Daily at 9:00 AM</span>
+            <code id="ce-schedule-code">0 9 * * *</code>
+            <input type="text" id="ce-schedule-raw" placeholder="0 9 * * *" style="display:none" oninput="ceUpdatePreviewFromRaw()">
+          </div>
+        </div>
+
+        <!-- Row 3: Channel + Timezone -->
+        <div class="cron-editor-row">
+          <div class="cron-editor-field">
+            <label>Channel</label>
+            <select id="ce-channel">
+              <option value="">Select a channel...</option>
+            </select>
+          </div>
+          <div class="cron-editor-field">
+            <label>Timezone</label>
+            <input type="text" id="ce-timezone" placeholder="America/New_York (optional)">
+          </div>
+        </div>
+
+        <!-- Row 4: Prompt or Message (full width) -->
+        <div class="cron-editor-field cron-editor-full" id="ce-prompt-field">
+          <label>Prompt</label>
+          <textarea id="ce-prompt" placeholder="Search for today's top AI news and summarize..." rows="4"></textarea>
+        </div>
+        <div class="cron-editor-field cron-editor-full" id="ce-message-field" style="display:none">
+          <label>Message</label>
+          <textarea id="ce-message" placeholder="Good morning everyone!" rows="3"></textarea>
+        </div>
+
+        <!-- Validation error -->
+        <div id="ce-error" class="ce-error" style="display:none"></div>
+      </div>
+
+      <div class="cron-editor-footer">
+        <button class="btn btn-primary" id="ce-submit" onclick="ceSubmit()">Create Task</button>
+        <button class="btn" onclick="closeCronEditor()">Cancel</button>
+      </div>
     </div>
   </div>
 

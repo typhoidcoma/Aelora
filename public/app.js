@@ -1528,7 +1528,6 @@ function cronToHuman(expr) {
 }
 
 // --- Scheduled Tasks (Cron) ---
-let cronEditingName = null;
 
 async function fetchCron() {
   try {
@@ -1565,7 +1564,7 @@ async function fetchCron() {
               <button class="btn btn-xs" onclick="toggleCronJob('${esc(j.name)}')">${j.enabled ? "Disable" : "Enable"}</button>
               <button class="btn btn-xs" onclick="triggerCronJob('${esc(j.name)}')">Run</button>
               <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>
-              <button class="btn btn-xs" onclick="editCronJob('${esc(j.name)}')">Edit</button>
+              <button class="btn btn-xs" onclick="openCronEditor('${esc(j.name)}')">Edit</button>
               <button class="btn btn-danger btn-xs" onclick="deleteCronJob('${esc(j.name)}')">Delete</button>
             </td>
           </tr>`;
@@ -1629,103 +1628,182 @@ async function deleteCronJob(name) {
   }
 }
 
-async function editCronJob(name) {
-  try {
-    const res = await apiFetch("/api/cron");
-    const jobs = await res.json();
-    const job = jobs.find((j) => j.name === name);
+// --- Cron Editor Modal ---
 
-    if (!job) {
-      showToast(`Job "${name}" not found`, "error");
+let ceEditingName = null;
+
+async function openCronEditor(name) {
+  const overlay = document.getElementById("cron-editor");
+  const title = document.getElementById("cron-editor-title");
+  const submit = document.getElementById("ce-submit");
+  const nameInput = document.getElementById("ce-name");
+  const errorDiv = document.getElementById("ce-error");
+
+  errorDiv.style.display = "none";
+  await cePopulateChannels();
+
+  if (name) {
+    // Edit mode: fetch job data and populate
+    try {
+      const res = await apiFetch("/api/cron");
+      const jobs = await res.json();
+      const job = jobs.find((j) => j.name === name);
+
+      if (!job) {
+        showToast(`Job "${name}" not found`, "error");
+        return;
+      }
+
+      ceEditingName = name;
+      title.textContent = `Edit: ${name}`;
+      submit.textContent = "Save Changes";
+      nameInput.value = job.name;
+      nameInput.disabled = true;
+
+      document.getElementById("ce-type").value = job.type;
+      document.getElementById("ce-timezone").value = job.timezone || "";
+      document.getElementById("ce-prompt").value = job.prompt || "";
+      document.getElementById("ce-message").value = job.message || "";
+
+      // Select channel in dropdown, or add it if not in list
+      const channelSelect = document.getElementById("ce-channel");
+      if (job.channelId) {
+        let found = false;
+        for (const opt of channelSelect.options) {
+          if (opt.value === job.channelId) { found = true; break; }
+        }
+        if (!found) {
+          const opt = document.createElement("option");
+          opt.value = job.channelId;
+          opt.textContent = job.channelId;
+          channelSelect.insertBefore(opt, channelSelect.lastElementChild);
+        }
+        channelSelect.value = job.channelId;
+      }
+
+      // Parse cron into builder or fall back to custom
+      if (!ceParseCronToBuilder(job.schedule)) {
+        document.getElementById("ce-freq").value = "custom";
+      }
+      ceUpdateSchedule();
+      ceToggleType();
+    } catch (err) {
+      showToast(`Edit error: ${err.message}`, "error");
       return;
     }
+  } else {
+    // Create mode: reset all fields
+    ceEditingName = null;
+    title.textContent = "New Scheduled Task";
+    submit.textContent = "Create Task";
+    nameInput.value = "";
+    nameInput.disabled = false;
 
-    cronEditingName = name;
+    document.getElementById("ce-type").value = "llm";
+    document.getElementById("ce-timezone").value = "";
+    document.getElementById("ce-prompt").value = "";
+    document.getElementById("ce-message").value = "";
+    document.getElementById("ce-channel").value = "";
+    document.getElementById("ce-freq").value = "daily";
+    document.getElementById("ce-time").value = "09:00";
+    document.getElementById("ce-interval").value = "5";
+    document.getElementById("ce-dow").value = "1";
+    document.getElementById("ce-dom").value = "1";
+    ceUpdateSchedule();
+    ceToggleType();
+  }
 
-    // Populate form fields
-    document.getElementById("cron-f-name").value = job.name;
-    document.getElementById("cron-f-name").disabled = true;
-    document.getElementById("cron-f-schedule").value = job.schedule;
-    document.getElementById("cron-f-timezone").value = job.timezone || "";
-    document.getElementById("cron-f-channel").value = job.channelId;
-    document.getElementById("cron-f-type").value = job.type;
-    document.getElementById("cron-f-prompt").value = job.prompt || "";
-    document.getElementById("cron-f-message").value = job.message || "";
-    document.getElementById("cron-f-submit-btn").textContent = "Save";
+  overlay.style.display = "";
+}
 
-    // Try to parse cron into the visual builder, fall back to custom
-    if (!parseCronToBuilder(job.schedule)) {
-      document.getElementById("cron-f-freq").value = "custom";
+function closeCronEditor() {
+  ceEditingName = null;
+  document.getElementById("cron-editor").style.display = "none";
+}
+
+// Escape key to close
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const overlay = document.getElementById("cron-editor");
+    if (overlay.style.display !== "none") closeCronEditor();
+  }
+});
+
+async function cePopulateChannels(selectedId) {
+  const select = document.getElementById("ce-channel");
+  // Keep first placeholder option, clear the rest
+  select.innerHTML = '<option value="">Select a channel...</option>';
+
+  try {
+    const res = await apiFetch("/api/sessions");
+    const sessions = await res.json();
+
+    const seen = new Set();
+    for (const s of sessions) {
+      if (!s.channelId || seen.has(s.channelId)) continue;
+      seen.add(s.channelId);
+      const opt = document.createElement("option");
+      opt.value = s.channelId;
+      opt.textContent = s.channelName ? `#${s.channelName} (${s.channelId})` : s.channelId;
+      select.appendChild(opt);
     }
-    updateCronSchedule();
-    toggleCronFormFields();
+  } catch {
+    // Sessions unavailable, allow manual entry
+  }
 
-    document.getElementById("cron-form").style.display = "";
-  } catch (err) {
-    showToast(`Edit error: ${err.message}`, "error");
+  // Add manual entry option
+  const manualOpt = document.createElement("option");
+  manualOpt.value = "__manual__";
+  manualOpt.textContent = "Enter ID manually...";
+  select.appendChild(manualOpt);
+
+  // Handle manual entry swap
+  select.onchange = () => {
+    if (select.value === "__manual__") {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = "ce-channel";
+      input.placeholder = "123456789012345678";
+      input.value = "";
+      select.replaceWith(input);
+    }
+  };
+
+  if (selectedId) {
+    select.value = selectedId;
   }
 }
 
-// --- Cron form ---
-
-function showCronForm() {
-  document.getElementById("cron-form").style.display = "";
+function ceToggleType() {
+  const type = document.getElementById("ce-type").value;
+  document.getElementById("ce-prompt-field").style.display = type === "llm" ? "" : "none";
+  document.getElementById("ce-message-field").style.display = type === "static" ? "" : "none";
 }
 
-function hideCronForm() {
-  cronEditingName = null;
-  document.getElementById("cron-form").style.display = "none";
-  document.getElementById("cron-f-name").value = "";
-  document.getElementById("cron-f-name").disabled = false;
-  document.getElementById("cron-f-schedule").value = "";
-  document.getElementById("cron-f-timezone").value = "";
-  document.getElementById("cron-f-channel").value = "";
-  document.getElementById("cron-f-type").value = "llm";
-  document.getElementById("cron-f-prompt").value = "";
-  document.getElementById("cron-f-message").value = "";
-  document.getElementById("cron-f-submit-btn").textContent = "Create";
-  // Reset schedule builder
-  document.getElementById("cron-f-freq").value = "daily";
-  document.getElementById("cron-f-time").value = "09:00";
-  document.getElementById("cron-f-interval").value = "5";
-  document.getElementById("cron-f-dow").value = "1";
-  document.getElementById("cron-f-dom").value = "1";
-  updateCronSchedule();
-  toggleCronFormFields();
-}
-
-function toggleCronFormFields() {
-  const type = document.getElementById("cron-f-type").value;
-  document.getElementById("cron-f-prompt-row").style.display = type === "llm" ? "" : "none";
-  document.getElementById("cron-f-message-row").style.display = type === "static" ? "" : "none";
-}
-
-// --- Schedule builder ---
-
-function updateCronSchedule() {
-  const freq = document.getElementById("cron-f-freq").value;
-  const timeVal = document.getElementById("cron-f-time").value || "09:00";
-  const interval = document.getElementById("cron-f-interval").value;
-  const dow = document.getElementById("cron-f-dow").value;
-  const dom = document.getElementById("cron-f-dom").value;
+function ceUpdateSchedule() {
+  const freq = document.getElementById("ce-freq").value;
+  const timeVal = document.getElementById("ce-time").value || "09:00";
+  const interval = document.getElementById("ce-interval").value;
+  const dow = document.getElementById("ce-dow").value;
+  const dom = document.getElementById("ce-dom").value;
 
   // Show/hide fields based on frequency
   const showTime = ["daily", "weekly", "monthly"].includes(freq);
   const showInterval = ["minutes", "hours"].includes(freq);
-  document.getElementById("cron-f-time-wrap").style.display = showTime ? "" : "none";
-  document.getElementById("cron-f-interval-wrap").style.display = showInterval ? "" : "none";
-  document.getElementById("cron-f-dow-wrap").style.display = freq === "weekly" ? "" : "none";
-  document.getElementById("cron-f-dom-wrap").style.display = freq === "monthly" ? "" : "none";
-  document.getElementById("cron-f-interval-unit").textContent = freq === "minutes" ? "min" : "hr";
+  document.getElementById("ce-time-wrap").style.display = showTime ? "" : "none";
+  document.getElementById("ce-interval-wrap").style.display = showInterval ? "" : "none";
+  document.getElementById("ce-dow-wrap").style.display = freq === "weekly" ? "" : "none";
+  document.getElementById("ce-dom-wrap").style.display = freq === "monthly" ? "" : "none";
+  document.getElementById("ce-interval-unit").textContent = freq === "minutes" ? "min" : "hr";
 
   // Toggle between preview (visual) and raw input (custom)
   const isCustom = freq === "custom";
-  document.getElementById("cron-f-schedule-preview").style.display = isCustom ? "none" : "";
-  document.getElementById("cron-f-schedule-human").style.display = isCustom ? "none" : "";
-  document.getElementById("cron-f-schedule").style.display = isCustom ? "" : "none";
+  document.getElementById("ce-schedule-code").style.display = isCustom ? "none" : "";
+  document.getElementById("ce-schedule-human").style.display = isCustom ? "none" : "";
+  document.getElementById("ce-schedule-raw").style.display = isCustom ? "" : "none";
 
   if (isCustom) {
-    updateCronPreviewFromCustom();
+    ceUpdatePreviewFromRaw();
     return;
   }
 
@@ -1744,14 +1822,13 @@ function updateCronSchedule() {
     case "monthly": cron = `${m} ${h} ${dom} * *`; break;
   }
 
-  document.getElementById("cron-f-schedule-preview").textContent = cron;
-  document.getElementById("cron-f-schedule-human").textContent = cronToHuman(cron);
-  document.getElementById("cron-f-schedule").value = cron;
+  document.getElementById("ce-schedule-code").textContent = cron;
+  document.getElementById("ce-schedule-human").textContent = cronToHuman(cron);
 }
 
-function updateCronPreviewFromCustom() {
-  const raw = document.getElementById("cron-f-schedule").value.trim();
-  const human = document.getElementById("cron-f-schedule-human");
+function ceUpdatePreviewFromRaw() {
+  const raw = document.getElementById("ce-schedule-raw").value.trim();
+  const human = document.getElementById("ce-schedule-human");
   if (raw) {
     human.textContent = cronToHuman(raw);
     human.style.display = "";
@@ -1760,22 +1837,21 @@ function updateCronPreviewFromCustom() {
   }
 }
 
-// Parse a cron expression back into the schedule builder fields
-function parseCronToBuilder(expr) {
+function ceParseCronToBuilder(expr) {
   const parts = expr.trim().split(/\s+/);
   if (parts.length < 5) return false;
   const [min, hour, dom, mon, dow] = parts;
 
   // Every N minutes
   if (min.startsWith("*/") && hour === "*" && dom === "*" && mon === "*" && dow === "*") {
-    document.getElementById("cron-f-freq").value = "minutes";
-    document.getElementById("cron-f-interval").value = min.slice(2);
+    document.getElementById("ce-freq").value = "minutes";
+    document.getElementById("ce-interval").value = min.slice(2);
     return true;
   }
   // Every N hours
   if (min === "0" && hour.startsWith("*/") && dom === "*" && mon === "*" && dow === "*") {
-    document.getElementById("cron-f-freq").value = "hours";
-    document.getElementById("cron-f-interval").value = hour.slice(2);
+    document.getElementById("ce-freq").value = "hours";
+    document.getElementById("ce-interval").value = hour.slice(2);
     return true;
   }
 
@@ -1783,24 +1859,24 @@ function parseCronToBuilder(expr) {
   if (/^\d+$/.test(min) && /^\d+$/.test(hour)) {
     const h = parseInt(hour);
     const m = parseInt(min);
-    document.getElementById("cron-f-time").value =
+    document.getElementById("ce-time").value =
       `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 
     // Daily
     if (dom === "*" && mon === "*" && dow === "*") {
-      document.getElementById("cron-f-freq").value = "daily";
+      document.getElementById("ce-freq").value = "daily";
       return true;
     }
     // Weekly
     if (dom === "*" && mon === "*" && /^\d$/.test(dow)) {
-      document.getElementById("cron-f-freq").value = "weekly";
-      document.getElementById("cron-f-dow").value = dow;
+      document.getElementById("ce-freq").value = "weekly";
+      document.getElementById("ce-dow").value = dow;
       return true;
     }
     // Monthly
     if (/^\d+$/.test(dom) && mon === "*" && dow === "*") {
-      document.getElementById("cron-f-freq").value = "monthly";
-      document.getElementById("cron-f-dom").value = dom;
+      document.getElementById("ce-freq").value = "monthly";
+      document.getElementById("ce-dom").value = dom;
       return true;
     }
   }
@@ -1808,34 +1884,93 @@ function parseCronToBuilder(expr) {
   return false;
 }
 
-async function submitCronJob() {
-  const isEdit = cronEditingName !== null;
+function ceGetSchedule() {
+  const freq = document.getElementById("ce-freq").value;
+  if (freq === "custom") {
+    return document.getElementById("ce-schedule-raw").value.trim();
+  }
+  // Build from visual controls
+  const timeVal = document.getElementById("ce-time").value || "09:00";
+  const interval = document.getElementById("ce-interval").value;
+  const dow = document.getElementById("ce-dow").value;
+  const dom = document.getElementById("ce-dom").value;
+  const [hStr, mStr] = timeVal.split(":");
+  const h = parseInt(hStr) || 0;
+  const m = parseInt(mStr) || 0;
+  const iv = parseInt(interval) || 1;
+
+  switch (freq) {
+    case "minutes": return `*/${iv} * * * *`;
+    case "hours":   return `0 */${iv} * * *`;
+    case "daily":   return `${m} ${h} * * *`;
+    case "weekly":  return `${m} ${h} * * ${dow}`;
+    case "monthly": return `${m} ${h} ${dom} * *`;
+    default:        return "";
+  }
+}
+
+function ceValidate() {
+  const isEdit = ceEditingName !== null;
+  const name = document.getElementById("ce-name").value.trim();
+  const schedule = ceGetSchedule();
+  const channelEl = document.getElementById("ce-channel");
+  const channelId = channelEl ? channelEl.value.trim() : "";
+  const type = document.getElementById("ce-type").value;
+
+  if (!isEdit && !name) return "Name is required";
+  if (!schedule) return "Schedule is required";
+
+  // Validate cron format (5 parts)
+  const parts = schedule.split(/\s+/);
+  if (parts.length !== 5) return "Schedule must be a valid cron expression (5 parts)";
+
+  if (!channelId || channelId === "__manual__") return "Channel is required";
+
+  if (type === "llm") {
+    const prompt = document.getElementById("ce-prompt").value.trim();
+    if (!prompt) return "Prompt is required for LLM tasks";
+  } else {
+    const message = document.getElementById("ce-message").value.trim();
+    if (!message) return "Message is required for static tasks";
+  }
+
+  return null;
+}
+
+function ceShowError(msg) {
+  const el = document.getElementById("ce-error");
+  el.textContent = msg;
+  el.style.display = "";
+}
+
+async function ceSubmit() {
+  const error = ceValidate();
+  if (error) {
+    ceShowError(error);
+    return;
+  }
+
+  document.getElementById("ce-error").style.display = "none";
+
+  const isEdit = ceEditingName !== null;
+  const channelEl = document.getElementById("ce-channel");
   const body = {
-    name: document.getElementById("cron-f-name").value.trim(),
-    schedule: document.getElementById("cron-f-schedule").value.trim(),
-    timezone: document.getElementById("cron-f-timezone").value.trim() || undefined,
-    channelId: document.getElementById("cron-f-channel").value.trim(),
-    type: document.getElementById("cron-f-type").value,
+    name: document.getElementById("ce-name").value.trim(),
+    schedule: ceGetSchedule(),
+    timezone: document.getElementById("ce-timezone").value.trim() || undefined,
+    channelId: channelEl ? channelEl.value.trim() : "",
+    type: document.getElementById("ce-type").value,
   };
 
   if (body.type === "llm") {
-    body.prompt = document.getElementById("cron-f-prompt").value.trim();
+    body.prompt = document.getElementById("ce-prompt").value.trim();
   } else {
-    body.message = document.getElementById("cron-f-message").value.trim();
-  }
-
-  if (!isEdit && (!body.name || !body.schedule || !body.channelId)) {
-    showToast("Name, schedule, and channel ID are required", "error");
-    return;
-  }
-  if (isEdit && (!body.schedule || !body.channelId)) {
-    showToast("Schedule and channel ID are required", "error");
-    return;
+    body.message = document.getElementById("ce-message").value.trim();
   }
 
   try {
     const url = isEdit
-      ? `/api/cron/${encodeURIComponent(cronEditingName)}`
+      ? `/api/cron/${encodeURIComponent(ceEditingName)}`
       : "/api/cron";
     const res = await apiFetch(url, {
       method: isEdit ? "PUT" : "POST",
@@ -1845,14 +1980,14 @@ async function submitCronJob() {
     const data = await res.json();
 
     if (data.success) {
-      showToast(`Task "${isEdit ? cronEditingName : body.name}" ${isEdit ? "updated" : "created"}`);
-      hideCronForm();
+      showToast(`Task "${isEdit ? ceEditingName : body.name}" ${isEdit ? "updated" : "created"}`);
+      closeCronEditor();
       fetchCron();
     } else {
-      showToast(`${isEdit ? "Update" : "Create"} failed: ${data.error}`, "error");
+      ceShowError(data.error || "Unknown error");
     }
   } catch (err) {
-    showToast(`${isEdit ? "Update" : "Create"} error: ${err.message}`, "error");
+    ceShowError(err.message);
   }
 }
 

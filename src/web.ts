@@ -17,7 +17,7 @@ import {
   type PersonaState,
 } from "./persona.js";
 import { getLLMResponse, clearSession } from "./llm.js";
-import { getAllTools, toggleTool } from "./tool-registry.js";
+import { getAllTools, toggleTool, isToolEnabled } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
@@ -838,6 +838,11 @@ export function startWeb(state: AppState): Server | null {
   // --- Calendar (read-only) ---
 
   app.get("/api/calendar/events", async (req, res) => {
+    if (!isToolEnabled("calendar")) {
+      res.status(404).json({ error: "Calendar tool is not enabled" });
+      return;
+    }
+
     const caldavConfig = config.tools?.caldav as
       | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
       | undefined;
@@ -926,6 +931,7 @@ export function startWeb(state: AppState): Server | null {
 
   // List todos, optionally filter by ?status=pending|completed|all
   app.get("/api/todos", async (req, res) => {
+    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
       const { client, calendarName } = await getTodoClient();
       const status = (req.query.status as string) || "all";
@@ -943,6 +949,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Get single todo by UID
   app.get("/api/todos/:uid", async (req, res) => {
+    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
       const { client, calendarName } = await getTodoClient();
       const item = await getTodoByUid(client, calendarName, req.params.uid);
@@ -955,6 +962,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Create todo
   app.post("/api/todos", async (req, res) => {
+    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     const { title, description, priority, dueDate } = req.body ?? {};
     if (!title || typeof title !== "string") {
       res.status(400).json({ error: "title is required" });
@@ -971,6 +979,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Update todo
   app.put("/api/todos/:uid", async (req, res) => {
+    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     const { title, description, priority, dueDate, completed } = req.body ?? {};
     try {
       const { client, calendarName } = await getTodoClient();
@@ -990,6 +999,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Delete todo
   app.delete("/api/todos/:uid", async (req, res) => {
+    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
       const { client, calendarName } = await getTodoClient();
       const deleted = await deleteTodoItem(client, calendarName, req.params.uid);

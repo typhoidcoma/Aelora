@@ -87,6 +87,11 @@ export function getEnabledTools(): RegisteredTool[] {
   return Array.from(registry.values()).filter((t) => t.enabled);
 }
 
+export function isToolEnabled(name: string): boolean {
+  const tool = registry.get(name);
+  return tool?.enabled ?? false;
+}
+
 export function getToolDefinitionsForOpenAI(): OpenAI.Chat.Completions.ChatCompletionTool[] {
   return getEnabledTools().map((t) => ({
     type: "function" as const,

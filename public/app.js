@@ -1118,9 +1118,9 @@ async function deleteNoteDash(scope, title) {
 async function fetchTodos() {
   try {
     const res = await apiFetch("/api/todos");
-    if (res.status === 503) {
+    if (res.status === 404 || res.status === 503) {
       document.getElementById("todos-body").innerHTML =
-        '<tr><td colspan="5" class="muted">CalDAV not configured</td></tr>';
+        `<tr><td colspan="5" class="muted">${res.status === 404 ? "Todo tool is disabled" : "CalDAV not configured"}</td></tr>`;
       return;
     }
     const data = await res.json();

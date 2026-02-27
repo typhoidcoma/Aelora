@@ -883,10 +883,18 @@ document.getElementById("llm-input").addEventListener("keydown", (e) => {
 
 // --- Tools ---
 
+let toolsState = [];
+
+function isToolActive(name) {
+  const t = toolsState.find(t => t.name === name);
+  return t?.enabled ?? false;
+}
+
 async function fetchTools() {
   try {
     const res = await apiFetch("/api/tools");
     const tools = await res.json();
+    toolsState = tools;
     const tbody = document.getElementById("tools-body");
 
     if (tools.length === 0) {
@@ -1116,11 +1124,16 @@ async function deleteNoteDash(scope, title) {
 // --- Todos ---
 
 async function fetchTodos() {
+  if (!isToolActive("todo")) {
+    document.getElementById("todos-body").innerHTML =
+      '<tr><td colspan="5" class="muted">Todo tool is disabled</td></tr>';
+    return;
+  }
   try {
     const res = await apiFetch("/api/todos");
-    if (res.status === 404 || res.status === 503) {
+    if (res.status === 503) {
       document.getElementById("todos-body").innerHTML =
-        `<tr><td colspan="5" class="muted">${res.status === 404 ? "Todo tool is disabled" : "CalDAV not configured"}</td></tr>`;
+        '<tr><td colspan="5" class="muted">CalDAV not configured</td></tr>';
       return;
     }
     const data = await res.json();

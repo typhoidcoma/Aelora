@@ -21,14 +21,14 @@ const IMAGE_MIME_TYPES = new Set([
 
 const MAX_TEXT_FILE_SIZE = 100_000; // 100 KB
 
-const VISION_MODEL_PATTERNS = [
-  "gpt-4o", "gpt-4-vision", "gpt-4-turbo",
-  "claude-3", "gemini",
+// Models known NOT to support vision — everything else is assumed vision-capable.
+const TEXT_ONLY_MODEL_PATTERNS = [
+  "gpt-3.5", "gpt-4-0314", "gpt-4-0613", // legacy OpenAI text-only
 ];
 
 function isVisionModel(model: string): boolean {
   const lower = model.toLowerCase();
-  return VISION_MODEL_PATTERNS.some((p) => lower.includes(p));
+  return !TEXT_ONLY_MODEL_PATTERNS.some((p) => lower.includes(p));
 }
 
 function getExtension(filename: string): string {

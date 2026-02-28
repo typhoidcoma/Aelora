@@ -32,7 +32,7 @@ function isToolTemplateError(err: unknown): boolean {
 // --- Think-block stripping (for reasoning models like Qwen, DeepSeek) ---
 
 /** Strip reasoning/thinking content from LLM output (handles multiple model formats). */
-function stripThinkBlocks(text: string): string {
+export function stripThinkBlocks(text: string): string {
   return text
     // <think>…</think> tags (Qwen, DeepSeek)
     .replace(/<think>[\s\S]*?<\/think>\s*/g, "")

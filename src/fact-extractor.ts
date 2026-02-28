@@ -3,7 +3,7 @@
  * Follows the same lightweight fire-and-forget pattern as mood.ts.
  */
 
-import { getLLMClient, getLLMModel } from "./llm.js";
+import { getLLMClient, getLLMModel, stripThinkBlocks } from "./llm.js";
 import { saveFact, searchFacts } from "./memory.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
@@ -76,21 +76,21 @@ export async function extractFacts(
       ],
     });
 
-    const rawContent = result.choices[0]?.message?.content?.trim();
+    const rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return;
 
-    // Extract JSON from response (handles models that wrap in markdown)
-    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // Extract the first balanced JSON object from response
+    const jsonStr = extractJson(rawContent);
+    if (!jsonStr) {
       console.warn("FactExtractor: no JSON found in response:", rawContent.slice(0, 100));
       return;
     }
 
     let parsed: { user_facts?: string[]; channel_facts?: string[]; global_facts?: string[] };
     try {
-      parsed = JSON.parse(jsonMatch[0]);
+      parsed = JSON.parse(jsonStr);
     } catch {
-      console.warn("FactExtractor: failed to parse JSON:", jsonMatch[0].slice(0, 100));
+      console.warn("FactExtractor: failed to parse JSON:", jsonStr.slice(0, 100));
       return;
     }
 
@@ -132,6 +132,23 @@ export async function extractFacts(
   } catch (err) {
     console.warn("FactExtractor: extraction failed:", err);
   }
+}
+
+// ── JSON extraction ─────────────────────────────────────
+
+/** Extract the first balanced top-level JSON object from text. */
+function extractJson(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 // ── Semantic dedup ───────────────────────────────────────

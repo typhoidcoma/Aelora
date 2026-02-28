@@ -1747,7 +1747,14 @@ document.addEventListener("keydown", (e) => {
 });
 
 async function cePopulateChannels(selectedId) {
-  const select = document.getElementById("ce-channel");
+  let select = document.getElementById("ce-channel");
+  // If the select was replaced with a text input (manual entry), restore it
+  if (select && select.tagName !== "SELECT") {
+    const newSelect = document.createElement("select");
+    newSelect.id = "ce-channel";
+    select.replaceWith(newSelect);
+    select = newSelect;
+  }
   // Keep first placeholder option, clear the rest
   select.innerHTML = '<option value="">Select a channel...</option>';
 

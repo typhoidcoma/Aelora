@@ -1723,6 +1723,25 @@ async function deleteCronJob(name) {
 // --- Cron Editor Modal ---
 
 let ceEditingName = null;
+let ceSnapshot = null; // snapshot of form state when editor opened
+
+function ceCaptureSnapshot() {
+  return JSON.stringify({
+    name: document.getElementById("ce-name").value,
+    type: document.getElementById("ce-type").value,
+    schedule: ceGetSchedule(),
+    channel: document.getElementById("ce-channel")?.value || "",
+    timezone: document.getElementById("ce-timezone").value,
+    prompt: document.getElementById("ce-prompt").value,
+    message: document.getElementById("ce-message").value,
+    silent: document.getElementById("ce-silent").checked,
+  });
+}
+
+function ceHasUnsavedChanges() {
+  if (!ceSnapshot) return false;
+  return ceCaptureSnapshot() !== ceSnapshot;
+}
 
 async function openCronEditor(name) {
   const overlay = document.getElementById("cron-editor");
@@ -1810,10 +1829,15 @@ async function openCronEditor(name) {
   }
 
   overlay.style.display = "";
+  ceSnapshot = ceCaptureSnapshot();
 }
 
-function closeCronEditor() {
+function closeCronEditor(force) {
+  if (!force && ceHasUnsavedChanges()) {
+    if (!confirm("You have unsaved changes. Discard them?")) return;
+  }
   ceEditingName = null;
+  ceSnapshot = null;
   document.getElementById("cron-editor").style.display = "none";
 }
 
@@ -2094,7 +2118,7 @@ async function ceSubmit() {
 
     if (data.success) {
       showToast(`Task "${isEdit ? ceEditingName : body.name}" ${isEdit ? "updated" : "created"}`);
-      closeCronEditor();
+      closeCronEditor(true);
       fetchCron();
     } else {
       ceShowError(data.error || "Unknown error");

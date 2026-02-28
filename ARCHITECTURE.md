@@ -997,7 +997,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (2), Agents (2), System (5 — includes mood), Activity (2), Export (1) — 58 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 — list, detail, execute, toggle), Agents (2), System (5 — includes mood), Activity (2), Export (1) — 60 endpoints total.
 
 ### Routing
 

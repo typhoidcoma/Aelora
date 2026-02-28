@@ -17,7 +17,7 @@ import {
   type PersonaState,
 } from "./persona.js";
 import { getLLMResponse, clearSession } from "./llm.js";
-import { getAllTools, toggleTool, isToolEnabled } from "./tool-registry.js";
+import { getAllTools, toggleTool, isToolEnabled, executeTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
@@ -631,15 +631,51 @@ export function startWeb(state: AppState): Server | null {
     res.json({ success: true });
   });
 
-  // List all tools
+  // List all tools (with parameter schemas for client validation)
   app.get("/api/tools", (_req, res) => {
     res.json(
       getAllTools().map((t) => ({
         name: t.name,
         description: t.description,
         enabled: t.enabled,
+        parameters: t.parameters ?? null,
       })),
     );
+  });
+
+  // Single tool detail
+  app.get("/api/tools/:name", (req, res) => {
+    const tool = getAllTools().find((t) => t.name === req.params.name);
+    if (!tool) {
+      res.status(404).json({ error: `Tool "${req.params.name}" not found` });
+      return;
+    }
+    res.json({
+      name: tool.name,
+      description: tool.description,
+      enabled: tool.enabled,
+      parameters: tool.parameters ?? null,
+    });
+  });
+
+  // Execute a tool directly via REST API
+  app.post("/api/tools/:name/execute", async (req, res) => {
+    const { name } = req.params;
+    const { args = {}, channelId = null, userId = null } = req.body ?? {};
+
+    const tool = getAllTools().find((t) => t.name === name);
+    if (!tool) {
+      res.status(404).json({ error: `Tool "${name}" not found` });
+      return;
+    }
+    if (!tool.enabled) {
+      res.status(400).json({ error: `Tool "${name}" is currently disabled` });
+      return;
+    }
+
+    const result = await executeTool(name, args, channelId, userId);
+    const success = !result.startsWith("Error:");
+    res.json({ success, tool: name, result });
   });
 
   // Toggle a tool on/off

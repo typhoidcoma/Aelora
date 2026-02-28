@@ -235,6 +235,10 @@ components:
           type: string
         enabled:
           type: boolean
+        parameters:
+          type: object
+          nullable: true
+          description: JSON Schema for tool arguments (OpenAI function calling format)
 
     Agent:
       type: object
@@ -1755,6 +1759,88 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Tool"
+
+  /api/tools/{name}:
+    get:
+      tags: [Tools]
+      summary: Get a single tool's details
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tool detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/tools/{name}/execute:
+    post:
+      tags: [Tools]
+      summary: Execute a tool directly
+      description: |
+        Call any enabled tool with arguments. Uses the same execution path
+        as LLM tool calls. Optional channelId and userId provide context
+        for scoped tools (memory, notes, etc.).
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  type: object
+                  description: Tool arguments (varies per tool, see tool's parameters schema)
+                channelId:
+                  type: string
+                  nullable: true
+                  description: Optional channel context for scoped tools
+                userId:
+                  type: string
+                  nullable: true
+                  description: Optional user context for scoped tools
+      responses:
+        "200":
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  tool:
+                    type: string
+                  result:
+                    type: string
+        "400":
+          description: Tool is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Tool not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/tools/{name}/toggle:
     post:

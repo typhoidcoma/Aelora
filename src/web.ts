@@ -68,8 +68,8 @@ export function startWeb(state: AppState): Server | null {
     }
     const start = Date.now();
     res.on("finish", () => {
-      // Log POST/PUT/DELETE (mutations) and any non-2xx responses (errors)
-      if (req.method !== "GET" || res.statusCode >= 400) {
+      // Log POST/PUT/DELETE (mutations) and non-2xx errors (skip 404 from tool-disabled guards)
+      if (req.method !== "GET" || (res.statusCode >= 400 && res.statusCode !== 404)) {
         console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
       }
     });

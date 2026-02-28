@@ -22,6 +22,7 @@ export type PersistedCronJob = {
   message?: string;
   prompt?: string;
   enabled: boolean;
+  silent?: boolean;
   history: CronExecutionRecord[];
 };
 
@@ -34,6 +35,7 @@ export type CronJobInfo = {
   message: string | null;
   prompt: string | null;
   enabled: boolean;
+  silent: boolean;
   lastRun: string | null;
   nextRun: string | null;
   lastError: string | null;
@@ -175,7 +177,9 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
     if (!output.trim()) {
       throw new Error("LLM returned empty response — nothing to send");
     }
-    await sendToChannel(job.channelId, output);
+    if (!job.silent) {
+      await sendToChannel(job.channelId, output);
+    }
   } catch (err) {
     error = String(err);
     output = String(err);
@@ -239,8 +243,9 @@ export function startCron(): void {
       if (job.enabled) {
         const entry = schedulers.get(job.name);
         const nextRun = entry?.cron.nextRun()?.toISOString() ?? "none";
+        const target = job.silent ? "silent" : job.channelId;
         console.log(
-          `Cron [${job.name}]: scheduled "${job.schedule}" -> ${job.channelId} (next: ${nextRun})`,
+          `Cron [${job.name}]: scheduled "${job.schedule}" -> ${target} (next: ${nextRun})`,
         );
       }
     }
@@ -272,6 +277,7 @@ export function getCronJobs(): CronJobInfo[] {
       message: j.message ?? null,
       prompt: j.prompt ?? null,
       enabled: j.enabled,
+      silent: j.silent ?? false,
       lastRun: lastEntry?.timestamp ?? null,
       nextRun: entry?.cron.nextRun()?.toISOString() ?? null,
       lastError: lastEntry?.error ?? null,
@@ -288,11 +294,12 @@ export function createCronJob(params: {
   name: string;
   schedule: string;
   timezone?: string;
-  channelId: string;
+  channelId?: string;
   type: "static" | "llm";
   message?: string;
   prompt?: string;
   enabled?: boolean;
+  silent?: boolean;
 }): { success: boolean; error?: string } {
   const jobs = loadJobs();
 
@@ -314,15 +321,21 @@ export function createCronJob(params: {
     return { success: false, error: 'Type "static" requires a message' };
   }
 
+  // channelId is required unless the job is silent
+  if (!params.silent && !params.channelId) {
+    return { success: false, error: "channelId is required for non-silent jobs" };
+  }
+
   const newJob: PersistedCronJob = {
     name: params.name,
     schedule: params.schedule,
     timezone: params.timezone,
-    channelId: params.channelId,
+    channelId: params.channelId ?? "",
     type: params.type,
     message: params.message,
     prompt: params.prompt,
     enabled: params.enabled ?? true,
+    silent: params.silent ?? false,
     history: [],
   };
 
@@ -358,6 +371,7 @@ export function updateCronJob(
     message?: string;
     prompt?: string;
     enabled?: boolean;
+    silent?: boolean;
   },
 ): { found: boolean; error?: string } {
   const jobs = loadJobs();
@@ -383,6 +397,7 @@ export function updateCronJob(
   if (updates.message !== undefined) job.message = updates.message;
   if (updates.prompt !== undefined) job.prompt = updates.prompt;
   if (updates.enabled !== undefined) job.enabled = updates.enabled;
+  if (updates.silent !== undefined) job.silent = updates.silent;
 
   // Validate type/content consistency
   if (job.type === "llm" && !job.prompt) return { found: true, error: 'Type "llm" requires a prompt' };

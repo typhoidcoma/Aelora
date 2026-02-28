@@ -202,7 +202,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Create a new runtime cron job
   app.post("/api/cron", (req, res) => {
-    const { name, schedule, timezone, channelId, type, message, prompt, enabled } = req.body ?? {};
+    const { name, schedule, timezone, channelId, type, message, prompt, enabled, silent } = req.body ?? {};
 
     if (!name || typeof name !== "string") {
       res.status(400).json({ error: "name is required" });
@@ -212,8 +212,8 @@ export function startWeb(state: AppState): Server | null {
       res.status(400).json({ error: "schedule is required" });
       return;
     }
-    if (!channelId || typeof channelId !== "string") {
-      res.status(400).json({ error: "channelId is required" });
+    if (!silent && (!channelId || typeof channelId !== "string")) {
+      res.status(400).json({ error: "channelId is required for non-silent jobs" });
       return;
     }
     if (!type || !["static", "llm"].includes(type)) {
@@ -221,7 +221,7 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const result = createCronJob({ name, schedule, timezone, channelId, type, message, prompt, enabled });
+    const result = createCronJob({ name, schedule, timezone, channelId, type, message, prompt, enabled, silent: !!silent });
 
     if (!result.success) {
       res.status(400).json({ error: result.error });

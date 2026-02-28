@@ -48,10 +48,13 @@ export default defineTool({
     enabled: param.boolean(
       "Whether the job starts enabled. Defaults to true. Optional for create.",
     ),
+    silent: param.boolean(
+      "Run without sending output to Discord. History is still recorded. When true, channelId is not required. Defaults to false.",
+    ),
   },
 
   handler: async (
-    { action, name, schedule, timezone, channelId, type, message, prompt, enabled },
+    { action, name, schedule, timezone, channelId, type, message, prompt, enabled, silent },
     context,
   ) => {
     switch (action) {
@@ -85,10 +88,11 @@ export default defineTool({
         const next = job.nextRun ? job.nextRun : "not scheduled";
         const last = job.lastRun ? job.lastRun : "never run";
 
+        const dest = job.silent ? "silent (no channel output)" : `Channel: ${job.channelId}`;
         let detail =
           `**${job.name}** (${status})\n` +
           `Schedule: \`${job.schedule}\`${job.timezone ? ` (${job.timezone})` : ""}\n` +
-          `Type: ${job.type} | Channel: ${job.channelId}\n` +
+          `Type: ${job.type} | ${dest}\n` +
           `Next: ${next} | Last: ${last}`;
 
         if (job.type === "llm" && job.prompt) {
@@ -121,21 +125,23 @@ export default defineTool({
         if (!type) return "Error: type is required for create (\"static\" or \"llm\").";
 
         const targetChannel = channelId || context.channelId;
-        if (!targetChannel) return "Error: channelId is required. Specify a target Discord channel ID for this cron job.";
+        if (!silent && !targetChannel) return "Error: channelId is required for non-silent jobs. Specify a target Discord channel ID or set silent to true.";
 
         const result = createCronJob({
           name,
           schedule,
           timezone,
-          channelId: targetChannel,
+          channelId: targetChannel || undefined,
           type,
           message,
           prompt,
           enabled,
+          silent: silent ?? undefined,
         });
 
         if (!result.success) return `Error: ${result.error}`;
-        return `Cron job "${name}" created. Schedule: \`${schedule}\` | Type: ${type} | Channel: ${targetChannel}`;
+        const dest = silent ? "silent (no channel output)" : `Channel: ${targetChannel}`;
+        return `Cron job "${name}" created. Schedule: \`${schedule}\` | Type: ${type} | ${dest}`;
       }
 
       case "edit": {
@@ -149,6 +155,7 @@ export default defineTool({
         if (message !== undefined) updates.message = message;
         if (prompt !== undefined) updates.prompt = prompt;
         if (enabled !== undefined) updates.enabled = enabled;
+        if (silent !== undefined) updates.silent = silent;
 
         const result = updateCronJob(name, updates);
         if (!result.found) return `Error: job "${name}" not found.`;

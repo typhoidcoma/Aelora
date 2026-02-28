@@ -468,9 +468,9 @@
           </div>
         </div>
 
-        <!-- Row 3: Channel + Timezone -->
+        <!-- Row 3: Channel + Timezone + Silent -->
         <div class="cron-editor-row">
-          <div class="cron-editor-field">
+          <div class="cron-editor-field" id="ce-channel-field">
             <label>Channel</label>
             <select id="ce-channel">
               <option value="">Select a channel...</option>
@@ -479,6 +479,12 @@
           <div class="cron-editor-field">
             <label>Timezone</label>
             <input type="text" id="ce-timezone" placeholder="America/New_York (optional)">
+          </div>
+          <div class="cron-editor-field ce-silent-field">
+            <label>
+              <input type="checkbox" id="ce-silent" onchange="ceToggleSilent()"> Silent
+            </label>
+            <span class="muted small">No channel output</span>
           </div>
         </div>
 

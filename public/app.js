@@ -1568,7 +1568,7 @@ async function fetchCron() {
           <tr${j.enabled ? "" : ' class="disabled-row"'}>
             <td><code>${esc(j.name)}</code></td>
             <td title="${esc(j.schedule)}">${cronToHuman(j.schedule)}</td>
-            <td>${esc(j.type)}</td>
+            <td>${esc(j.type)}${j.silent ? ' <span class="muted">(silent)</span>' : ""}</td>
             <td>${j.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
             <td>${lastRun}</td>
             <td>${j.enabled ? nextRun : "--"}</td>
@@ -1677,6 +1677,8 @@ async function openCronEditor(name) {
       document.getElementById("ce-timezone").value = job.timezone || "";
       document.getElementById("ce-prompt").value = job.prompt || "";
       document.getElementById("ce-message").value = job.message || "";
+      document.getElementById("ce-silent").checked = !!job.silent;
+      ceToggleSilent();
 
       // Select channel in dropdown, or add it if not in list
       const channelSelect = document.getElementById("ce-channel");
@@ -1717,6 +1719,8 @@ async function openCronEditor(name) {
     document.getElementById("ce-prompt").value = "";
     document.getElementById("ce-message").value = "";
     document.getElementById("ce-channel").value = "";
+    document.getElementById("ce-silent").checked = false;
+    ceToggleSilent();
     document.getElementById("ce-freq").value = "daily";
     document.getElementById("ce-time").value = "09:00";
     document.getElementById("ce-interval").value = "5";
@@ -1791,6 +1795,11 @@ function ceToggleType() {
   const type = document.getElementById("ce-type").value;
   document.getElementById("ce-prompt-field").style.display = type === "llm" ? "" : "none";
   document.getElementById("ce-message-field").style.display = type === "static" ? "" : "none";
+}
+
+function ceToggleSilent() {
+  const silent = document.getElementById("ce-silent").checked;
+  document.getElementById("ce-channel-field").style.display = silent ? "none" : "";
 }
 
 function ceUpdateSchedule() {
@@ -1929,6 +1938,7 @@ function ceValidate() {
   const channelEl = document.getElementById("ce-channel");
   const channelId = channelEl ? channelEl.value.trim() : "";
   const type = document.getElementById("ce-type").value;
+  const silent = document.getElementById("ce-silent").checked;
 
   if (!isEdit && !name) return "Name is required";
   if (!schedule) return "Schedule is required";
@@ -1937,7 +1947,7 @@ function ceValidate() {
   const parts = schedule.split(/\s+/);
   if (parts.length !== 5) return "Schedule must be a valid cron expression (5 parts)";
 
-  if (!channelId || channelId === "__manual__") return "Channel is required";
+  if (!silent && (!channelId || channelId === "__manual__")) return "Channel is required (or enable Silent)";
 
   if (type === "llm") {
     const prompt = document.getElementById("ce-prompt").value.trim();
@@ -1967,12 +1977,14 @@ async function ceSubmit() {
 
   const isEdit = ceEditingName !== null;
   const channelEl = document.getElementById("ce-channel");
+  const silent = document.getElementById("ce-silent").checked;
   const body = {
     name: document.getElementById("ce-name").value.trim(),
     schedule: ceGetSchedule(),
     timezone: document.getElementById("ce-timezone").value.trim() || undefined,
-    channelId: channelEl ? channelEl.value.trim() : "",
+    channelId: silent ? undefined : (channelEl ? channelEl.value.trim() : ""),
     type: document.getElementById("ce-type").value,
+    silent,
   };
 
   if (body.type === "llm") {

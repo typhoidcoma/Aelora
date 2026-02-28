@@ -653,6 +653,25 @@ section {
   grid-column: 1 / -1;
 }
 
+.cron-editor-row:has(.ce-silent-field) {
+  grid-template-columns: 1fr 1fr auto;
+}
+.ce-silent-field {
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 5rem;
+}
+.ce-silent-field label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+.ce-silent-field .small {
+  font-size: 0.58rem;
+}
+
 .cron-editor-footer {
   display: flex;
   gap: 0.35rem;

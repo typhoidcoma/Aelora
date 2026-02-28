@@ -685,7 +685,12 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
-            stream = await client.chat.completions.create({ ...baseParams, stream: true });
+            try {
+              stream = await client.chat.completions.create({ ...baseParams, stream: true });
+            } catch (retryErr) {
+              console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
+              return "(I encountered a formatting issue and couldn't process that request.)";
+            }
           } else {
             console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
             return "(I encountered a formatting issue and couldn't process that request.)";
@@ -753,7 +758,12 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
-            completion = await client.chat.completions.create(baseParams);
+            try {
+              completion = await client.chat.completions.create(baseParams);
+            } catch (retryErr) {
+              console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
+              return "(I encountered a formatting issue and couldn't process that request.)";
+            }
           } else {
             console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
             return "(I encountered a formatting issue and couldn't process that request.)";

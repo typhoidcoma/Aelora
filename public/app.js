@@ -18,14 +18,40 @@ function showToast(message, type = "success") {
   }, 3000);
 }
 
-// --- Collapsible sections ---
+// --- Tab navigation ---
+function switchTab(tabName) {
+  document.querySelectorAll(".tab-pane").forEach((pane) => {
+    pane.classList.toggle("active", pane.dataset.tab === tabName);
+  });
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  localStorage.setItem("dashboard-tab", tabName);
+}
+
+// Restore saved tab on load
+(function restoreTab() {
+  const saved = localStorage.getItem("dashboard-tab");
+  if (saved) switchTab(saved);
+})();
+
+// --- Collapsible sections (with persistence) ---
 document.querySelectorAll(".section-header").forEach((header) => {
+  const section = header.dataset.section;
+  const body = document.querySelector(`.section-body[data-section="${section}"]`);
+
+  // Restore saved state
+  const saved = localStorage.getItem(`section-${section}`);
+  if (saved === "collapsed") {
+    body.classList.add("hidden");
+    header.classList.add("collapsed");
+  }
+
   header.addEventListener("click", (e) => {
     if (e.target.closest(".btn, select, input")) return;
-    const section = header.dataset.section;
-    const body = document.querySelector(`.section-body[data-section="${section}"]`);
     const isHidden = body.classList.toggle("hidden");
     header.classList.toggle("collapsed", isHidden);
+    localStorage.setItem(`section-${section}`, isHidden ? "collapsed" : "open");
   });
 });
 
@@ -317,6 +343,8 @@ function hideSessionDetail() {
 
 // --- Memory ---
 
+let memoryFactMap = {};
+
 async function fetchMemory() {
   try {
     const res = await apiFetch("/api/memory");
@@ -329,18 +357,22 @@ async function fetchMemory() {
       return;
     }
 
+    memoryFactMap = {};
     container.innerHTML = scopes
       .map((scope) => {
         const facts = data[scope];
         const label = scope.startsWith("user:") ? `User ${scope.slice(5)}` : scope.startsWith("channel:") ? `Channel ${scope.slice(8)}` : scope;
         const factRows = facts
           .map(
-            (f, i) =>
-              `<div class="memory-fact">
+            (f, i) => {
+              const key = `${scope}::${i}`;
+              memoryFactMap[key] = { scope, fact: f.fact, savedAt: f.savedAt };
+              return `<div class="memory-fact">
                 <span class="memory-fact-text">${esc(f.fact)}</span>
                 <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
-                <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(scope)}', ${i})">&times;</button>
-              </div>`,
+                <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>
+              </div>`;
+            },
           )
           .join("");
 
@@ -360,9 +392,28 @@ async function fetchMemory() {
   }
 }
 
-async function deleteMemoryFact(scope, index) {
+async function deleteMemoryFact(key) {
+  const entry = memoryFactMap[key];
+  if (!entry) {
+    showToast("Fact reference not found", "error");
+    fetchMemory();
+    return;
+  }
+
   try {
-    const res = await apiFetch(`/api/memory/${encodeURIComponent(scope)}/${index}`, { method: "DELETE" });
+    // Re-fetch current facts to find the correct index (guards against stale renders)
+    const listRes = await apiFetch("/api/memory");
+    const allFacts = await listRes.json();
+    const facts = allFacts[entry.scope] || [];
+    const currentIndex = facts.findIndex((f) => f.fact === entry.fact && f.savedAt === entry.savedAt);
+
+    if (currentIndex === -1) {
+      showToast("Fact no longer exists", "error");
+      fetchMemory();
+      return;
+    }
+
+    const res = await apiFetch(`/api/memory/${encodeURIComponent(entry.scope)}/${currentIndex}`, { method: "DELETE" });
     const data = await res.json();
 
     if (data.success) {
@@ -415,6 +466,11 @@ async function fetchPersonas() {
     const mood = await moodRes.json();
     const grid = document.getElementById("persona-cards");
     currentActivePersona = data.activePersona || null;
+
+    // Update page title with active persona
+    const activePerson = data.personas.find((p) => p.name === data.activePersona);
+    const displayTitle = activePerson?.botName || data.activePersona || "Aelora";
+    document.title = `${displayTitle} Dashboard`;
 
     let html = "";
     for (const p of data.personas) {
@@ -907,7 +963,7 @@ async function fetchTools() {
         (t) => `
       <tr>
         <td><code>${esc(t.name)}</code></td>
-        <td>${esc(t.description)}</td>
+        <td class="truncate-cell" title="${esc(t.description)}">${esc(t.description)}</td>
         <td>${t.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
         <td><button class="btn" onclick="toggleTool('${esc(t.name)}')">${t.enabled ? "Disable" : "Enable"}</button></td>
       </tr>`,
@@ -1290,7 +1346,7 @@ async function fetchAgents() {
         (a) => `
       <tr>
         <td><code>${esc(a.name)}</code></td>
-        <td>${esc(a.description)}</td>
+        <td class="truncate-cell" title="${esc(a.description)}">${esc(a.description)}</td>
         <td>${a.tools.length > 0 ? esc(a.tools.join(", ")) : '<span class="muted">none</span>'}</td>
         <td>${a.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
         <td><button class="btn" onclick="toggleAgent('${esc(a.name)}')">${a.enabled ? "Disable" : "Enable"}</button></td>
@@ -1327,6 +1383,8 @@ function entryKey(entry) {
   return `${entry.ts}|${entry.level}|${entry.message}`;
 }
 
+let consoleFilter = "all";
+
 function appendLogLine(entry) {
   const key = entryKey(entry);
   if (seenEntries.has(key)) return;
@@ -1334,10 +1392,17 @@ function appendLogLine(entry) {
 
   const output = document.getElementById("console-output");
   const line = document.createElement("div");
+  const level = entry.level || "info";
   line.className = "log-line";
+  line.dataset.level = level;
+
+  // Hide if current filter doesn't match
+  if (consoleFilter !== "all" && level !== consoleFilter) {
+    line.style.display = "none";
+  }
 
   const time = entry.ts ? formatTime(entry.ts) : "";
-  const levelClass = entry.level === "error" ? "log-error" : entry.level === "warn" ? "log-warn" : "";
+  const levelClass = level === "error" ? "log-error" : level === "warn" ? "log-warn" : "";
 
   line.innerHTML =
     `<span class="log-time">${esc(time)}</span>` +
@@ -1350,6 +1415,20 @@ function appendLogLine(entry) {
   }
 
   output.scrollTop = output.scrollHeight;
+}
+
+function setConsoleFilter(level) {
+  consoleFilter = level;
+  document.querySelectorAll(".console-filter").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.level === level);
+  });
+  document.querySelectorAll("#console-output .log-line").forEach((line) => {
+    if (level === "all" || line.dataset.level === level) {
+      line.style.display = "";
+    } else {
+      line.style.display = "none";
+    }
+  });
 }
 
 function clearConsole() {
@@ -1573,12 +1652,12 @@ async function fetchCron() {
             <td>${lastRun}</td>
             <td>${j.enabled ? nextRun : "--"}</td>
             <td>${statusDot}</td>
-            <td>
-              <button class="btn btn-xs" onclick="toggleCronJob('${esc(j.name)}')">${j.enabled ? "Disable" : "Enable"}</button>
-              <button class="btn btn-xs" onclick="triggerCronJob('${esc(j.name)}')">Run</button>
-              <button class="btn btn-xs" onclick="showCronHistory('${esc(j.name)}')">History</button>
-              <button class="btn btn-xs" onclick="openCronEditor('${esc(j.name)}')">Edit</button>
-              <button class="btn btn-danger btn-xs" onclick="deleteCronJob('${esc(j.name)}')">Delete</button>
+            <td class="action-icons">
+              <button class="btn-icon" onclick="toggleCronJob('${esc(j.name)}')" title="${j.enabled ? "Disable" : "Enable"}">${j.enabled ? "&#9208;" : "&#9654;"}</button>
+              <button class="btn-icon" onclick="triggerCronJob('${esc(j.name)}')" title="Run now">&#9889;</button>
+              <button class="btn-icon" onclick="showCronHistory('${esc(j.name)}')" title="History">&#8635;</button>
+              <button class="btn-icon" onclick="openCronEditor('${esc(j.name)}')" title="Edit">&#9998;</button>
+              <button class="btn-icon btn-icon-danger" onclick="deleteCronJob('${esc(j.name)}')" title="Delete">&#10005;</button>
             </td>
           </tr>`;
       })
@@ -1738,11 +1817,13 @@ function closeCronEditor() {
   document.getElementById("cron-editor").style.display = "none";
 }
 
-// Escape key to close
+// Escape key to close any open overlay
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    const overlay = document.getElementById("cron-editor");
-    if (overlay.style.display !== "none") closeCronEditor();
+    const cronEditor = document.getElementById("cron-editor");
+    if (cronEditor.style.display !== "none") { closeCronEditor(); return; }
+    const sessionOverlay = document.getElementById("session-overlay");
+    if (sessionOverlay.style.display !== "none") { hideSessionDetail(); return; }
   }
 });
 
@@ -2126,6 +2207,54 @@ function loadActivityPreview() {
   frame.src = "/activity/test.html";
 }
 
+// --- Polling management ---
+
+let pollIntervals = [];
+
+function refreshAll() {
+  fetchStatus();
+  fetchSessions();
+  fetchMemory();
+  fetchCron();
+  fetchTools();
+  fetchAgents();
+  fetchUsers();
+  fetchNotes();
+  fetchTodos();
+  fetchHeartbeat();
+}
+
+function startPolling() {
+  stopPolling();
+  pollIntervals = [
+    setInterval(fetchStatus, 5000),
+    setInterval(fetchSessions, 10000),
+    setInterval(fetchMemory, 10000),
+    setInterval(fetchCron, 10000),
+    setInterval(fetchTools, 10000),
+    setInterval(fetchAgents, 10000),
+    setInterval(fetchUsers, 10000),
+    setInterval(fetchNotes, 10000),
+    setInterval(fetchTodos, 30000),
+    setInterval(fetchHeartbeat, 10000),
+  ];
+}
+
+function stopPolling() {
+  pollIntervals.forEach(clearInterval);
+  pollIntervals = [];
+}
+
+// Pause polling when tab is hidden, resume when visible
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    refreshAll();
+    startPolling();
+  }
+});
+
 // --- Init ---
 checkAuth();
 fetchStatus();
@@ -2142,14 +2271,4 @@ fetchNotes();
 fetchTodos();
 fetchHeartbeat();
 initConsole();
-
-setInterval(fetchStatus, 5000);
-setInterval(fetchSessions, 10000);
-setInterval(fetchMemory, 10000);
-setInterval(fetchCron, 10000);
-setInterval(fetchTools, 10000);
-setInterval(fetchAgents, 10000);
-setInterval(fetchUsers, 10000);
-setInterval(fetchNotes, 10000);
-setInterval(fetchTodos, 30000);
-setInterval(fetchHeartbeat, 10000);
+startPolling();

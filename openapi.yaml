@@ -715,6 +715,15 @@ paths:
     delete:
       tags: [Persona]
       summary: Delete a persona file
+      description: |
+        Path can be provided either as a query parameter or in the request body.
+        Query parameter takes precedence if both are supplied.
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: Relative path (e.g. "aelora/notes.md"). Alternative to request body.
       requestBody:
         content:
           application/json:

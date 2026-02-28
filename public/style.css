@@ -240,6 +240,43 @@ body.resizing {
   margin-bottom: 0.5rem;
 }
 
+.console-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.console-filters {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.console-filter {
+  font-family: "Roboto", sans-serif;
+  font-size: 0.55rem;
+  font-weight: 500;
+  padding: 0.08rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  color: var(--text-subtle);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.console-filter:hover {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.console-filter.active {
+  background: rgba(242, 197, 114, 0.1);
+  border-color: rgba(242, 197, 114, 0.25);
+  color: var(--brand-gold);
+}
+
 .console-output {
   flex: 1;
   overflow-y: auto;
@@ -269,6 +306,56 @@ body.resizing {
 
 .console-output .log-error {
   color: var(--error);
+}
+
+/* --- Tab Navigation --- */
+
+.tab-bar {
+  display: flex;
+  gap: 0.35rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border-soft);
+  position: sticky;
+  top: 0;
+  background: var(--bg-void);
+  z-index: 10;
+  padding-top: 0.25rem;
+}
+
+.tab-btn {
+  font-family: "Roboto", sans-serif;
+  font-size: 0.65rem;
+  font-weight: 500;
+  padding: 0.2rem 0.65rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.tab-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-muted);
+  color: var(--text-secondary);
+}
+
+.tab-btn.active {
+  background: rgba(242, 197, 114, 0.12);
+  border-color: rgba(242, 197, 114, 0.3);
+  color: var(--brand-gold);
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
 }
 
 /* --- Sections --- */
@@ -842,6 +929,10 @@ tr:last-child td {
   border-bottom: none;
 }
 
+table tbody tr:hover {
+  background: var(--bg-elevated);
+}
+
 th {
   background: var(--bg-elevated);
   color: var(--text-subtle);
@@ -862,6 +953,13 @@ td code {
 
 .disabled-row {
   opacity: 0.4;
+}
+
+.truncate-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ok { color: var(--success); }
@@ -928,6 +1026,41 @@ pre {
 .btn-xs {
   font-size: 0.58rem;
   padding: 0.1rem 0.35rem;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+
+.btn-icon:hover {
+  background: var(--bg-soft);
+  border-color: var(--border-muted);
+  color: var(--text-secondary);
+}
+
+.btn-icon-danger:hover {
+  background: rgba(160, 92, 92, 0.2);
+  border-color: rgba(160, 92, 92, 0.35);
+  color: var(--error);
+}
+
+.action-icons {
+  display: flex;
+  gap: 0.2rem;
+  white-space: nowrap;
 }
 
 /* --- LLM Test --- */

@@ -26,6 +26,16 @@
   <div class="layout">
     <!-- Left: main panels -->
     <main>
+      <nav class="tab-bar">
+        <button class="tab-btn active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+        <button class="tab-btn" data-tab="data" onclick="switchTab('data')">Data</button>
+        <button class="tab-btn" data-tab="automation" onclick="switchTab('automation')">Automation</button>
+        <button class="tab-btn" data-tab="system" onclick="switchTab('system')">System</button>
+      </nav>
+
+      <!-- Tab: Overview -->
+      <div class="tab-pane active" data-tab="overview">
+
       <!-- Persona -->
       <section>
         <div class="section-header" data-section="persona">
@@ -149,6 +159,11 @@
         </div>
       </section>
 
+      </div><!-- /tab: overview -->
+
+      <!-- Tab: Data -->
+      <div class="tab-pane" data-tab="data">
+
       <!-- Sessions -->
       <section>
         <div class="section-header" data-section="sessions">
@@ -171,6 +186,70 @@
           <div id="memory-content" class="card"><span class="muted">Loading...</span></div>
         </div>
       </section>
+
+      <!-- Notes -->
+      <section>
+        <div class="section-header" data-section="notes">
+          <span class="chevron">&#9660;</span>
+          <h2>Notes</h2>
+          <button class="btn btn-primary btn-xs" onclick="showNoteForm()">+ New</button>
+        </div>
+        <div class="section-body" data-section="notes">
+          <!-- Create/edit form (hidden by default) -->
+          <div id="note-form" class="card" style="display: none; margin-bottom: 0.5rem;">
+            <div class="cron-form-grid">
+              <div class="form-row">
+                <label>Scope</label>
+                <input type="text" id="note-f-scope" placeholder="global, channel:123, user:456">
+              </div>
+              <div class="form-row">
+                <label>Title</label>
+                <input type="text" id="note-f-title" placeholder="my-note">
+              </div>
+              <div class="form-row">
+                <label>Content</label>
+                <textarea id="note-f-content" rows="4" placeholder="Note content..."></textarea>
+              </div>
+            </div>
+            <div class="cron-form-actions">
+              <button class="btn btn-primary" id="note-f-submit-btn" onclick="submitNote()">Save</button>
+              <button class="btn" onclick="hideNoteForm()">Cancel</button>
+            </div>
+          </div>
+
+          <div id="notes-content" class="card"><span class="muted">Loading...</span></div>
+        </div>
+      </section>
+
+      <!-- Users -->
+      <section>
+        <div class="section-header" data-section="users">
+          <span class="chevron">&#9660;</span>
+          <h2>Users</h2>
+        </div>
+        <div class="section-body" data-section="users">
+          <table>
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>User ID</th>
+                <th>Messages</th>
+                <th>First Seen</th>
+                <th>Last Seen</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="users-body">
+              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      </div><!-- /tab: data -->
+
+      <!-- Tab: Automation -->
+      <div class="tab-pane" data-tab="automation">
 
       <!-- Scheduled Tasks -->
       <section>
@@ -207,63 +286,6 @@
             </div>
             <div id="cron-history-body"></div>
           </div>
-        </div>
-      </section>
-
-      <!-- Tools -->
-      <section>
-        <div class="section-header" data-section="tools">
-          <span class="chevron">&#9660;</span>
-          <h2>Tools</h2>
-        </div>
-        <div class="section-body" data-section="tools">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Enabled</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="tools-body">
-              <tr><td colspan="4" class="muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Notes -->
-      <section>
-        <div class="section-header" data-section="notes">
-          <span class="chevron">&#9660;</span>
-          <h2>Notes</h2>
-          <button class="btn btn-primary btn-xs" onclick="showNoteForm()">+ New</button>
-        </div>
-        <div class="section-body" data-section="notes">
-          <!-- Create/edit form (hidden by default) -->
-          <div id="note-form" class="card" style="display: none; margin-bottom: 0.5rem;">
-            <div class="cron-form-grid">
-              <div class="form-row">
-                <label>Scope</label>
-                <input type="text" id="note-f-scope" placeholder="global, channel:123, user:456">
-              </div>
-              <div class="form-row">
-                <label>Title</label>
-                <input type="text" id="note-f-title" placeholder="my-note">
-              </div>
-              <div class="form-row">
-                <label>Content</label>
-                <textarea id="note-f-content" rows="4" placeholder="Note content..."></textarea>
-              </div>
-            </div>
-            <div class="cron-form-actions">
-              <button class="btn btn-primary" id="note-f-submit-btn" onclick="submitNote()">Save</button>
-              <button class="btn" onclick="hideNoteForm()">Cancel</button>
-            </div>
-          </div>
-
-          <div id="notes-content" class="card"><span class="muted">Loading...</span></div>
         </div>
       </section>
 
@@ -323,26 +345,29 @@
         </div>
       </section>
 
-      <!-- Users -->
+      </div><!-- /tab: automation -->
+
+      <!-- Tab: System -->
+      <div class="tab-pane" data-tab="system">
+
+      <!-- Tools -->
       <section>
-        <div class="section-header" data-section="users">
+        <div class="section-header" data-section="tools">
           <span class="chevron">&#9660;</span>
-          <h2>Users</h2>
+          <h2>Tools</h2>
         </div>
-        <div class="section-body" data-section="users">
+        <div class="section-body" data-section="tools">
           <table>
             <thead>
               <tr>
-                <th>Username</th>
-                <th>User ID</th>
-                <th>Messages</th>
-                <th>First Seen</th>
-                <th>Last Seen</th>
-                <th>Actions</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Enabled</th>
+                <th>Action</th>
               </tr>
             </thead>
-            <tbody id="users-body">
-              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            <tbody id="tools-body">
+              <tr><td colspan="4" class="muted">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -372,6 +397,8 @@
         </div>
       </section>
 
+      </div><!-- /tab: system -->
+
     </main>
 
     <div class="resize-handle" id="resize-handle"></div>
@@ -391,7 +418,14 @@
       <div class="sidebar-panel console-panel">
         <div class="console-header">
           <h3>Console</h3>
-          <button class="btn btn-xs" onclick="clearConsole()">Clear</button>
+          <div class="console-actions">
+            <div class="console-filters">
+              <button class="console-filter active" data-level="all" onclick="setConsoleFilter('all')">All</button>
+              <button class="console-filter" data-level="warn" onclick="setConsoleFilter('warn')">Warn</button>
+              <button class="console-filter" data-level="error" onclick="setConsoleFilter('error')">Error</button>
+            </div>
+            <button class="btn btn-xs" onclick="clearConsole()">Clear</button>
+          </div>
         </div>
         <div id="console-output" class="console-output"></div>
       </div>

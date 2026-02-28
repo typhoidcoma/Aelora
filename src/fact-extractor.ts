@@ -136,14 +136,21 @@ export async function extractFacts(
 
 // ── JSON extraction ─────────────────────────────────────
 
-/** Extract the first balanced top-level JSON object from text. */
+/** Extract the first balanced top-level JSON object from text, skipping braces inside strings. */
 function extractJson(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
+  let inString = false;
+  let escape = false;
   for (let i = start; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}") {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = inString; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
       depth--;
       if (depth === 0) return text.slice(start, i + 1);
     }

@@ -2,7 +2,7 @@ import { readdirSync, existsSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
-import type { Tool, ToolHandler, ToolContext } from "./tools/types.js";
+import { normalizeToolResult, type Tool, type ToolHandler, type ToolContext, type ToolResultObject } from "./tools/types.js";
 import type OpenAI from "openai";
 import { sendToChannel } from "./discord.js";
 import { loadToggleState, saveToolToggle } from "./state.js";
@@ -108,10 +108,10 @@ export async function executeTool(
   args: Record<string, unknown>,
   channelId: string | null,
   userId?: string | null,
-): Promise<string> {
+): Promise<ToolResultObject> {
   const tool = registry.get(toolName);
-  if (!tool) return `Error: unknown tool "${toolName}"`;
-  if (!tool.enabled) return `Error: tool "${toolName}" is currently disabled`;
+  if (!tool) return { text: `Error: unknown tool "${toolName}"` };
+  if (!tool.enabled) return { text: `Error: tool "${toolName}" is currently disabled` };
 
   const argSummary = Object.keys(args).length > 0
     ? Object.entries(args).map(([k, v]) => `${k}=${typeof v === "string" ? v.slice(0, 60) : JSON.stringify(v).slice(0, 60)}`).join(", ")
@@ -122,13 +122,25 @@ export async function executeTool(
   const start = Date.now();
 
   try {
-    const result = await tool.handler(args, context);
-    console.log(`Tools: "${toolName}" completed in ${Date.now() - start}ms (result: ${result.slice(0, 100)}${result.length > 100 ? "..." : ""})`);
+    const rawResult = await tool.handler(args, context);
+    const result = normalizeToolResult(rawResult);
+    console.log(`Tools: "${toolName}" completed in ${Date.now() - start}ms (result: ${result.text.slice(0, 100)}${result.text.length > 100 ? "..." : ""})`);
     return result;
   } catch (err) {
     console.error(`Tools: "${toolName}" failed after ${Date.now() - start}ms:`, err);
-    return `Error executing tool "${toolName}": ${String(err)}`;
+    return { text: `Error executing tool "${toolName}": ${String(err)}` };
   }
+}
+
+/** Execute a tool and return only the text result (for LLM/string consumers). */
+export async function executeToolText(
+  toolName: string,
+  args: Record<string, unknown>,
+  channelId: string | null,
+  userId?: string | null,
+): Promise<string> {
+  const result = await executeTool(toolName, args, channelId, userId);
+  return result.text;
 }
 
 export function toggleTool(name: string): { found: boolean; enabled: boolean } {

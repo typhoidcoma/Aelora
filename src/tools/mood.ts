@@ -45,6 +45,9 @@ export default defineTool({
     };
 
     saveMood(mood);
-    return `Mood updated to ${resolveLabel(mood)}.`;
+    return {
+      text: `Mood updated to ${resolveLabel(mood)}.`,
+      data: { action: "set_mood", label: resolveLabel(mood), ...mood },
+    };
   },
 });

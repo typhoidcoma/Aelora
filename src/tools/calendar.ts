@@ -188,7 +188,7 @@ async function listEvents(
   client: DAVClientInstance,
   calendarName: string | undefined,
   opts: { maxResults?: number; daysAhead?: number },
-): Promise<string> {
+): Promise<string | { text: string; data?: unknown }> {
   const calendars = await client.fetchCalendars();
   if (calendars.length === 0) return "No calendars found on this server.";
 
@@ -207,7 +207,7 @@ async function listEvents(
     },
   });
 
-  if (!objects || objects.length === 0) return "No upcoming events found.";
+  if (!objects || objects.length === 0) return { text: "No upcoming events found.", data: { action: "list", count: 0, events: [] } };
 
   const events = objects
     .filter((o) => o.data)
@@ -217,7 +217,18 @@ async function listEvents(
   const max = opts.maxResults ?? 10;
   const sliced = events.slice(0, max);
 
-  return formatEventList(sliced);
+  return {
+    text: formatEventList(sliced),
+    data: {
+      action: "list",
+      count: sliced.length,
+      events: sliced.map(e => ({
+        uid: e.uid, summary: e.summary, description: e.description || null,
+        location: e.location || null, dtstart: e.dtstart, dtend: e.dtend,
+        url: e.url, etag: e.etag,
+      })),
+    },
+  };
 }
 
 async function createEvent(
@@ -230,7 +241,7 @@ async function createEvent(
     startDateTime?: string;
     endDateTime?: string;
   },
-): Promise<string> {
+): Promise<string | { text: string; data?: unknown }> {
   if (!opts.summary) return "Error: summary is required for create.";
   if (!opts.startDateTime) return "Error: startDateTime is required for create.";
   if (!opts.endDateTime) return "Error: endDateTime is required for create.";
@@ -277,7 +288,13 @@ async function createEvent(
     etag,
   };
 
-  return `Event created!\n${formatSingleEvent(parsed)}`;
+  return {
+    text: "Event created!\n" + formatSingleEvent(parsed),
+    data: {
+      action: "create",
+      event: parsed,
+    },
+  };
 }
 
 async function updateEvent(
@@ -291,7 +308,7 @@ async function updateEvent(
     startDateTime?: string;
     endDateTime?: string;
   },
-): Promise<string> {
+): Promise<string | { text: string; data?: unknown }> {
   if (!opts.eventUrl) return "Error: eventUrl is required for update.";
 
   // Fetch current event data
@@ -341,13 +358,19 @@ async function updateEvent(
   }
 
   const parsed = parseICS(ics, opts.eventUrl, res.headers.get("etag") ?? currentEtag);
-  return `Event updated!\n${formatSingleEvent(parsed)}`;
+  return {
+    text: "Event updated!\n" + formatSingleEvent(parsed),
+    data: {
+      action: "update",
+      event: parsed,
+    },
+  };
 }
 
 async function deleteEvent(
   client: DAVClientInstance,
   opts: { eventUrl?: string; etag?: string },
-): Promise<string> {
+): Promise<string | { text: string; data?: unknown }> {
   if (!opts.eventUrl) return "Error: eventUrl is required for delete.";
 
   const res = await client.deleteCalendarObject({
@@ -361,7 +384,10 @@ async function deleteEvent(
     return `Error deleting event: ${res.status} ${res.statusText}`;
   }
 
-  return `Event deleted.`;
+  return {
+    text: "Event deleted.",
+    data: { action: "delete", eventUrl: opts.eventUrl },
+  };
 }
 
 // ============================================================

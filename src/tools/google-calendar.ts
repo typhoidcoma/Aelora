@@ -103,20 +103,20 @@ export default defineTool({
           const events = data.items ?? [];
 
           if (events.length === 0) {
-            return `No upcoming events in the next ${days} days.`;
+            return { text: `No upcoming events in the next ${days} days.`, data: { action: "list" as const, count: 0, events: [] } };
           }
 
-          let result = `Upcoming events (next ${days} days):\n`;
+          let text = `Upcoming events (next ${days} days):\n`;
           for (let i = 0; i < events.length; i++) {
             const e = events[i];
-            result += `\n${i + 1}. ${e.summary ?? "(no title)"}\n`;
-            result += `   When: ${formatEventTime(e.start)} → ${formatEventTime(e.end)}\n`;
-            if (e.location) result += `   Where: ${e.location}\n`;
-            if (e.description) result += `   Notes: ${e.description.slice(0, 150)}\n`;
-            result += `   ID: ${e.id}\n`;
+            text += `\n${i + 1}. ${e.summary ?? "(no title)"}\n`;
+            text += `   When: ${formatEventTime(e.start)} → ${formatEventTime(e.end)}\n`;
+            if (e.location) text += `   Where: ${e.location}\n`;
+            if (e.description) text += `   Notes: ${e.description.slice(0, 150)}\n`;
+            text += `   ID: ${e.id}\n`;
           }
 
-          return result;
+          return { text, data: { action: "list" as const, count: events.length, calendarId: cal, events: events.map(e => ({ id: e.id, summary: e.summary ?? null, description: e.description ?? null, location: e.location ?? null, start: e.start, end: e.end, htmlLink: e.htmlLink ?? null, status: e.status ?? null })) } };
         }
 
         // ── Create ───────────────────────────────────────────
@@ -149,13 +149,13 @@ export default defineTool({
           }
 
           const created = (await res.json()) as CalendarEvent;
-          let result = `Event created: ${created.summary}\n`;
-          result += `When: ${formatEventTime(created.start)} → ${formatEventTime(created.end)}\n`;
-          if (created.location) result += `Where: ${created.location}\n`;
-          result += `ID: ${created.id}\n`;
-          if (created.htmlLink) result += `Link: ${created.htmlLink}`;
+          let text = `Event created: ${created.summary}\n`;
+          text += `When: ${formatEventTime(created.start)} → ${formatEventTime(created.end)}\n`;
+          if (created.location) text += `Where: ${created.location}\n`;
+          text += `ID: ${created.id}\n`;
+          if (created.htmlLink) text += `Link: ${created.htmlLink}`;
 
-          return result;
+          return { text, data: { action: "create" as const, event: { id: created.id, summary: created.summary ?? null, description: created.description ?? null, location: created.location ?? null, start: created.start, end: created.end, htmlLink: created.htmlLink ?? null } } };
         }
 
         // ── Update ───────────────────────────────────────────
@@ -189,12 +189,12 @@ export default defineTool({
           }
 
           const updated = (await res.json()) as CalendarEvent;
-          let result = `Event updated: ${updated.summary}\n`;
-          result += `When: ${formatEventTime(updated.start)} → ${formatEventTime(updated.end)}\n`;
-          if (updated.location) result += `Where: ${updated.location}\n`;
-          result += `ID: ${updated.id}`;
+          let text = `Event updated: ${updated.summary}\n`;
+          text += `When: ${formatEventTime(updated.start)} → ${formatEventTime(updated.end)}\n`;
+          if (updated.location) text += `Where: ${updated.location}\n`;
+          text += `ID: ${updated.id}`;
 
-          return result;
+          return { text, data: { action: "update" as const, event: { id: updated.id, summary: updated.summary ?? null, description: updated.description ?? null, location: updated.location ?? null, start: updated.start, end: updated.end } } };
         }
 
         // ── Delete ───────────────────────────────────────────
@@ -212,7 +212,7 @@ export default defineTool({
             return `Error: failed to delete event (${res.status}).`;
           }
 
-          return `Event deleted (ID: ${eventId}).`;
+          return { text: `Event deleted (ID: ${eventId}).`, data: { action: "delete" as const, eventId } };
         }
 
         // ── Calendars ────────────────────────────────────────
@@ -230,15 +230,15 @@ export default defineTool({
             }[];
           };
 
-          let result = "Available Google Calendars:\n";
+          let text = "Available Google Calendars:\n";
           for (const c of data.items) {
             const primary = c.primary ? " (primary)" : "";
-            result += `\n  ${c.summary}${primary}\n`;
-            result += `  ID: ${c.id}\n`;
-            result += `  Access: ${c.accessRole}\n`;
+            text += `\n  ${c.summary}${primary}\n`;
+            text += `  ID: ${c.id}\n`;
+            text += `  Access: ${c.accessRole}\n`;
           }
 
-          return result;
+          return { text, data: { action: "calendars" as const, count: data.items.length, calendars: data.items.map(c => ({ id: c.id, summary: c.summary, primary: c.primary ?? false, accessRole: c.accessRole })) } };
         }
 
         default:

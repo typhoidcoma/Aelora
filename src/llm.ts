@@ -4,7 +4,7 @@ import type { Config } from "./config.js";
 import {
   getToolDefinitionsForOpenAI,
   getEnabledTools,
-  executeTool,
+  executeToolText,
 } from "./tool-registry.js";
 import { getMemoryForPrompt } from "./memory.js";
 import { buildMoodPromptSection } from "./mood.js";
@@ -800,7 +800,7 @@ async function runCompletionLoop(
         if (isAgent) {
           result = await agentRegistryCache!.executeAgent(toolCall.function.name, args, channelId);
         } else {
-          result = await executeTool(toolCall.function.name, args, channelId, userId);
+          result = await executeToolText(toolCall.function.name, args, channelId, userId);
         }
 
         toolResults.push({ name: toolCall.function.name, result });

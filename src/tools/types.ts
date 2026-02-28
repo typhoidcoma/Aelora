@@ -21,7 +21,23 @@ export type ToolContext = {
   sendToChannel: (channelId: string, text: string) => Promise<void>;
 };
 
-export type ToolResult = string;
+/**
+ * Structured tool result with optional machine-readable data.
+ * Handlers may return a plain string (backward compatible) or this object.
+ */
+export type ToolResultObject = {
+  text: string;
+  data?: unknown;
+};
+
+/** Handlers can return a plain string OR a ToolResultObject. */
+export type ToolResult = string | ToolResultObject;
+
+/** Normalize any ToolResult into the object form. */
+export function normalizeToolResult(result: ToolResult): ToolResultObject {
+  if (typeof result === "string") return { text: result };
+  return result;
+}
 
 export type ToolHandler = (
   args: Record<string, unknown>,
@@ -172,7 +188,7 @@ export type DefineToolOptions<P extends Record<string, ParamSchema>> = {
   /** Config keys from settings.yaml tools: section (e.g., ["gmail.clientId"]). */
   config?: string[];
   enabled?: boolean;
-  handler: (args: InferParams<P>, context: ToolContextWithConfig) => Promise<string>;
+  handler: (args: InferParams<P>, context: ToolContextWithConfig) => Promise<ToolResult>;
 };
 
 /**

@@ -104,15 +104,21 @@ export default defineTool({
       case "save": {
         if (!title) return "Error: title is required for save.";
         if (!content) return "Error: content is required for save.";
-        upsertNote(bucket, title, content);
-        return `Saved note "${title}" (${bucket === "global" ? "global" : "this channel"}).`;
+        const saved = upsertNote(bucket, title, content);
+        return {
+          text: `Saved note "${title}" (${bucket === "global" ? "global" : "this channel"}).`,
+          data: { action: "save", scope: bucket, title, note: saved },
+        };
       }
 
       case "get": {
         if (!title) return "Error: title is required for get.";
         const note = getNote(bucket, title);
         if (!note) return `No note found with title "${title}" in ${bucket === "global" ? "global" : "this channel"}.`;
-        return `**${title}**\n${note.content}\n\n_Saved: ${note.createdAt}${note.updatedAt !== note.createdAt ? ` | Updated: ${note.updatedAt}` : ""}_`;
+        return {
+          text: `**${title}**\n${note.content}\n\n_Saved: ${note.createdAt}${note.updatedAt !== note.createdAt ? ` | Updated: ${note.updatedAt}` : ""}_`,
+          data: { action: "get", scope: bucket, title, note },
+        };
       }
 
       case "list": {
@@ -132,15 +138,21 @@ export default defineTool({
           for (const t of globalNotes) lines.push(`- ${t}`);
         }
 
-        if (lines.length === 0) return "No notes saved yet.";
-        return lines.join("\n");
+        if (lines.length === 0) return { text: "No notes saved yet.", data: { action: "list", channel: [], global: [] } };
+        return {
+          text: lines.join("\n"),
+          data: { action: "list", scope: bucket, channel: channelNotes, global: globalNotes },
+        };
       }
 
       case "delete": {
         if (!title) return "Error: title is required for delete.";
         const deleted = deleteNote(bucket, title);
         if (!deleted) return `No note found with title "${title}" in ${bucket === "global" ? "global" : "this channel"}.`;
-        return `Deleted note "${title}".`;
+        return {
+          text: `Deleted note "${title}".`,
+          data: { action: "delete", scope: bucket, title },
+        };
       }
 
       default:

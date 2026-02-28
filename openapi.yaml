@@ -1838,6 +1838,12 @@ paths:
                     type: string
                   result:
                     type: string
+                    description: Human-readable text result (always present, backward compatible)
+                  data:
+                    description: >
+                      Structured JSON data for the tool response. Shape varies per tool and action.
+                      Present when the tool provides structured output. Omitted on error responses.
+                      Typically includes an `action` field and typed result objects.
         "400":
           description: Tool is disabled
           content:

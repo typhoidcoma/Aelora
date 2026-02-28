@@ -98,10 +98,13 @@ export default defineTool({
           };
 
           if (!data.files?.length) {
-            return `No Google Docs found matching: "${query}"`;
+            return {
+              text: `No Google Docs found matching: "${query}"`,
+              data: { action: "search", query, count: 0, documents: [] },
+            };
           }
 
-          let result = `Found ${data.files.length} doc(s) matching "${query}":\n`;
+          let text_ = `Found ${data.files.length} doc(s) matching "${query}":\n`;
           for (let i = 0; i < data.files.length; i++) {
             const f = data.files[i];
             const modified = new Date(f.modifiedTime).toLocaleDateString("en-US", {
@@ -110,13 +113,27 @@ export default defineTool({
               year: "numeric",
             });
             const owner = f.owners?.[0]?.displayName ?? "";
-            result += `\n${i + 1}. ${f.name}\n`;
-            result += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
-            result += `   ID: ${f.id}\n`;
-            result += `   Link: ${f.webViewLink}\n`;
+            text_ += `\n${i + 1}. ${f.name}\n`;
+            text_ += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
+            text_ += `   ID: ${f.id}\n`;
+            text_ += `   Link: ${f.webViewLink}\n`;
           }
 
-          return result;
+          return {
+            text: text_,
+            data: {
+              action: "search",
+              query,
+              count: data.files.length,
+              documents: data.files.map(f => ({
+                id: f.id,
+                name: f.name,
+                modifiedTime: f.modifiedTime,
+                link: f.webViewLink,
+                owner: f.owners?.[0]?.displayName ?? null,
+              })),
+            },
+          };
         }
 
         // ── Read ─────────────────────────────────────────────
@@ -132,20 +149,30 @@ export default defineTool({
           const doc = (await res.json()) as DocsDocument;
           const content = extractDocText(doc.body);
 
-          let result = `Document: ${doc.title}\n`;
-          result += `ID: ${doc.documentId}\n`;
-          result += `\n--- Content ---\n`;
+          let text_ = `Document: ${doc.title}\n`;
+          text_ += `ID: ${doc.documentId}\n`;
+          text_ += `\n--- Content ---\n`;
 
           if (!content) {
-            result += "(empty document)";
+            text_ += "(empty document)";
           } else if (content.length > 25000) {
-            result += content.slice(0, 25000);
-            result += `\n\n(content truncated — ${content.length} characters total)`;
+            text_ += content.slice(0, 25000);
+            text_ += `\n\n(content truncated — ${content.length} characters total)`;
           } else {
-            result += content;
+            text_ += content;
           }
 
-          return result;
+          return {
+            text: text_,
+            data: {
+              action: "read",
+              document: {
+                id: doc.documentId,
+                title: doc.title,
+                contentLength: content.length,
+              },
+            },
+          };
         }
 
         // ── Create ───────────────────────────────────────────
@@ -191,12 +218,22 @@ export default defineTool({
             }
           }
 
-          let result = `Document created: ${doc.title}\n`;
-          result += `ID: ${doc.documentId}\n`;
-          result += `Link: https://docs.google.com/document/d/${doc.documentId}/edit`;
-          if (text) result += `\nInitial content written (${text.length} chars).`;
+          let text_ = `Document created: ${doc.title}\n`;
+          text_ += `ID: ${doc.documentId}\n`;
+          text_ += `Link: https://docs.google.com/document/d/${doc.documentId}/edit`;
+          if (text) text_ += `\nInitial content written (${text.length} chars).`;
 
-          return result;
+          return {
+            text: text_,
+            data: {
+              action: "create",
+              document: {
+                id: doc.documentId,
+                title: doc.title,
+                link: `https://docs.google.com/document/d/${doc.documentId}/edit`,
+              },
+            },
+          };
         }
 
         // ── Edit ─────────────────────────────────────────────
@@ -250,7 +287,16 @@ export default defineTool({
             return `Error: failed to edit document (${res.status}): ${err.slice(0, 200)}`;
           }
 
-          return `Text inserted at ${position} of document (${text.length} chars).\nDocument ID: ${documentId}\nLink: https://docs.google.com/document/d/${documentId}/edit`;
+          return {
+            text: `Text inserted at ${position} of document (${text.length} chars).\nDocument ID: ${documentId}\nLink: https://docs.google.com/document/d/${documentId}/edit`,
+            data: {
+              action: "edit",
+              documentId,
+              position,
+              charsInserted: text.length,
+              link: `https://docs.google.com/document/d/${documentId}/edit`,
+            },
+          };
         }
 
         default:

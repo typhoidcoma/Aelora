@@ -105,18 +105,34 @@ export default defineTool({
           }
 
           const data = (await res.json()) as { items?: Task[] };
-          const tasks = data.items ?? [];
+          const items = data.items ?? [];
 
-          if (tasks.length === 0) {
-            return "No tasks found.";
+          if (items.length === 0) {
+            return { text: "No tasks found.", data: { action: "list", count: 0, tasks: [] } };
           }
 
-          let result = `Tasks (${tasks.length}):\n`;
-          for (let i = 0; i < tasks.length; i++) {
-            result += `\n${formatTask(tasks[i], i + 1)}\n`;
+          let text = `Tasks (${items.length}):\n`;
+          for (let i = 0; i < items.length; i++) {
+            text += `\n${formatTask(items[i], i + 1)}\n`;
           }
 
-          return result;
+          return {
+            text,
+            data: {
+              action: "list",
+              count: items.length,
+              taskListId: listId,
+              tasks: items.map(t => ({
+                id: t.id,
+                title: t.title,
+                notes: t.notes ?? null,
+                status: t.status,
+                due: t.due ?? null,
+                completed: t.completed ?? null,
+                updated: t.updated,
+              })),
+            },
+          };
         }
 
         // ── Add task ─────────────────────────────────────────
@@ -143,35 +159,42 @@ export default defineTool({
           }
 
           const created = (await res.json()) as Task;
-          let result = `Task added: ${created.title}`;
-          if (created.due) result += `\nDue: ${formatDate(created.due)}`;
-          if (created.notes) result += `\nNotes: ${created.notes}`;
-          result += `\nID: ${created.id}`;
+          let text = `Task added: ${created.title}`;
+          if (created.due) text += `\nDue: ${formatDate(created.due)}`;
+          if (created.notes) text += `\nNotes: ${created.notes}`;
+          text += `\nID: ${created.id}`;
 
-          return result;
+          return {
+            text,
+            data: {
+              action: "add",
+              task: { id: created.id, title: created.title, notes: created.notes ?? null, status: created.status, due: created.due ?? null },
+            },
+          };
         }
 
         // ── Add many tasks ─────────────────────────────────
         case "add_many": {
           if (!tasks) return "Error: tasks JSON array is required for add_many.";
 
-          let items: { title: string; notes?: string; dueDate?: string }[];
+          let parsedItems: { title: string; notes?: string; dueDate?: string }[];
           try {
-            items = JSON.parse(tasks);
+            parsedItems = JSON.parse(tasks);
           } catch {
             return "Error: tasks must be a valid JSON array.";
           }
 
-          if (!Array.isArray(items) || items.length === 0) {
+          if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
             return "Error: tasks must be a non-empty array.";
           }
 
-          const results: string[] = [];
+          const lines: string[] = [];
+          const createdTasks: { id: string; title: string; notes: string | null; status: string; due: string | null }[] = [];
           let added = 0;
 
-          for (const item of items) {
+          for (const item of parsedItems) {
             if (!item.title) {
-              results.push(`Skipped: missing title`);
+              lines.push(`Skipped: missing title`);
               continue;
             }
 
@@ -190,17 +213,21 @@ export default defineTool({
             );
 
             if (!res.ok) {
-              results.push(`Failed: ${item.title} (${res.status})`);
+              lines.push(`Failed: ${item.title} (${res.status})`);
             } else {
               const created = (await res.json()) as Task;
               let line = `Added: ${created.title}`;
               if (created.due) line += ` (due ${formatDate(created.due)})`;
-              results.push(line);
+              lines.push(line);
+              createdTasks.push({ id: created.id, title: created.title, notes: created.notes ?? null, status: created.status, due: created.due ?? null });
               added++;
             }
           }
 
-          return `Added ${added}/${items.length} tasks:\n${results.join("\n")}`;
+          return {
+            text: `Added ${added}/${parsedItems.length} tasks:\n${lines.join("\n")}`,
+            data: { action: "add_many", added, total: parsedItems.length, tasks: createdTasks },
+          };
         }
 
         // ── Complete task ────────────────────────────────────
@@ -223,7 +250,10 @@ export default defineTool({
           }
 
           const updated = (await res.json()) as Task;
-          return `Task completed: ${updated.title}`;
+          return {
+            text: `Task completed: ${updated.title}`,
+            data: { action: "complete", task: { id: updated.id, title: updated.title, status: updated.status } },
+          };
         }
 
         // ── Update task ──────────────────────────────────────
@@ -255,12 +285,18 @@ export default defineTool({
           }
 
           const updated = (await res.json()) as Task;
-          let result = `Task updated: ${updated.title}`;
-          if (updated.due) result += `\nDue: ${formatDate(updated.due)}`;
-          if (updated.notes) result += `\nNotes: ${updated.notes}`;
-          result += `\nID: ${updated.id}`;
+          let text = `Task updated: ${updated.title}`;
+          if (updated.due) text += `\nDue: ${formatDate(updated.due)}`;
+          if (updated.notes) text += `\nNotes: ${updated.notes}`;
+          text += `\nID: ${updated.id}`;
 
-          return result;
+          return {
+            text,
+            data: {
+              action: "update",
+              task: { id: updated.id, title: updated.title, notes: updated.notes ?? null, status: updated.status, due: updated.due ?? null },
+            },
+          };
         }
 
         // ── Delete task ──────────────────────────────────────
@@ -278,7 +314,10 @@ export default defineTool({
             return `Error: failed to delete task (${res.status}).`;
           }
 
-          return `Task deleted (ID: ${taskId}).`;
+          return {
+            text: `Task deleted (ID: ${taskId}).`,
+            data: { action: "delete", taskId },
+          };
         }
 
         // ── List task lists ──────────────────────────────────
@@ -293,17 +332,24 @@ export default defineTool({
           const lists = data.items ?? [];
 
           if (lists.length === 0) {
-            return "No task lists found.";
+            return { text: "No task lists found.", data: { action: "lists", count: 0, lists: [] } };
           }
 
-          let result = "Google Task Lists:\n";
+          let text = "Google Task Lists:\n";
           for (const l of lists) {
-            result += `\n  ${l.title}\n`;
-            result += `  ID: ${l.id}\n`;
-            result += `  Updated: ${formatDate(l.updated)}\n`;
+            text += `\n  ${l.title}\n`;
+            text += `  ID: ${l.id}\n`;
+            text += `  Updated: ${formatDate(l.updated)}\n`;
           }
 
-          return result;
+          return {
+            text,
+            data: {
+              action: "lists",
+              count: lists.length,
+              lists: lists.map(l => ({ id: l.id, title: l.title, updated: l.updated })),
+            },
+          };
         }
 
         default:

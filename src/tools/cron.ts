@@ -74,7 +74,7 @@ export default defineTool({
           );
         });
 
-        return `**Cron Jobs** (${jobs.length}):\n\n${lines.join("\n\n")}`;
+        return { text: `**Cron Jobs** (${jobs.length}):\n\n${lines.join("\n\n")}`, data: { action: "list", count: jobs.length, jobs } };
       }
 
       case "view": {
@@ -116,7 +116,7 @@ export default defineTool({
           detail += `\n\n**History:** none`;
         }
 
-        return detail;
+        return { text: detail, data: { action: "view", job } };
       }
 
       case "create": {
@@ -141,7 +141,7 @@ export default defineTool({
 
         if (!result.success) return `Error: ${result.error}`;
         const dest = silent ? "silent (no channel output)" : `Channel: ${targetChannel}`;
-        return `Cron job "${name}" created. Schedule: \`${schedule}\` | Type: ${type} | ${dest}`;
+        return { text: `Cron job "${name}" created. Schedule: \`${schedule}\` | Type: ${type} | ${dest}`, data: { action: "create", name, schedule, type, channelId: targetChannel || null, silent: silent ?? false } };
       }
 
       case "edit": {
@@ -160,7 +160,7 @@ export default defineTool({
         const result = updateCronJob(name, updates);
         if (!result.found) return `Error: job "${name}" not found.`;
         if (result.error) return `Error: ${result.error}`;
-        return `Cron job "${name}" updated successfully.`;
+        return { text: `Cron job "${name}" updated successfully.`, data: { action: "edit", name } };
       }
 
       case "toggle": {
@@ -168,7 +168,7 @@ export default defineTool({
 
         const result = toggleCronJob(name);
         if (!result.found) return `Error: job "${name}" not found.`;
-        return `Cron job "${name}" is now ${result.enabled ? "enabled" : "disabled"}.`;
+        return { text: `Cron job "${name}" is now ${result.enabled ? "enabled" : "disabled"}.`, data: { action: "toggle", name, enabled: result.enabled } };
       }
 
       case "trigger": {
@@ -177,7 +177,7 @@ export default defineTool({
         const result = await triggerCronJob(name);
         if (!result.found) return `Error: job "${name}" not found.`;
         if (result.error) return `Job "${name}" triggered but failed: ${result.error}`;
-        return `Job "${name}" triggered successfully.\nOutput: ${result.output ?? "(no output)"}`;
+        return { text: `Job "${name}" triggered successfully.\nOutput: ${result.output ?? "(no output)"}`, data: { action: "trigger", name, output: result.output ?? null } };
       }
 
       case "delete": {
@@ -186,7 +186,7 @@ export default defineTool({
         const result = deleteCronJob(name);
         if (!result.found) return `Error: job "${name}" not found.`;
         if (result.error) return `Error: ${result.error}`;
-        return `Cron job "${name}" deleted.`;
+        return { text: `Cron job "${name}" deleted.`, data: { action: "delete", name } };
       }
 
       default:

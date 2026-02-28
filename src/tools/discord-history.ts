@@ -50,7 +50,14 @@ export default defineTool({
           return `- **#${ch.name}** (${ch.id}) — ${category}`;
         });
 
-        return `**Text Channels** (${channels.length}):\n${lines.join("\n")}`;
+        return {
+          text: `**Text Channels** (${channels.length}):\n${lines.join("\n")}`,
+          data: {
+            action: "list_channels",
+            count: channels.length,
+            channels: channels.map(ch => ({ id: ch.id, name: ch.name, category: ch.parent?.name ?? null })),
+          },
+        };
       }
 
       case "fetch": {
@@ -64,9 +71,18 @@ export default defineTool({
           const result = await fetchChannelMessages(channelId, msgLimit, cutoff, skipBots);
           if (result.error) return `Error: ${result.error}`;
           if (result.messages.length === 0) {
-            return `No messages found in <#${channelId}> in the last ${hours} hour(s).`;
+            return { text: `No messages found in <#${channelId}> in the last ${hours} hour(s).`, data: { action: "fetch", channelId, count: 0, messages: [] } };
           }
-          return formatChannelBlock(result.channelName, channelId, result.messages);
+          return {
+            text: formatChannelBlock(result.channelName, channelId, result.messages),
+            data: {
+              action: "fetch",
+              channelId,
+              channelName: result.channelName,
+              count: result.messages.length,
+              messages: result.messages,
+            },
+          };
         }
 
         // All channels fetch
@@ -74,6 +90,7 @@ export default defineTool({
         if (channels.length === 0) return "No accessible text channels found.";
 
         const results: string[] = [];
+        const channelsData: { channelId: string; channelName: string; count: number; messages: FormattedMessage[] }[] = [];
         let totalMessages = 0;
 
         for (const ch of channels) {
@@ -81,17 +98,24 @@ export default defineTool({
           if (result.error || result.messages.length === 0) continue;
 
           results.push(formatChannelBlock(result.channelName, ch.id, result.messages));
+          channelsData.push({ channelId: ch.id, channelName: result.channelName, count: result.messages.length, messages: result.messages });
           totalMessages += result.messages.length;
         }
 
         if (results.length === 0) {
-          return `No messages found across any channels in the last ${hours} hour(s).`;
+          return { text: `No messages found across any channels in the last ${hours} hour(s).`, data: { action: "fetch", count: 0, channels: [] } };
         }
 
-        return (
-          `**Channel History** (${totalMessages} messages across ${results.length} channels, last ${hours}h):\n\n` +
-          results.join("\n\n---\n\n")
-        );
+        return {
+          text: `**Channel History** (${totalMessages} messages across ${results.length} channels, last ${hours}h):\n\n` +
+            results.join("\n\n---\n\n"),
+          data: {
+            action: "fetch",
+            totalMessages,
+            channelCount: results.length,
+            channels: channelsData,
+          },
+        };
       }
 
       default:

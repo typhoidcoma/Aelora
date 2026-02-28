@@ -674,8 +674,13 @@ export function startWeb(state: AppState): Server | null {
     }
 
     const result = await executeTool(name, args, channelId, userId);
-    const success = !result.startsWith("Error:");
-    res.json({ success, tool: name, result });
+    const success = !result.text.startsWith("Error:");
+    res.json({
+      success,
+      tool: name,
+      result: result.text,
+      ...(result.data !== undefined ? { data: result.data } : {}),
+    });
   });
 
   // Toggle a tool on/off

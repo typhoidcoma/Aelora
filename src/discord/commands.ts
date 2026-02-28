@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import { getLLMResponse, clearSession } from "../llm.js";
 import { deleteSession } from "../sessions.js";
-import { getAllTools, executeTool } from "../tool-registry.js";
+import { getAllTools, executeToolText } from "../tool-registry.js";
 import { buildResponseEmbed, buildErrorEmbed, buildToolListEmbed, buildSuccessEmbed, buildStreamingEmbed } from "./embeds.js";
 import { reboot } from "../lifecycle.js";
 import { saveFact, getFacts, clearScope } from "../memory.js";
@@ -282,7 +282,7 @@ async function handleWebSearch(
   await interaction.deferReply();
 
   try {
-    const result = await executeTool("web_search", { query, count }, interaction.channelId);
+    const result = await executeToolText("web_search", { query, count }, interaction.channelId);
 
     const embeds = buildResponseEmbed(result, "Brave Search");
 

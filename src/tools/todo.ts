@@ -391,12 +391,12 @@ export default defineTool({
         case "add": {
           if (!title) return "Error: title is required for add.";
           const item = await createTodo(client, calendarName, { title, description, priority, dueDate });
-          return `Added todo: ${formatTodo(item)}`;
+          return { text: "Added todo: " + formatTodo(item), data: { action: "add", todo: item } };
         }
 
         case "list": {
           const items = await listTodos(client, calendarName, status ?? "all");
-          if (items.length === 0) return "No todos found.";
+          if (items.length === 0) return { text: "No todos found.", data: { action: "list", count: 0, todos: [] } };
 
           const pending = items.filter((t) => !t.completed);
           const done = items.filter((t) => t.completed);
@@ -412,14 +412,14 @@ export default defineTool({
             for (const t of done) lines.push(formatTodo(t));
           }
 
-          return lines.join("\n");
+          return { text: lines.join("\n"), data: { action: "list", count: items.length, pending: pending.length, completed: done.length, todos: items } };
         }
 
         case "complete": {
           if (!todoId) return "Error: todoId is required for complete.";
           const item = await completeTodo(client, calendarName, todoId);
           if (!item) return `Error: no todo found with UID "${todoId}".`;
-          return `Completed: ${formatTodo(item)}`;
+          return { text: "Completed: " + formatTodo(item), data: { action: "complete", todo: item } };
         }
 
         case "update": {
@@ -436,14 +436,14 @@ export default defineTool({
 
           const item = await updateTodoItem(client, calendarName, todoId, updates);
           if (!item) return `Error: no todo found with UID "${todoId}".`;
-          return `Updated: ${formatTodo(item)}`;
+          return { text: "Updated: " + formatTodo(item), data: { action: "update", todo: item } };
         }
 
         case "delete": {
           if (!todoId) return "Error: todoId is required for delete.";
           const deleted = await deleteTodoItem(client, calendarName, todoId);
           if (!deleted) return `Error: no todo found with UID "${todoId}".`;
-          return `Deleted todo "${todoId}".`;
+          return { text: `Deleted todo "${todoId}".`, data: { action: "delete", todoId } };
         }
 
         default:

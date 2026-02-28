@@ -10,7 +10,11 @@ export default defineTool({
   },
 
   handler: async ({ message }) => {
+    const now = new Date().toISOString();
     const echo = message ? ` Echo: ${message}` : "";
-    return `Pong! Server time: ${new Date().toISOString()}${echo}`;
+    return {
+      text: `Pong! Server time: ${now}${echo}`,
+      data: { serverTime: now, echo: message ?? null },
+    };
   },
 });

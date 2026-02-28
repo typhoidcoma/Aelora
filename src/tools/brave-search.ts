@@ -58,7 +58,7 @@ export default defineTool({
     const results = data.web?.results;
 
     if (!results || results.length === 0) {
-      return `No results found for "${query}".`;
+      return { text: `No results found for "${query}".`, data: { action: "search", query, count: 0, results: [] } };
     }
 
     const lines = results.map((r, i) => {
@@ -66,6 +66,14 @@ export default defineTool({
       return `${i + 1}. [**${r.title}**](${r.url})${age}\n   ${r.description}`;
     });
 
-    return `Search results for "${query}":\n\n${lines.join("\n\n")}`;
+    return {
+      text: `Search results for "${query}":\n\n${lines.join("\n\n")}`,
+      data: {
+        action: "search",
+        query,
+        count: results.length,
+        results: results.map(r => ({ title: r.title, url: r.url, description: r.description, age: r.age ?? null })),
+      },
+    };
   },
 });

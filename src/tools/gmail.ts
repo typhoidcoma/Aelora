@@ -166,7 +166,7 @@ export default defineTool({
           };
 
           if (!searchData.messages?.length) {
-            return `No emails found matching: "${query}"`;
+            return { text: `No emails found matching: "${query}"`, data: { action: "search", query, count: 0, emails: [] } };
           }
 
           // Fetch metadata for each message
@@ -193,17 +193,17 @@ export default defineTool({
           );
 
           const total = searchData.resultSizeEstimate;
-          let result = `Found ${emails.length} email(s) matching "${query}"${total > emails.length ? ` (${total} total)` : ""}:\n`;
+          let text = `Found ${emails.length} email(s) matching "${query}"${total > emails.length ? ` (${total} total)` : ""}:\n`;
 
           for (let i = 0; i < emails.length; i++) {
             const e = emails[i];
-            result += `\n${i + 1}. ${e.subject}\n`;
-            result += `   From: ${e.from} — ${formatDate(e.date)}\n`;
-            result += `   Preview: ${e.snippet}\n`;
-            result += `   ID: ${e.id}\n`;
+            text += `\n${i + 1}. ${e.subject}\n`;
+            text += `   From: ${e.from} — ${formatDate(e.date)}\n`;
+            text += `   Preview: ${e.snippet}\n`;
+            text += `   ID: ${e.id}\n`;
           }
 
-          return result;
+          return { text, data: { action: "search", query, total, count: emails.length, emails } };
         }
 
         // ── Read ─────────────────────────────────────────────
@@ -220,17 +220,17 @@ export default defineTool({
           const headers = msg.payload.headers;
           const bodyText = extractBody(msg.payload);
 
-          let result = `Subject: ${getHeader(headers, "Subject") || "(no subject)"}\n`;
-          result += `From: ${getHeader(headers, "From")}\n`;
-          result += `To: ${getHeader(headers, "To")}\n`;
+          let text = `Subject: ${getHeader(headers, "Subject") || "(no subject)"}\n`;
+          text += `From: ${getHeader(headers, "From")}\n`;
+          text += `To: ${getHeader(headers, "To")}\n`;
           const ccVal = getHeader(headers, "Cc");
-          if (ccVal) result += `CC: ${ccVal}\n`;
-          result += `Date: ${formatDate(getHeader(headers, "Date"))}\n`;
-          result += `Labels: ${msg.labelIds?.join(", ") ?? "none"}\n`;
-          result += `\n--- Body ---\n${bodyText.slice(0, 4000)}`;
-          if (bodyText.length > 4000) result += "\n\n(body truncated — very long email)";
+          if (ccVal) text += `CC: ${ccVal}\n`;
+          text += `Date: ${formatDate(getHeader(headers, "Date"))}\n`;
+          text += `Labels: ${msg.labelIds?.join(", ") ?? "none"}\n`;
+          text += `\n--- Body ---\n${bodyText.slice(0, 4000)}`;
+          if (bodyText.length > 4000) text += "\n\n(body truncated — very long email)";
 
-          return result;
+          return { text, data: { action: "read", message: { id: msg.id, threadId: msg.threadId, subject: getHeader(headers, "Subject"), from: getHeader(headers, "From"), to: getHeader(headers, "To"), cc: getHeader(headers, "Cc") || null, date: getHeader(headers, "Date"), labels: msg.labelIds ?? [] } } };
         }
 
         // ── Send ─────────────────────────────────────────────
@@ -248,7 +248,7 @@ export default defineTool({
 
           if (!res.ok) return `Error: failed to send email (${res.status}).`;
           const sent = (await res.json()) as { id: string; threadId: string };
-          return `Email sent to ${to}.\nSubject: ${subject}\nMessage ID: ${sent.id}`;
+          return { text: `Email sent to ${to}.\nSubject: ${subject}\nMessage ID: ${sent.id}`, data: { action: "send", id: sent.id, threadId: sent.threadId, to, subject } };
         }
 
         // ── Reply ────────────────────────────────────────────
@@ -296,7 +296,7 @@ export default defineTool({
 
           if (!res.ok) return `Error: failed to send reply (${res.status}).`;
           const sent = (await res.json()) as { id: string };
-          return `Reply sent to ${to || replyTo}.\nSubject: ${replySubject}\nMessage ID: ${sent.id}`;
+          return { text: `Reply sent to ${to || replyTo}.\nSubject: ${replySubject}\nMessage ID: ${sent.id}`, data: { action: "reply", id: sent.id, to: to || replyTo, subject: replySubject } };
         }
 
         // ── Forward ──────────────────────────────────────────
@@ -339,7 +339,7 @@ export default defineTool({
 
           if (!res.ok) return `Error: failed to forward email (${res.status}).`;
           const sent = (await res.json()) as { id: string };
-          return `Email forwarded to ${to}.\nSubject: ${fwdSubject}\nMessage ID: ${sent.id}`;
+          return { text: `Email forwarded to ${to}.\nSubject: ${fwdSubject}\nMessage ID: ${sent.id}`, data: { action: "forward", id: sent.id, to, subject: fwdSubject } };
         }
 
         // ── Labels ───────────────────────────────────────────
@@ -360,19 +360,19 @@ export default defineTool({
           const system = data.labels.filter((l) => l.type === "system");
           const user = data.labels.filter((l) => l.type === "user");
 
-          let result = "Gmail Labels:\n\nSystem labels:\n";
+          let text = "Gmail Labels:\n\nSystem labels:\n";
           for (const l of system) {
-            result += `  ${l.name} (${l.messagesTotal ?? "?"} messages, ${l.messagesUnread ?? 0} unread)\n`;
+            text += `  ${l.name} (${l.messagesTotal ?? "?"} messages, ${l.messagesUnread ?? 0} unread)\n`;
           }
 
           if (user.length > 0) {
-            result += "\nUser labels:\n";
+            text += "\nUser labels:\n";
             for (const l of user) {
-              result += `  ${l.name}\n`;
+              text += `  ${l.name}\n`;
             }
           }
 
-          return result;
+          return { text, data: { action: "labels", system: system.map(l => ({ id: l.id, name: l.name, messagesTotal: l.messagesTotal ?? 0, messagesUnread: l.messagesUnread ?? 0 })), user: user.map(l => ({ id: l.id, name: l.name })) } };
         }
 
         // ── Modify ─────────────────────────────────────────
@@ -400,7 +400,7 @@ export default defineTool({
           const parts: string[] = [];
           if (addLabels) parts.push(`added: ${addLabels}`);
           if (removeLabels) parts.push(`removed: ${removeLabels}`);
-          return `Email modified (${parts.join(", ")}).\nCurrent labels: ${modified.labelIds.join(", ")}\nMessage ID: ${modified.id}`;
+          return { text: `Email modified (${parts.join(", ")}).\nCurrent labels: ${modified.labelIds.join(", ")}\nMessage ID: ${modified.id}`, data: { action: "modify", id: modified.id, labels: modified.labelIds, added: addLabels ? addLabels.split(",").map(l => l.trim()) : [], removed: removeLabels ? removeLabels.split(",").map(l => l.trim()) : [] } };
         }
 
         // ── Draft ────────────────────────────────────────────
@@ -418,7 +418,7 @@ export default defineTool({
 
           if (!res.ok) return `Error: failed to create draft (${res.status}).`;
           const draft = (await res.json()) as { id: string; message: { id: string } };
-          return `Draft created.\nTo: ${to}\nSubject: ${subject}\nDraft ID: ${draft.id}`;
+          return { text: `Draft created.\nTo: ${to}\nSubject: ${subject}\nDraft ID: ${draft.id}`, data: { action: "draft", draftId: draft.id, messageId: draft.message.id, to, subject } };
         }
 
         default:

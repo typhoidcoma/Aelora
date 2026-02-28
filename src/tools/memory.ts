@@ -45,7 +45,7 @@ export default defineTool({
 
         const result = saveFact(key, fact);
         if (!result.success) return `Error: ${result.error}`;
-        return `Remembered (${scope}): "${fact}"`;
+        return { text: `Remembered (${scope}): "${fact}"`, data: { action: "save", scope, fact } };
       }
 
       case "list": {
@@ -55,10 +55,10 @@ export default defineTool({
           const key = resolveKey(scope);
           if (!key) return `Error: no ${scope} context available.`;
           const facts = getFacts(key);
-          if (facts.length === 0) return `No facts stored for this ${scope}.`;
+          if (facts.length === 0) return { text: `No facts stored for this ${scope}.`, data: { action: "list", scope, count: 0, facts: [] } };
           lines.push(`**${scope} facts** (${facts.length}):`);
           facts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
-          return lines.join("\n");
+          return { text: lines.join("\n"), data: { action: "list", scope, count: facts.length, facts: facts.map((f, i) => ({ index: i, fact: f.fact })) } };
         }
 
         // No scope — show all available
@@ -86,8 +86,13 @@ export default defineTool({
           }
         }
 
-        if (lines.length === 0) return "No facts stored yet.";
-        return lines.join("\n");
+        if (lines.length === 0) return { text: "No facts stored yet.", data: { action: "list", count: 0, scopes: {} } };
+
+        const scopesData: Record<string, { fact: string }[]> = {};
+        if (globalFacts.length > 0) scopesData.global = globalFacts.map(f => ({ fact: f.fact }));
+        if (userId) { const userFacts2 = getFacts(`user:${userId}`); if (userFacts2.length > 0) scopesData.user = userFacts2.map(f => ({ fact: f.fact })); }
+        if (channelId) { const channelFacts2 = getFacts(`channel:${channelId}`); if (channelFacts2.length > 0) scopesData.channel = channelFacts2.map(f => ({ fact: f.fact })); }
+        return { text: lines.join("\n"), data: { action: "list", scopes: scopesData } };
       }
 
       case "forget": {
@@ -98,7 +103,7 @@ export default defineTool({
 
         const ok = deleteFact(key, index as number);
         if (!ok) return `Error: invalid index ${index}. Use 'list' to see available facts.`;
-        return `Forgot fact #${index} from ${scope}.`;
+        return { text: `Forgot fact #${index} from ${scope}.`, data: { action: "forget", scope, index } };
       }
 
       case "clear": {
@@ -107,8 +112,8 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const count = clearScope(key);
-        if (count === 0) return `No facts to clear for this ${scope}.`;
-        return `Cleared ${count} fact(s) from ${scope}.`;
+        if (count === 0) return { text: `No facts to clear for this ${scope}.`, data: { action: "clear", scope, cleared: 0 } };
+        return { text: `Cleared ${count} fact(s) from ${scope}.`, data: { action: "clear", scope, cleared: count } };
       }
 
       case "search": {
@@ -135,8 +140,8 @@ export default defineTool({
           }
         }
 
-        if (lines.length === 0) return `No results found for "${query}".`;
-        return lines.join("\n");
+        if (lines.length === 0) return { text: `No results found for "${query}".`, data: { action: "search", query, facts: [], logs: [] } };
+        return { text: lines.join("\n"), data: { action: "search", query, facts: factResults.slice(0, 20).map(r => ({ scope: r.scope, index: r.index, fact: r.fact.fact })), logs: logResults.map(r => ({ date: r.date, excerpt: r.excerpt })) } };
       }
 
       case "log": {
@@ -145,11 +150,11 @@ export default defineTool({
         if (!content) {
           const available = listLogDates().slice(0, 10);
           if (available.length === 0) return "No daily logs exist yet.";
-          return `No log for ${targetDate ?? "today"}. Available dates: ${available.join(", ")}`;
+          return { text: `No log for ${targetDate ?? "today"}. Available dates: ${available.join(", ")}`, data: { action: "log", date: targetDate ?? null, available } };
         }
         // Cap output to avoid overwhelming the LLM context
         const capped = content.length > 3000 ? content.slice(-3000) + "\n_(truncated — oldest entries omitted)_" : content;
-        return `**Daily log for ${targetDate ?? "today"}:**\n\n${capped}`;
+        return { text: `**Daily log for ${targetDate ?? "today"}:**\n\n${capped}`, data: { action: "log", date: targetDate ?? null } };
       }
 
       default:

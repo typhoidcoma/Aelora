@@ -905,6 +905,10 @@ This design eliminates issues with ESM module duplication where multiple module 
 
 LLM-type jobs have full tool support — the LLM can call tools while generating the response.
 
+### Silent Mode
+
+Jobs can be created with `silent: true` to skip sending output to Discord. The job still executes (static or LLM), history is still recorded, but `sendToChannel()` is not called. When silent, `channelId` is not required. Useful for background tasks like periodic memory compaction or data cleanup.
+
 ### Timezone Handling
 
 Jobs use the global `timezone` from `settings.yaml` by default (set via `process.env.TZ` at startup). Individual jobs can override with a per-job `timezone` field.
@@ -923,7 +927,7 @@ Jobs persist to `data/cron-jobs.json` and are restored on restart. Each job main
 1. Cron timer fires → `executeJob(name)`
 2. Load job from file by name (gets latest prompt/message)
 3. Resolve payload (static message or LLM call)
-4. Send to Discord channel
+4. Send to Discord channel (skipped if `silent: true`)
 5. Re-load file (in case changes happened during async LLM call)
 6. Append history record, cap at 10 entries
 7. Save atomically

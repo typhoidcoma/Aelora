@@ -155,6 +155,9 @@ components:
           description: LLM prompt (when type=llm)
         enabled:
           type: boolean
+        silent:
+          type: boolean
+          description: When true, job runs without sending output to Discord. History is still recorded.
         lastRun:
           type: string
           format: date-time
@@ -863,6 +866,7 @@ paths:
                   type: string
                 channelId:
                   type: string
+                  description: Required unless silent is true
                 type:
                   type: string
                   enum: [static, llm]
@@ -872,7 +876,10 @@ paths:
                   type: string
                 enabled:
                   type: boolean
-              required: [name, schedule, channelId, type]
+                silent:
+                  type: boolean
+                  description: Run without sending output to Discord
+              required: [name, schedule, type]
       responses:
         "200":
           description: Created
@@ -917,6 +924,8 @@ paths:
                   type: string
                 prompt:
                   type: string
+                silent:
+                  type: boolean
       responses:
         "200":
           description: Updated

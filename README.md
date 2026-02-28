@@ -16,7 +16,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **CalDAV Calendar** — Full CRUD for calendar events via CalDAV (Radicale)
 - **CalDAV Todos** — Task management backed by CalDAV VTODO — syncs with any CalDAV client (Thunderbird, DAVx5, iOS)
 - **Notes** — Persistent note storage scoped to channels or global
-- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, file-based persistence, runtime CRUD
+- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, silent mode (no channel output), file-based persistence, runtime CRUD
 - **Sessions** — Conversation session tracking with metadata, persisted to disk
 - **Daily Log** — Automatic daily activity logging
 - **User Profiles** — Automatic per-user tracking across all channels with cascading delete

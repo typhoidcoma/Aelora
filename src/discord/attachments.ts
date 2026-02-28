@@ -20,6 +20,7 @@ const IMAGE_MIME_TYPES = new Set([
 ]);
 
 const MAX_TEXT_FILE_SIZE = 100_000; // 100 KB
+const MAX_IMAGE_SIZE = 20_000_000; // 20 MB
 
 // Models known NOT to support vision — everything else is assumed vision-capable.
 const TEXT_ONLY_MODEL_PATTERNS = [
@@ -61,10 +62,26 @@ export async function processAttachments(
     const mime = attachment.contentType ?? "";
 
     if (visionEnabled && IMAGE_MIME_TYPES.has(mime)) {
-      imageParts.push({
-        type: "image_url",
-        image_url: { url: attachment.url, detail: "auto" },
-      });
+      if (attachment.size > MAX_IMAGE_SIZE) {
+        textParts.push(
+          `[Attached image "${attachment.name}" is too large (${(attachment.size / 1024 / 1024).toFixed(1)} MB, limit ${MAX_IMAGE_SIZE / 1024 / 1024} MB)]`,
+        );
+        continue;
+      }
+      try {
+        const resp = await fetch(attachment.url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = Buffer.from(await resp.arrayBuffer());
+        const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
+        imageParts.push({
+          type: "image_url",
+          image_url: { url: dataUri, detail: "auto" },
+        });
+      } catch (err) {
+        textParts.push(
+          `[Failed to download image "${attachment.name}": ${String(err)}]`,
+        );
+      }
     } else if (TEXT_EXTENSIONS.has(ext)) {
       if (attachment.size > MAX_TEXT_FILE_SIZE) {
         textParts.push(

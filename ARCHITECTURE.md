@@ -60,7 +60,7 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  notes · memory         gmail                   brave-search       ║
   ║  mood · cron            google-calendar                            ║
   ║  ping                   google-tasks             CalDAV            ║
-  ║                         google-docs              ──────            ║
+  ║  discord_history        google-docs              ──────            ║
   ║                                                  calendar · todo   ║
   ╚════════╤════════════════════╤════════════════════════╤═════════════╝
            │                    │                        │
@@ -486,6 +486,7 @@ Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or t
 | `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
 | `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
+| `discord_history` | Fetch recent message history from Discord text channels | none |
 
 ---
 

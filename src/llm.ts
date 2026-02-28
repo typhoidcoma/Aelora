@@ -681,10 +681,15 @@ async function runCompletionLoop(
       try {
         stream = await client.chat.completions.create({ ...baseParams, stream: true });
       } catch (err) {
-        if (baseParams.tools && isToolTemplateError(err)) {
-          console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
-          delete baseParams.tools;
-          stream = await client.chat.completions.create({ ...baseParams, stream: true });
+        if (isToolTemplateError(err)) {
+          if (baseParams.tools) {
+            console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+            delete baseParams.tools;
+            stream = await client.chat.completions.create({ ...baseParams, stream: true });
+          } else {
+            console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
+            return "(I encountered a formatting issue and couldn't process that request.)";
+          }
         } else {
           throw err;
         }
@@ -744,10 +749,15 @@ async function runCompletionLoop(
       try {
         completion = await client.chat.completions.create(baseParams);
       } catch (err) {
-        if (baseParams.tools && isToolTemplateError(err)) {
-          console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
-          delete baseParams.tools;
-          completion = await client.chat.completions.create(baseParams);
+        if (isToolTemplateError(err)) {
+          if (baseParams.tools) {
+            console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+            delete baseParams.tools;
+            completion = await client.chat.completions.create(baseParams);
+          } else {
+            console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
+            return "(I encountered a formatting issue and couldn't process that request.)";
+          }
         } else {
           throw err;
         }
@@ -879,7 +889,11 @@ async function runCorrectionPass(
       }
     }
   } catch (err) {
-    console.error("LLM: correction pass failed:", err);
+    if (isToolTemplateError(err)) {
+      console.warn("LLM: correction pass skipped (template incompatibility)");
+    } else {
+      console.error("LLM: correction pass failed:", err);
+    }
   }
 
   // Fall back to original if correction fails

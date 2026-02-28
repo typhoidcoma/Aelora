@@ -175,11 +175,16 @@ export default defineTool({
   params: {
     input: param.string("The input to process.", { required: true }),
   },
-  handler: async (args, ctx) => {
-    return `Processed: ${args.input}`;
+  handler: async ({ input }) => {
+    return {
+      text: `Processed: ${input}`,          // shown to the LLM
+      data: { input, processedAt: new Date().toISOString() },  // returned via REST API
+    };
   },
 });
 ```
+
+Handlers return `{ text, data }` — the `text` goes to the LLM, while `data` is included as structured JSON in REST API responses. Plain string returns still work for simple tools.
 
 Tools prefixed with `_` are skipped (use for examples/templates).
 

@@ -9,6 +9,7 @@
  * - requireContext() for context validation
  * - param.object() for structured data
  * - param.date() for date parameters
+ * - Structured output with { text, data } returns
  * - Standard error formatting ("Error: ...")
  *
  * To use as a real tool:
@@ -64,14 +65,20 @@ export default defineTool({
 
         // ... your create logic here ...
 
-        return `Created task "${title}" for user ${userId}.` +
-          (due ? ` Due: ${due.toISOString()}.` : "") +
-          ` Priority: ${priority}. Tags: ${tags.length > 0 ? tags.join(", ") : "none"}.`;
+        return {
+          text: `Created task "${title}" for user ${userId}.` +
+            (due ? ` Due: ${due.toISOString()}.` : "") +
+            ` Priority: ${priority}. Tags: ${tags.length > 0 ? tags.join(", ") : "none"}.`,
+          data: { action: "create", title, userId, dueDate: due?.toISOString() ?? null, priority, tags },
+        };
       }
 
       case "list": {
         // ... your list logic here ...
-        return `Tasks for user ${userId}:\n(implement your list logic)`;
+        return {
+          text: `Tasks for user ${userId}:\n(implement your list logic)`,
+          data: { action: "list", userId, tasks: [] },
+        };
       }
 
       case "complete": {
@@ -79,7 +86,10 @@ export default defineTool({
           return "Error: taskIndex is required for complete.";
         }
         // ... your complete logic here ...
-        return `Completed task #${taskIndex}.`;
+        return {
+          text: `Completed task #${taskIndex}.`,
+          data: { action: "complete", taskIndex },
+        };
       }
 
       case "delete": {
@@ -87,7 +97,10 @@ export default defineTool({
           return "Error: taskIndex is required for delete.";
         }
         // ... your delete logic here ...
-        return `Deleted task #${taskIndex}.`;
+        return {
+          text: `Deleted task #${taskIndex}.`,
+          data: { action: "delete", taskIndex },
+        };
       }
 
       default:

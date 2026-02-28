@@ -398,7 +398,10 @@ export default defineTool({
     // args is typed: { action, title, count, tags, draft }
     // ctx.toolConfig has resolved config values
     // ctx.channelId, ctx.sendToChannel() available
-    return "result string";
+    return {
+      text: "Human-readable result for the LLM.",
+      data: { action: args.action, title: args.title },
+    };
   },
 });
 ```
@@ -443,6 +446,37 @@ handler: async (args, ctx) => {
 }
 ```
 
+#### Structured Output (ToolResult)
+
+Tool handlers return a `ToolResult`: either a plain string (backward compatible) or a `{ text, data }` object.
+
+```typescript
+// Plain string (still works — normalized internally)
+return "Pong! Server time: 2025-03-15T10:00:00Z";
+
+// Structured output (preferred for all new tools)
+return {
+  text: "Pong! Server time: 2025-03-15T10:00:00Z",  // sent to the LLM
+  data: { serverTime: "2025-03-15T10:00:00Z" },      // included in REST API response
+};
+```
+
+**Types** (defined in `src/tools/types.ts`):
+
+```typescript
+type ToolResultObject = { text: string; data?: unknown };
+type ToolResult = string | ToolResultObject;
+```
+
+**How results are consumed:**
+
+| Consumer | Function | Gets |
+|---|---|---|
+| LLM tool loop (`llm.ts`) | `executeToolText()` | `text` string only |
+| REST API (`/api/tools/:name/execute`) | `executeTool()` | `{ success, tool, result, data? }` |
+
+`normalizeToolResult()` converts both forms to `ToolResultObject`. The `data` field is omitted from the REST response when `undefined`. Error returns can stay as plain strings — `normalizeToolResult()` wraps them automatically.
+
 #### Multi-Action Tool Pattern
 
 Most tools use a single `action` enum param with a `switch` statement. See `src/tools/_example-multi-action.ts` for a complete template. Key conventions:
@@ -469,6 +503,65 @@ If required config keys are missing, the tool returns an error message instead o
 ### Runtime Toggle
 
 Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or the web dashboard. Changes are in-memory only (revert on restart).
+
+### REST API Tool Execution
+
+Tools can be called directly via the REST API, bypassing the LLM. Useful for integrations, dashboards, and automated workflows.
+
+**Endpoint:** `POST /api/tools/:name/execute`
+
+**Request:**
+```json
+{
+  "args": { "action": "save", "scope": "global", "fact": "Project deadline is March 30" },
+  "channelId": "optional-discord-channel-id",
+  "userId": "optional-discord-user-id"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tool": "memory",
+  "result": "Remembered (global): \"Project deadline is March 30\"",
+  "data": {
+    "action": "save",
+    "scope": "global",
+    "fact": "Project deadline is March 30"
+  }
+}
+```
+
+The `result` field is always a human-readable string. The `data` field contains structured JSON when the tool provides it (omitted on errors).
+
+**Examples:**
+
+```bash
+# Ping (test connectivity)
+curl -X POST http://localhost:3000/api/tools/ping/execute \
+  -H "Content-Type: application/json" \
+  -d '{"args": {"message": "hello"}}'
+
+# List Google Tasks
+curl -X POST http://localhost:3000/api/tools/google_tasks/execute \
+  -H "Content-Type: application/json" \
+  -d '{"args": {"action": "list"}}'
+
+# Save a note
+curl -X POST http://localhost:3000/api/tools/notes/execute \
+  -H "Content-Type: application/json" \
+  -d '{"args": {"action": "save", "title": "shopping", "content": "Eggs, milk, bread", "scope": "global"}}'
+
+# Search memory facts and daily logs
+curl -X POST http://localhost:3000/api/tools/memory/execute \
+  -H "Content-Type: application/json" \
+  -d '{"args": {"action": "search", "query": "deadline"}}'
+```
+
+**Authentication:** If `web.apiKey` is configured in `settings.yaml`, include `Authorization: Bearer <key>` in all requests.
+
+**Discovery:** `GET /api/tools` lists all tools with their parameter schemas. `GET /api/tools/:name` returns a single tool's details.
 
 ### Current Tools
 

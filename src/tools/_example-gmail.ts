@@ -1,7 +1,8 @@
 /**
  * _example-gmail.ts — Example tool template
  *
- * Shows how to build an API-integrated tool using defineTool().
+ * Shows how to build an API-integrated tool using defineTool() with
+ * structured output ({ text, data } returns).
  * This file is SKIPPED by the tool registry (underscore prefix).
  *
  * To use as a real tool:
@@ -121,6 +122,10 @@ export default defineTool({
       }),
     );
 
-    return JSON.stringify(emails, null, 2);
+    const summary = emails.map((e) => `- ${e.subject} (from: ${e.from})`).join("\n");
+    return {
+      text: `Found ${emails.length} email(s) matching "${query}":\n${summary}`,
+      data: { query, count: emails.length, emails },
+    };
   },
 });

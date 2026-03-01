@@ -441,6 +441,13 @@
     </div>
   </div>
 
+  <!-- User detail popout -->
+  <div id="user-overlay" class="overlay" style="display: none;" onclick="if(event.target===this)hideUserDetail()">
+    <div class="overlay-window">
+      <div id="user-overlay-body"></div>
+    </div>
+  </div>
+
   <!-- Cron editor modal -->
   <div id="cron-editor" class="overlay" style="display: none;">
     <div class="overlay-window cron-editor-window">

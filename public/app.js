@@ -1010,13 +1010,13 @@ async function fetchUsers() {
     tbody.innerHTML = users
       .map(
         (u) => `
-      <tr>
+      <tr onclick="showUserDetail('${esc(u.userId)}')" style="cursor:pointer">
         <td>${esc(u.username)}</td>
         <td><code>${esc(u.userId)}</code></td>
         <td>${u.messageCount}</td>
         <td>${timeAgo(u.firstSeen)}</td>
         <td>${timeAgo(u.lastSeen)}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="deleteUserDash('${esc(u.userId)}')">&times;</button></td>
+        <td><button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteUserDash('${esc(u.userId)}')">&times;</button></td>
       </tr>`,
       )
       .join("");
@@ -1037,6 +1037,109 @@ async function deleteUserDash(userId) {
       fetchUsers();
     } else {
       showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function showUserDetail(userId) {
+  try {
+    const res = await apiFetch(`/api/users/${encodeURIComponent(userId)}`);
+    if (!res.ok) {
+      showToast("User not found", "error");
+      fetchUsers();
+      return;
+    }
+    const u = await res.json();
+
+    // Channels list
+    const channels = u.channels || [];
+    const channelsHtml = channels.length > 0
+      ? channels.map((ch) => `<code class="user-channel-tag">${esc(ch)}</code>`).join(" ")
+      : '<span class="muted">No channels recorded</span>';
+
+    // Facts list
+    let factsHtml = "";
+    if (u.facts && u.facts.length > 0) {
+      factsHtml = u.facts
+        .map(
+          (f, i) => `
+          <div class="memory-fact">
+            <span class="memory-fact-text">${esc(f.fact)}</span>
+            <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
+            <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteUserFact('${esc(userId)}', ${i})">&times;</button>
+          </div>`,
+        )
+        .join("");
+    } else {
+      factsHtml = '<span class="muted">No facts stored</span>';
+    }
+
+    const factHeader = u.facts && u.facts.length > 0
+      ? `<div class="user-section-header"><h3>Facts (${u.facts.length})</h3><button class="btn btn-danger btn-xs" onclick="clearUserFacts('${esc(userId)}')">Clear All</button></div>`
+      : "<h3>Facts</h3>";
+
+    document.getElementById("user-overlay-body").innerHTML = `
+      <div class="user-detail-header">
+        <h3>${esc(u.username)}</h3>
+        <button class="btn btn-xs" onclick="hideUserDetail()">&times;</button>
+      </div>
+
+      <div class="user-detail-stats">
+        <div><span class="muted">User ID</span> <code>${esc(u.userId)}</code></div>
+        <div><span class="muted">Messages</span> ${u.messageCount}</div>
+        <div><span class="muted">First Seen</span> ${formatDateTime(u.firstSeen)}</div>
+        <div><span class="muted">Last Seen</span> ${formatDateTime(u.lastSeen)}</div>
+      </div>
+
+      <h3>Channels (${channels.length})</h3>
+      <div class="user-channels">${channelsHtml}</div>
+
+      ${factHeader}
+      ${factsHtml}
+    `;
+
+    document.getElementById("user-overlay").style.display = "";
+  } catch (err) {
+    showToast(`Error loading user: ${err.message}`, "error");
+  }
+}
+
+function hideUserDetail() {
+  document.getElementById("user-overlay").style.display = "none";
+}
+
+async function deleteUserFact(userId, index) {
+  try {
+    const scope = `user:${userId}`;
+    const res = await apiFetch(`/api/memory/${encodeURIComponent(scope)}/${index}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Fact deleted");
+      showUserDetail(userId);
+    } else {
+      showToast(data.error || "Delete failed", "error");
+    }
+  } catch (err) {
+    showToast(`Error: ${err.message}`, "error");
+  }
+}
+
+async function clearUserFacts(userId) {
+  if (!confirm(`Clear all stored facts for this user?`)) return;
+
+  try {
+    const scope = `user:${userId}`;
+    const res = await apiFetch(`/api/memory/${encodeURIComponent(scope)}`, { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Cleared ${data.deleted} fact(s)`);
+      showUserDetail(userId);
+    } else {
+      showToast(data.error || "Clear failed", "error");
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, "error");
@@ -1844,6 +1947,8 @@ function closeCronEditor(force) {
 // Escape key to close any open overlay
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    const userOverlay = document.getElementById("user-overlay");
+    if (userOverlay.style.display !== "none") { hideUserDetail(); return; }
     const cronEditor = document.getElementById("cron-editor");
     if (cronEditor.style.display !== "none") { closeCronEditor(); return; }
     const sessionOverlay = document.getElementById("session-overlay");

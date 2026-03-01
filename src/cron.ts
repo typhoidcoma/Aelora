@@ -47,11 +47,13 @@ export type CronJobInfo = {
 const CRON_JOBS_FILE = "data/cron-jobs.json";
 const CRON_JOBS_TMP = "data/cron-jobs.tmp.json";
 let maxHistory = 10;
+let defaultTimezone: string | undefined;
 const OUTPUT_PREVIEW_LENGTH = 300;
 
 /** Apply config overrides. Call after config is loaded. */
-export function configureCron(opts: { maxHistory?: number }): void {
+export function configureCron(opts: { maxHistory?: number; defaultTimezone?: string }): void {
   if (opts.maxHistory) maxHistory = opts.maxHistory;
+  if (opts.defaultTimezone) defaultTimezone = opts.defaultTimezone;
 }
 
 // --- State ---
@@ -93,10 +95,11 @@ function saveJobs(jobs: PersistedCronJob[]): void {
 
 function createScheduler(job: PersistedCronJob): void {
   const jobName = job.name; // capture name, not the object
+  const tz = job.timezone || defaultTimezone;
 
   const cron = new Cron(
     job.schedule,
-    { timezone: job.timezone },
+    { timezone: tz },
     async () => {
       await executeJob(jobName);
     },

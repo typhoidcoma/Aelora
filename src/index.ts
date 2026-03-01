@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   setToolConfigStore(config.tools);
   configureLogger(config.logger);
   configureMemory(config.memory);
-  configureCron(config.cron);
+  configureCron({ ...config.cron, defaultTimezone: config.timezone });
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 
   // 2. Load persona (compose system prompt from persona/ directory)

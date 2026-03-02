@@ -109,7 +109,7 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 
 Graceful shutdown on SIGINT/SIGTERM: saves conversations, saves state, stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged, conversations and state are saved, then the process exits with code 1.
 
-Persona loading is wrapped in try-catch — if the active persona fails to load, the bot continues with the fallback `llm.systemPrompt` from config.
+Persona loading is wrapped in try-catch -if the active persona fails to load, the bot continues with the fallback `llm.systemPrompt` from config.
 
 ---
 
@@ -128,7 +128,7 @@ Persona loading is wrapped in try-catch — if the active persona fails to load,
 3. llm.ts: getLLMResponse(channelId, userContent, onToken, userId)
    - Retrieves per-channel history from Map
    - Appends user message, trims to maxHistory
-   - buildSystemPrompt(userId, channelId) — persona base + system status + tool/agent inventory + memory
+   - buildSystemPrompt(userId, channelId) -persona base + system status + tool/agent inventory + memory
    - runCompletionLoop(messages, tools, channelId, onToken, userId)
      Loop (up to 10 iterations):
        → client.chat.completions.create({ stream: true })
@@ -166,7 +166,7 @@ Chat messages respond with **streaming plain text**. Slash commands respond with
 
 ### Client
 
-Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configured via `llm.baseURL` and `llm.apiKey` in settings.
+Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured via `llm.baseURL` and `llm.apiKey` in settings.
 
 ### Conversation History
 
@@ -178,7 +178,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 
 ### System Prompt Composition
 
-`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request. Sections are ordered **static-first, dynamic-last** to maximize OpenAI's automatic prefix caching — if the first N tokens are identical between requests, they get a cache hit (faster, cheaper):
+`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request. Sections are ordered **static-first, dynamic-last** to maximize OpenAI's automatic prefix caching -if the first N tokens are identical between requests, they get a cache hit (faster, cheaper):
 
 ```
 1. [Persona composed prompt]          ← static (changes on persona switch)
@@ -200,11 +200,11 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works — configur
 
 In **lite mode** (`llm.lite: true`), the Tool/Agent Inventory and System Status sections are skipped entirely to reduce token count.
 
-The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` — only appears when relevant facts exist.
+The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` -only appears when relevant facts exist.
 
 ### Tool Calling Loop
 
-`runCompletionLoop()` — up to `config.llm.maxToolIterations` (default 10) rounds:
+`runCompletionLoop()` -up to `config.llm.maxToolIterations` (default 10) rounds:
 
 1. Call `client.chat.completions.create()` with messages + tool definitions
 2. If response has `tool_calls`: parse args, dispatch each to tool or agent, push results, loop
@@ -228,7 +228,7 @@ Models that use extended thinking (Qwen3, DeepSeek, Grok) may emit `<think>...</
 
 ### One-Shot Mode
 
-`getLLMOneShot(prompt)` — stateless call with full tool support. Used by:
+`getLLMOneShot(prompt)` -stateless call with full tool support. Used by:
 - Cron jobs (`type: "llm"`)
 - Agent sub-loops
 
@@ -241,7 +241,7 @@ Models that use extended thinking (Qwen3, DeepSeek, Grok) may emit `<think>...</
 When `config.llm.lite` is `true`:
 - `slimDefinitions()` truncates tool descriptions to the first sentence and trims parameter descriptions
 - System Status and Tool/Agent Inventory sections are skipped from the system prompt
-- Tools remain fully functional — just less verbose in the schema presented to the LLM
+- Tools remain fully functional -just less verbose in the schema presented to the LLM
 
 Useful for local models (4B–7B) running via LM Studio, Ollama, etc. where token budgets are tight.
 
@@ -257,13 +257,13 @@ Messages trimmed from history are queued per-channel for async summarization:
 
 ### External Chat API
 
-`POST /api/chat` and `POST /api/chat/stream` provide the same full conversation experience as Discord — stateful history, user memory, session tracking, mood classification, and daily logs. External apps supply a `sessionId` (maps to internal `channelId`) and optionally `userId`/`username` for identity. `DELETE /api/chat/:sessionId` clears conversation history. Rate-limited to 60 req/min (same as LLM test endpoints).
+`POST /api/chat` and `POST /api/chat/stream` provide the same full conversation experience as Discord -stateful history, user memory, session tracking, mood classification, and daily logs. External apps supply a `sessionId` (maps to internal `channelId`) and optionally `userId`/`username` for identity. `DELETE /api/chat/:sessionId` clears conversation history. Rate-limited to 60 req/min (same as LLM test endpoints).
 
 ### WebSocket Chat
 
 **File:** [src/ws.ts](src/ws.ts)
 
-A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirectional real-time chat — ideal for Unity or other game clients where SSE isn't natively supported.
+A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirectional real-time chat -ideal for Unity or other game clients where SSE isn't natively supported.
 
 **Connection flow:**
 
@@ -279,7 +279,7 @@ A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirecti
 |-----------|------|--------|
 | Client → Server | `init` | `sessionId` (required), `userId?`, `username?` |
 | Client → Server | `message` | `content` (required) |
-| Client → Server | `clear` | — |
+| Client → Server | `clear` | -|
 | Server → Client | `ready` | `sessionId` |
 | Server → Client | `token` | `content` (streamed chunk) |
 | Server → Client | `done` | `reply` (full response) |
@@ -292,10 +292,10 @@ Connection management: ping/pong heartbeat every 30s, automatic cleanup on disco
 
 ### Agent Loop
 
-`runAgentLoop(options)` — sub-completion-loop with:
+`runAgentLoop(options)` -sub-completion-loop with:
 - Agent's own system prompt (not the persona prompt)
 - Tool allowlist: `undefined` = no tools, `["*"]` = all tools, `["a", "b"]` = specific tools
-- `allowAgentDispatch = false` — agents cannot call other agents (prevents recursion)
+- `allowAgentDispatch = false` -agents cannot call other agents (prevents recursion)
 - Optional model override (agents can use a different LLM)
 
 ---
@@ -309,11 +309,11 @@ Connection management: ping/pong heartbeat every 30s, automatic cleanup on disco
 1. `loadPersona(dir, variables, activePersona)` discovers all `.md` files under the active persona's directory (e.g. `persona/aelora/`) and the shared `persona/_shared/` directory
 2. Shared files are loaded first, then persona-specific files. If a persona has a file with the same basename as a shared file, the persona's version **overrides** the shared one
 3. Each file's YAML frontmatter is parsed for metadata:
-   - `order` (number) — sort priority (lower = earlier in prompt)
-   - `enabled` (boolean) — whether to include in composed prompt
-   - `label` (string) — display name for dashboard
-   - `section` (string) — grouping category
-   - `botName` (string) — character name (used in soul.md to define the character's identity)
+   - `order` (number) -sort priority (lower = earlier in prompt)
+   - `enabled` (boolean) -whether to include in composed prompt
+   - `label` (string) -display name for dashboard
+   - `section` (string) -grouping category
+   - `botName` (string) -character name (used in soul.md to define the character's identity)
 4. Files are sorted by `order`, then alphabetically within the same order
 5. Enabled files are concatenated with `\n\n` separators
 6. `botName` is resolved from the active persona's `soul.md` frontmatter, falling back to `persona.botName` in config
@@ -324,30 +324,21 @@ Connection management: ping/pong heartbeat every 30s, automatic cleanup on disco
 ```
 persona/
 ├── _shared/
-│   └── bootstrap.md            — Response format rules, operating instructions (order 5)
-│                                  Shared by all personas unless overridden
+│   └── bootstrap.md            # Response format rules (order 5, shared by all)
 ├── aelora/
-│   ├── soul.md                 — Behavioral core, identity, personality (order 10, botName: "Aelora")
-│   ├── skills.md               — Character skills & competencies (order 50)
-│   ├── tools.md                — Tool/agent usage instructions (order 80)
-│   └── templates/user.md       — Per-user preferences (disabled, placeholder)
-├── wendy/
-│   ├── soul.md                 — Gen Z friend who has her life together (order 10, botName: "Wendy")
-│   ├── skills.md
-│   ├── tools.md
-│   └── templates/user.md
-├── arlo/
-│   ├── soul.md                 — Stoic-strategic advisor (order 10, botName: "Arlo")
-│   ├── skills.md
-│   ├── tools.md
-│   └── templates/user.md
+│   ├── soul.md                 # Behavioral core (order 10, botName: "Aelora")
+│   ├── skills.md               # Character skills (order 50)
+│   ├── tools.md                # Tool usage instructions (order 80)
+│   └── templates/user.md       # Per-user preferences (placeholder)
+├── wendy/                      # soul, skills, tools, templates
+├── arlo/                       # soul, skills, tools, templates
 └── batperson/
-    ├── bootstrap.md            — Overrides _shared/bootstrap.md (custom format for BatPerson)
-    ├── soul.md                 — Absurdist hero (order 10, botName: "BatPerson")
+    ├── bootstrap.md            # Overrides _shared/bootstrap.md
+    ├── soul.md                 # Absurdist hero (botName: "BatPerson")
     └── skills.md
 ```
 
-Each persona's `soul.md` follows the SOUL Authoring Blueprint — a 10-section behavioral contract covering identity, decision biases, cognitive lens, tone constraints, caring protocol, stress matrix, refusal architecture, compression rules, multi-agent alignment, and drift indicators.
+Each persona's `soul.md` follows the SOUL Authoring Blueprint -a 10-section behavioral contract covering identity, decision biases, cognitive lens, tone constraints, caring protocol, stress matrix, refusal architecture, compression rules, multi-agent alignment, and drift indicators.
 
 ### Hot Reload
 
@@ -355,7 +346,7 @@ Each persona's `soul.md` follows the SOUL Authoring Blueprint — a 10-section b
 
 ### Persona Switching
 
-`POST /api/persona/switch` with `{ "persona": "wendy" }`. The switch endpoint loads the new persona before updating config — if loading fails, the previous persona is preserved and an error is returned. Switchable from the dashboard's persona card grid.
+`POST /api/persona/switch` with `{ "persona": "wendy" }`. The switch endpoint loads the new persona before updating config -if loading fails, the previous persona is preserved and an error is returned. Switchable from the dashboard's persona card grid.
 
 ---
 
@@ -406,9 +397,9 @@ export default defineTool({
 });
 ```
 
-**`param` helpers:** `param.string()`, `param.number()`, `param.boolean()`, `param.enum()`, `param.array()`, `param.object()`, `param.date()` — each returns a `ParamSchema` with JSON Schema metadata and a `_required` flag.
+**`param` helpers:** `param.string()`, `param.number()`, `param.boolean()`, `param.enum()`, `param.array()`, `param.object()`, `param.date()` -each returns a `ParamSchema` with JSON Schema metadata and a `_required` flag.
 
-#### `param.object()` — Structured nested data
+#### `param.object()` - Structured nested data
 
 ```typescript
 metadata: param.object("Task metadata.", {
@@ -423,7 +414,7 @@ metadata: param.object("Task metadata.", {
 
 Produces a valid OpenAI JSON Schema `object` type with nested properties. The `properties` parameter accepts the same `ParamSchema` helpers used at the top level.
 
-#### `param.date()` — Date/datetime strings
+#### `param.date()` - Date/datetime strings
 
 ```typescript
 dueDate: param.date("When the task is due."),
@@ -432,9 +423,9 @@ startDate: param.date("Start date.", { format: "date" }),  // YYYY-MM-DD only
 
 Emits a `string` type with a format hint appended to the description. Defaults to ISO 8601 datetime (`format: "date-time"`). Use `format: "date"` for date-only values.
 
-#### `requireContext()` — Context validation helper
+#### `requireContext()` - Context validation helper
 
-Validates that required context fields (like `userId`, `channelId`) are present. Returns `null` on success or an `"Error: ..."` string on failure — designed to be returned directly from a handler.
+Validates that required context fields (like `userId`, `channelId`) are present. Returns `null` on success or an `"Error: ..."` string on failure -designed to be returned directly from a handler.
 
 ```typescript
 import { defineTool, param, requireContext } from "./types.js";
@@ -451,7 +442,7 @@ handler: async (args, ctx) => {
 Tool handlers return a `ToolResult`: either a plain string (backward compatible) or a `{ text, data }` object.
 
 ```typescript
-// Plain string (still works — normalized internally)
+// Plain string (still works -normalized internally)
 return "Pong! Server time: 2025-03-15T10:00:00Z";
 
 // Structured output (preferred for all new tools)
@@ -475,7 +466,7 @@ type ToolResult = string | ToolResultObject;
 | LLM tool loop (`llm.ts`) | `executeToolText()` | `text` string only |
 | REST API (`/api/tools/:name/execute`) | `executeTool()` | `{ success, tool, result, data? }` |
 
-`normalizeToolResult()` converts both forms to `ToolResultObject`. The `data` field is omitted from the REST response when `undefined`. Error returns can stay as plain strings — `normalizeToolResult()` wraps them automatically.
+`normalizeToolResult()` converts both forms to `ToolResultObject`. The `data` field is omitted from the REST response when `undefined`. Error returns can stay as plain strings -`normalizeToolResult()` wraps them automatically.
 
 #### Multi-Action Tool Pattern
 
@@ -592,7 +583,7 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 Agents are presented to the LLM as function calls, identical to tools. When the LLM calls an agent:
 
 1. `isAgent(name)` detects it's an agent, not a tool
-2. `executeAgent()` calls `runAgentLoop()` — a sub-completion-loop with:
+2. `executeAgent()` calls `runAgentLoop()` -a sub-completion-loop with:
    - The agent's own system prompt
    - The call arguments as user prompt
    - Filtered tool definitions based on the agent's `tools` allowlist
@@ -700,7 +691,7 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 ## CalDAV Server (Radicale)
 
-**External dependency** — required for the `calendar` and `todo` tools.
+**External dependency** -required for the `calendar` and `todo` tools.
 
 Aelora uses a [Radicale](https://radicale.org/) CalDAV server for calendar events (VEVENT) and tasks/todos (VTODO). Radicale is a lightweight Python CalDAV server that runs locally.
 
@@ -765,7 +756,7 @@ The calendar must be created on first setup (Radicale web UI at `http://127.0.0.
 For syncing with external CalDAV clients (Thunderbird, DAVx5, iOS), access Radicale via Tailscale's internal network:
 
 - **CalDAV URL:** `http://<tailscale-ip>:5232/aelora/Aelora/`
-- Radicale speaks plain HTTP only — Tailscale's WireGuard provides encryption in transit
+- Radicale speaks plain HTTP only. Tailscale's WireGuard provides encryption in transit
 
 ### What Uses CalDAV
 
@@ -830,7 +821,7 @@ Emails are built as RFC 2822 messages, base64url-encoded, and sent via the Gmail
 
 ### Google Calendar Tool (`google_calendar`)
 
-Separate from the CalDAV calendar — this operates on Google Calendar via the REST API.
+Separate from the CalDAV calendar -this operates on Google Calendar via the REST API.
 
 | Action | Description |
 |--------|-------------|
@@ -873,7 +864,7 @@ Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support).
 
 **Files:** [src/mood.ts](src/mood.ts), [src/tools/mood.ts](src/tools/mood.ts)
 
-Tracks the bot's emotional state using Plutchik's wheel of emotions — 8 primary emotions at 3 intensity levels (24 distinct states). The mood is auto-classified after each Discord response and displayed live on the dashboard.
+Tracks the bot's emotional state using Plutchik's wheel of emotions -8 primary emotions at 3 intensity levels (24 distinct states). The mood is auto-classified after each Discord response and displayed live on the dashboard.
 
 ### Plutchik's Wheel
 
@@ -908,18 +899,18 @@ Persisted to `data/current-mood.json`. Survives restarts.
 
 After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
 
-1. Checks throttle — skips if mood was updated less than 30 seconds ago
+1. Checks throttle -skips if mood was updated less than 30 seconds ago
 2. Makes a lightweight direct LLM call (`max_completion_tokens: 300`, no tools, no persona)
 3. Uses `enable_thinking: false` and a `/no_think` prefix in the user message to suppress extended thinking on models like Qwen3
 4. Parses JSON response by extracting the first `{...}` object found anywhere in the output (tolerates models that emit surrounding text)
 5. Validates against Plutchik's emotions enum
 6. Calls `saveMood()` → persists to disk + broadcasts SSE event
 
-The classification uses `getLLMClient()` and `getLLMModel()` from `llm.ts` for a minimal API call — no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
+The classification uses `getLLMClient()` and `getLLMModel()` from `llm.ts` for a minimal API call -no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
 
 ### Manual Override
 
-The `set_mood` tool allows the bot to express intentional mood shifts that auto-detection might miss. It bypasses the classification throttle. This is a secondary mechanism — auto-classification handles the baseline.
+The `set_mood` tool allows the bot to express intentional mood shifts that auto-detection might miss. It bypasses the classification throttle. This is a secondary mechanism -auto-classification handles the baseline.
 
 ### System Prompt Injection
 
@@ -930,11 +921,11 @@ The `set_mood` tool allows the bot to express intentional mood shifts that auto-
 You are currently feeling **serenity** with undertones of **trust**.
 ```
 
-When no mood is set yet: `No mood set yet — it will be detected automatically from your responses.`
+When no mood is set yet: `No mood set yet -it will be detected automatically from your responses.`
 
 ### Live Dashboard
 
-`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place — colored dot, emotion label, and secondary emotion.
+`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place -colored dot, emotion label, and secondary emotion.
 
 Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust, blue for sadness, red for anger, etc.).
 
@@ -952,8 +943,8 @@ Tracks a unified profile for every user who messages the bot, aggregated across 
 type UserProfile = {
   userId: string;         // Discord user ID
   username: string;       // Latest display name
-  firstSeen: string;      // ISO timestamp — first message ever
-  lastSeen: string;       // ISO timestamp — most recent message
+  firstSeen: string;      // ISO timestamp -first message ever
+  lastSeen: string;       // ISO timestamp -most recent message
   messageCount: number;   // Total messages across all channels
   channels: string[];     // Channel IDs the user has been active in
 };
@@ -963,13 +954,13 @@ Persisted to `data/users.json`. Updated on every Discord message via `updateUser
 
 ### API
 
-- `GET /api/users` — all profiles
-- `GET /api/users/:userId` — single profile + memory facts (from `user:{userId}` scope)
-- `DELETE /api/users/:userId` — remove profile and cascade-delete user memory facts (`user:{userId}` scope)
+- `GET /api/users` -all profiles
+- `GET /api/users/:userId` -single profile + memory facts (from `user:{userId}` scope)
+- `DELETE /api/users/:userId` -remove profile and cascade-delete user memory facts (`user:{userId}` scope)
 
 ### Difference from Sessions
 
-Sessions ([src/sessions.ts](src/sessions.ts)) track per-channel stats — a user appears in each channel's `users` record independently. User profiles aggregate across channels into a single record per user.
+Sessions ([src/sessions.ts](src/sessions.ts)) track per-channel stats -a user appears in each channel's `users` record independently. User profiles aggregate across channels into a single record per user.
 
 ---
 
@@ -985,7 +976,7 @@ The cron system uses a **file-based** architecture to prevent data loss:
 
 - **Every read** loads from `data/cron-jobs.json`
 - **Every write** saves atomically (write to temp file, then rename)
-- **Only in-memory state** is a `Map<string, SchedulerEntry>` for live `Cron` timer instances — this is scheduling machinery only, never used as a data source
+- **Only in-memory state** is a `Map<string, SchedulerEntry>` for live `Cron` timer instances -this is scheduling machinery only, never used as a data source
 - After any write, `syncSchedulers()` reconciles live timers with the file contents
 
 This design eliminates issues with ESM module duplication where multiple module instances could hold competing in-memory state.
@@ -997,7 +988,7 @@ This design eliminates issues with ESM module duplication where multiple module 
 | `static` | Sends `job.message` literally to the configured channel |
 | `llm` | Sends `job.prompt` to `getLLMOneShot()`, posts the LLM's response |
 
-LLM-type jobs have full tool support — the LLM can call tools while generating the response.
+LLM-type jobs have full tool support -the LLM can call tools while generating the response.
 
 ### Silent Mode
 
@@ -1070,10 +1061,10 @@ Slash commands registered on startup:
 ### embeds.ts
 
 Builders for Discord embeds:
-- `buildResponseEmbed(text, model)` — accent-colored, splits at 4096 chars
-- `buildErrorEmbed(msg)` — red
-- `buildSuccessEmbed(text)` — green
-- `buildToolListEmbed(tools, agents)` — formatted list with status indicators
+- `buildResponseEmbed(text, model)` -accent-colored, splits at 4096 chars
+- `buildErrorEmbed(msg)` -red
+- `buildSuccessEmbed(text)` -green
+- `buildToolListEmbed(tools, agents)` -formatted list with status indicators
 
 ---
 
@@ -1091,12 +1082,12 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 — list, detail, execute, toggle), Agents (2), System (5 — includes mood), Activity (2), Export (1) — 60 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Export (1) -60 endpoints total.
 
 ### Routing
 
 When `activity.enabled` is true:
-- `/` serves `activity/index.html` with injected config (clientId, serverUrl) — this is what Discord's Activity iframe loads
+- `/` serves `activity/index.html` with injected config (clientId, serverUrl) -this is what Discord's Activity iframe loads
 - `/dashboard` serves the web dashboard (`public/index.html`)
 - `/activity/*` serves Unity build files with CORS headers and gzip `Content-Encoding` for `.gz` files
 
@@ -1105,7 +1096,7 @@ When `activity.enabled` is false:
 
 ### Frontend
 
-Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events — no page refresh needed.
+Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
 Dashboard sections: Status, Persona (card grid + file editor), LLM Test, Sessions, Memory, Scheduled Tasks (cron), Tools, Agents, Notes (CRUD with scoped organization), Todos (CalDAV-backed task list), Users (profile table with cascading delete), Activity Preview (Unity WebGL test iframe), and Console (live log stream). An **Export Data** button in the header downloads a JSON bundle of all bot data.
 
@@ -1139,8 +1130,8 @@ type Config = {
     systemPrompt: string;       // Overwritten by persona system at startup
     maxTokens: number;          // Default: 1024
     maxHistory: number;         // Default: 20
-    maxToolIterations: number;  // Default: 10 — max tool-calling rounds per request
-    lite: boolean;              // Default: false — slim tool schemas for local models
+    maxToolIterations: number;  // Default: 10 -max tool-calling rounds per request
+    lite: boolean;              // Default: false -slim tool schemas for local models
   };
   web: { enabled: boolean; port: number; apiKey?: string };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
@@ -1159,12 +1150,12 @@ type Config = {
     maxAgeDays: number;         // Default: 0 (0 = no TTL, keep forever)
   };
   logger: {
-    maxBuffer: number;          // Default: 200 — SSE circular buffer size
-    fileEnabled: boolean;       // Default: false — write logs to data/logs/
-    retainDays: number;         // Default: 7 — how many days of log files to keep
+    maxBuffer: number;          // Default: 200, SSE circular buffer size
+    fileEnabled: boolean;       // Default: false -write logs to data/logs/
+    retainDays: number;         // Default: 7 -how many days of log files to keep
   };
   cron: {
-    maxHistory: number;         // Default: 10 — execution records per job
+    maxHistory: number;         // Default: 10 -execution records per job
   };
 };
 ```
@@ -1173,15 +1164,15 @@ type Config = {
 
 ## Supporting Systems
 
-### boot.ts — Process Wrapper
+### boot.ts - Process Wrapper
 
 [src/boot.ts](src/boot.ts) spawns `index.ts` (or `index.js` in production) as a child process. If the child exits with code **100**, it restarts automatically. Any other exit code propagates normally. This enables graceful reboots from Discord (`/reboot`) and the web dashboard without external process managers.
 
-### lifecycle.ts — Reboot
+### lifecycle.ts - Reboot
 
 `reboot()` stops heartbeat, stops cron, then calls `process.exit(100)`. The boot wrapper catches code 100 and restarts.
 
-### logger.ts — Console Capture + File Logging
+### logger.ts - Console Capture + File Logging
 
 `installLogger()` patches `console.log`, `console.warn`, `console.error` at startup. Every call:
 1. Passes through to the original console method (terminal output)
@@ -1191,15 +1182,15 @@ type Config = {
 
 **File logging:** When enabled, each log line is written as `[ISO timestamp] [LEVEL] message`. One file per day, append-only. On startup, log files older than `logger.retainDays` (default 7) are automatically deleted.
 
-`broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates — the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames.
+`broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates -the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames.
 
-### daily-log.ts — Activity Logging
+### daily-log.ts - Activity Logging
 
 Automatic daily activity logging, persisted to disk. Uses the configured timezone for date formatting.
 
-### utils.ts — Shared Utilities
+### utils.ts - Shared Utilities
 
-`chunkMessage(text, maxLength = 2000)` — splits text into Discord-safe chunks, respecting newline boundaries where possible.
+`chunkMessage(text, maxLength = 2000)` -splits text into Discord-safe chunks, respecting newline boundaries where possible.
 
 ### Process Error Handlers
 
@@ -1275,7 +1266,7 @@ All requests from the Activity iframe go through Discord's `/.proxy/` prefix, wh
 
 ### Test Page (activity/test.html)
 
-A standalone page that loads Unity without the Discord SDK — uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
+A standalone page that loads Unity without the Discord SDK -uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
 
 ### Unity Build Files
 
@@ -1303,7 +1294,7 @@ Discord auto-creates an Entry Point command for applications with Activities ena
 1. Create `src/tools/my-tool.ts`
 2. Use `defineTool()` with typed params and a handler
 3. If it needs config, add keys to `config: [...]` and matching entries in `settings.yaml` under `tools:`
-4. Restart the bot — it auto-loads
+4. Restart the bot -it auto-loads
 5. Verify in console: `Tools: loaded "my-tool" (enabled)`
 
 #### Quick Example
@@ -1335,7 +1326,7 @@ For multi-action tools (the most common pattern), copy `src/tools/_example-multi
 2. Export an `Agent` object with `definition` (including `systemPrompt`) and `enabled: true`
 3. Set `tools` to control which tools the agent can use
 4. Optionally add `postProcess()` to transform raw LLM output
-5. Restart — auto-loads. Verify in console.
+5. Restart -auto-loads. Verify in console.
 
 ### Adding a Heartbeat Handler
 
@@ -1355,7 +1346,7 @@ For multi-action tools (the most common pattern), copy `src/tools/_example-multi
 1. From the dashboard Persona section, click **+ Create** and fill in a Character Name, Folder Name, and Description
 2. Or via API: `POST /api/personas` with `{ "name": "my-char", "description": "...", "botName": "My Character" }`
 3. This creates a self-contained persona directory with template files: `soul.md`, `skills.md`, `tools.md`
-4. Bootstrap rules are inherited from `_shared/bootstrap.md` — no per-persona bootstrap needed (unless overriding)
+4. Bootstrap rules are inherited from `_shared/bootstrap.md` -no per-persona bootstrap needed (unless overriding)
 5. Edit the generated `soul.md` to define the character's behavioral core using the SOUL Authoring Blueprint
 6. Switch to the new character from the dashboard card grid or via `POST /api/persona/switch`
 7. The `{{botName}}` variable resolves to this character's name automatically

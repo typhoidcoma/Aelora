@@ -6,31 +6,31 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 
 ## Features
 
-- **LLM Chat** — Works with any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
-- **Streaming Responses** — Token-by-token streaming to Discord messages, the dashboard, and WebSocket clients
-- **Persona System** — Composable personality built from layered markdown files with shared bootstrap, per-character souls, switchable personas, and hot-reload
-- **Tool Framework** — Drop a `.ts` file in `src/tools/`, it auto-loads. Typed params, config resolution, runtime toggle
-- **Agent Framework** — Sub-agents with their own system prompts, tool allowlists, and reasoning loops
-- **Memory** — Persistent per-user and per-channel fact storage, automatically injected into the system prompt
-- **Web Search** — Brave Search API integration for real-time web queries
-- **CalDAV Calendar** — Full CRUD for calendar events via CalDAV (Radicale)
-- **CalDAV Todos** — Task management backed by CalDAV VTODO — syncs with any CalDAV client (Thunderbird, DAVx5, iOS)
-- **Notes** — Persistent note storage scoped to channels or global
-- **Cron Jobs** — Scheduled messages (static text or LLM-generated) with timezone support, silent mode (no channel output), file-based persistence, runtime CRUD
-- **Sessions** — Conversation session tracking with metadata, persisted to disk
-- **Daily Log** — Automatic daily activity logging
-- **User Profiles** — Automatic per-user tracking across all channels with cascading delete
-- **Heartbeat** — Periodic handler system for proactive actions (calendar reminders, memory compaction, data cleanup)
-- **Discord Activity** — Host a Unity WebGL build (or any web app) as an embedded Discord Activity with OAuth2, SDK integration, and a `/play` command
-- **Mood System** — Automatic emotion tracking using Plutchik's wheel (8 emotions × 3 intensities), auto-classified after each response, live dashboard indicator, manual override tool
-- **Data Export** — Download a JSON bundle of all bot data (memory, sessions, notes, users, cron, mood, personas) via API or dashboard
-- **File Logging** — Optional daily log files with automatic rotation
-- **Config Validation** — Zod-powered runtime schema validation with clear startup error messages
-- **Lite Mode** — Slim tool schemas and trimmed system prompt for running local/small models (4B–7B via LM Studio, Ollama, etc.)
-- **WebSocket Chat** — Real-time bidirectional chat over WebSocket (`/ws`) — ideal for Unity or other game clients
-- **Web Dashboard** — Real-time status, persona/tool/agent management, notes, todos, users, live console, LLM testing, mood indicator, data export, Activity preview
-- **Auto-Restart** — Process wrapper with graceful reboot via exit code signal
-- **Configurable Timezone** — Global IANA timezone setting for cron, logs, and date formatting
+- **LLM Chat** - Any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
+- **Streaming** - Token-by-token streaming to Discord, dashboard, and WebSocket clients
+- **Persona System** - Composable personality from layered markdown files with hot-reload
+- **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
+- **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
+- **Memory** - Per-user and per-channel fact storage, auto-injected into the system prompt
+- **Web Search** - Brave Search API integration
+- **CalDAV Calendar** - Full CRUD for calendar events via CalDAV (Radicale)
+- **CalDAV Todos** - Task management via CalDAV VTODO, syncs with any CalDAV client
+- **Notes** - Persistent notes scoped to channels or global
+- **Cron Jobs** - Scheduled messages (static or LLM-generated) with timezone support, silent mode, runtime CRUD
+- **Sessions** - Conversation tracking with metadata, persisted to disk
+- **Daily Log** - Automatic daily activity logging
+- **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
+- **Heartbeat** - Periodic handlers for calendar reminders, memory compaction, data cleanup
+- **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
+- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response
+- **Data Export** - JSON bundle of all bot data via API or dashboard
+- **File Logging** - Optional daily log files with automatic rotation
+- **Config Validation** - Zod-powered schema validation with clear startup errors
+- **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
+- **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
+- **Web Dashboard** - Status, personas, tools, agents, sessions, memory, users, notes, todos, cron, console, mood, export
+- **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
+- **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
 ## Quick Start
 
@@ -74,7 +74,7 @@ python -c "from passlib.hash import bcrypt; print('aelora:' + bcrypt.hash('aelor
 python -m radicale --config radicale-config
 ```
 
-On first run, create the calendar at `http://127.0.0.1:5232` — log in and create a calendar named **"Aelora"** (matching the `calendarName` in `settings.yaml`).
+On first run, open `http://127.0.0.1:5232`, log in, and create a calendar named **"Aelora"** (matching `calendarName` in `settings.yaml`).
 
 Radicale stores data in `data/radicale/` and must be running alongside Aelora for calendar/todo features to work.
 
@@ -129,42 +129,33 @@ Files are sorted by `order`, concatenated, and injected as the system prompt. Va
 
 The persona system uses a **shared inheritance** model:
 
-- **`_shared/`** — Files shared across all personas (e.g. `bootstrap.md` for response format rules). Loaded first.
-- **Per-persona directories** — Each persona's own files (soul, skills, tools). If a persona has a file with the same basename as a shared file, the persona's version overrides the shared one.
+- **`_shared/`** - Files shared across all personas (e.g. `bootstrap.md`). Loaded first.
+- **Per-persona directories** - Each persona's own files (soul, skills, tools). Same-name files override shared ones.
 
 ```
 persona/
 ├── _shared/
-│   └── bootstrap.md            — Shared response format & operating rules (order 5)
+│   └── bootstrap.md            # Shared response format + rules (order 5)
 ├── aelora/
-│   ├── soul.md                 — Aelora's behavioral core (order 10, botName: "Aelora")
-│   ├── skills.md               — Character skills (order 50)
-│   ├── tools.md                — Tool usage instructions (order 80)
-│   └── templates/
-│       └── user.md             — Per-user preferences (disabled, placeholder)
-├── wendy/
-│   ├── soul.md                 — Wendy's behavioral core (order 10, botName: "Wendy")
-│   ├── skills.md
-│   ├── tools.md
-│   └── templates/user.md
-├── arlo/
-│   ├── soul.md                 — Arlo's behavioral core (order 10, botName: "Arlo")
-│   ├── skills.md
-│   ├── tools.md
-│   └── templates/user.md
+│   ├── soul.md                 # Behavioral core (order 10)
+│   ├── skills.md               # Character skills (order 50)
+│   ├── tools.md                # Tool usage instructions (order 80)
+│   └── templates/user.md       # Per-user preferences (placeholder)
+├── wendy/                      # soul.md, skills.md, tools.md, templates/
+├── arlo/                       # soul.md, skills.md, tools.md, templates/
 └── batperson/
-    ├── bootstrap.md            — Overrides _shared/bootstrap.md for BatPerson
-    ├── soul.md                 — BatPerson's behavioral core (order 10, botName: "BatPerson")
+    ├── bootstrap.md            # Overrides _shared/bootstrap.md
+    ├── soul.md
     └── skills.md
 ```
 
-Each persona's `soul.md` frontmatter includes `botName` — the character's display name. This gets substituted into `{{botName}}` across all files.
+Each persona's `soul.md` frontmatter includes `botName`, which gets substituted into `{{botName}}` across all files.
 
 ## Tools & Agents
 
 ### Adding a Tool
 
-Create a file in `src/tools/` — it auto-loads on startup:
+Create a file in `src/tools/`. It auto-loads on startup:
 
 ```typescript
 import { defineTool, param } from "./types.js";
@@ -184,7 +175,7 @@ export default defineTool({
 });
 ```
 
-Handlers return `{ text, data }` — the `text` goes to the LLM, while `data` is included as structured JSON in REST API responses. Plain string returns still work for simple tools.
+Handlers return `{ text, data }`. The `text` goes to the LLM, `data` is included as structured JSON in REST API responses. Plain strings still work.
 
 Tools prefixed with `_` are skipped (use for examples/templates).
 
@@ -209,7 +200,7 @@ const agent: Agent = {
 export default agent;
 ```
 
-A `researcher` agent is included out of the box — it searches the web, synthesizes findings, and optionally saves results as notes.
+A `researcher` agent is included out of the box. It searches the web, synthesizes findings, and optionally saves results as notes.
 
 For more details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -285,7 +276,7 @@ tools:
 
 ## Discord Activity
 
-Host a Unity WebGL build (or any web app) as an embedded [Discord Activity](https://discord.com/developers/docs/activities/overview) — a full-screen interactive app that runs inside Discord voice channels.
+Host a Unity WebGL build (or any web app) as an embedded [Discord Activity](https://discord.com/developers/docs/activities/overview) in Discord voice channels.
 
 ### Setup
 
@@ -329,99 +320,81 @@ Once both the SDK and Unity are ready, the wrapper sends `OnDiscordReady` to Uni
 
 ## Web Dashboard
 
-Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`. For remote access, use Tailscale Funnel or Serve — see [Deployment: Remote Access](deploy/DEPLOY.md#6-remote-access-with-tailscale).
+Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard moves to `/dashboard`. For remote access, see [Deployment](deploy/DEPLOY.md#6-remote-access-with-tailscale).
 
-- **Status** — Discord connection, uptime, guild count, heartbeat
-- **Persona** — Character switching (card grid), file editor, botName, prompt size, hot-reload
-- **LLM Test** — Send test prompts with streaming output
-- **Sessions** — Active conversations, message counts, session detail overlay, clear/delete
-- **Memory** — Stored facts by scope, delete individual facts or clear scopes
-- **Scheduled Tasks** — Create, edit, delete, trigger, toggle cron jobs; human-readable schedules, last/next run, execution history
-- **Tools** — Enable/disable tools at runtime
-- **Agents** — Enable/disable agents at runtime, view tool allowlists
-- **Notes** — Create, edit, delete scoped notes (global or channel-specific)
-- **Todos** — CalDAV-backed task list with priority, due dates, and completion
-- **Users** — User profile table with cascading delete (profile + memory facts)
-- **Export** — One-click JSON export of all bot data (memory, sessions, notes, users, cron, mood, personas)
-- **Activity Preview** — Test Unity WebGL build locally without Discord (stub user data)
-- **Mood** — Live emotion indicator on the active persona card, auto-updated via SSE
-- **Console** — Live log stream via SSE
+- **Status** - Discord connection, uptime, guild count, heartbeat
+- **Persona** - Character switching, file editor, prompt size, hot-reload
+- **LLM Test** - Send test prompts with streaming output
+- **Sessions** - Active conversations, session detail overlay, clear/delete
+- **Memory** - Facts by scope, delete individual or clear scopes
+- **Scheduled Tasks** - Create, edit, toggle, trigger cron jobs with execution history
+- **Tools** - Enable/disable tools at runtime
+- **Agents** - Enable/disable agents at runtime, view tool allowlists
+- **Notes** - Create, edit, delete scoped notes
+- **Todos** - CalDAV-backed tasks with priority, due dates, completion
+- **Users** - Profile table with detail overlay, facts viewer, cascading delete
+- **Export** - JSON export of all bot data
+- **Activity Preview** - Test Unity WebGL build locally without Discord
+- **Mood** - Live emotion indicator, auto-updated via SSE
+- **Console** - Live log stream via SSE
 
 ## Project Structure
 
 ```
-├── src/
-│   ├── index.ts              — Startup orchestration (10-step boot)
-│   ├── boot.ts               — Process wrapper (auto-restart on exit 100)
-│   ├── config.ts             — YAML config loader + Zod schema validation
-│   ├── llm.ts                — LLM client, conversation history, streaming, tool loop
-│   ├── persona.ts            — Persona file discovery, parsing, composition
-│   ├── tool-registry.ts      — Tool auto-discovery + execution
-│   ├── agent-registry.ts     — Agent auto-discovery + execution
-│   ├── cron.ts               — Cron job scheduler (file-based persistence, atomic writes)
-│   ├── sessions.ts           — Conversation session tracking + persistence
-│   ├── memory.ts             — Per-user/channel fact memory store
-│   ├── daily-log.ts          — Daily activity logging
-│   ├── heartbeat.ts          — Periodic handler system
-│   ├── heartbeat-calendar.ts — Calendar reminder handler
-│   ├── heartbeat-memory.ts   — Memory compaction handler
-│   ├── heartbeat-cleanup.ts  — Data cleanup handler (prune old facts/sessions)
-│   ├── heartbeat-reply-check.ts — Catch missed @mentions and replies
-│   ├── heartbeat-alive.ts    — Last-alive timestamp for crash detection
-│   ├── heartbeat-conversations.ts — Periodic conversation persistence
-│   ├── mood.ts               — Emotion state (Plutchik's wheel) + auto-classification
-│   ├── state.ts              — Persisted bot state (active persona)
-│   ├── web.ts                — Express dashboard + REST API
-│   ├── ws.ts                 — WebSocket server (real-time chat for Unity/etc.)
-│   ├── lifecycle.ts          — Graceful reboot
-│   ├── users.ts              — User profile tracking + persistence
-│   ├── logger.ts             — Console capture + SSE/WS broadcast + file logging + named events
-│   ├── utils.ts              — Shared utilities
-│   ├── discord.ts            — Discord barrel export
-│   ├── discord/
-│   │   ├── client.ts         — Discord.js client, message routing, streaming
-│   │   ├── commands.ts       — Slash commands (/ask, /tools, /ping, /new, /websearch, /memory, /mood, /note, /help, /reboot, /play)
-│   │   ├── attachments.ts    — Image vision + text file processing
-│   │   └── embeds.ts         — Embed builders
-│   ├── tools/
-│   │   ├── types.ts          — Tool type system, defineTool(), param builders
-│   │   ├── ping.ts           — Test tool
-│   │   ├── notes.ts          — Persistent note storage
-│   │   ├── calendar.ts       — CalDAV calendar event CRUD (VEVENT)
-│   │   ├── todo.ts           — CalDAV task management (VTODO)
-│   │   ├── brave-search.ts   — Brave Search web queries
-│   │   ├── cron.ts           — Runtime cron job management
-│   │   ├── memory.ts         — Memory save/list/forget tool
-│   │   ├── mood.ts           — Emotional state override (set_mood)
-│   │   ├── gmail.ts          — Gmail (search, read, send, reply, forward, labels, drafts)
-│   │   ├── google-calendar.ts — Google Calendar (list, create, update, delete events)
-│   │   ├── google-docs.ts    — Google Docs (search, read, create, edit)
-│   │   ├── google-tasks.ts   — Google Tasks (list, add, add_many, complete, update, delete)
-│   │   ├── _google-auth.ts   — Google OAuth2 token management (shared, skipped on load)
-│   │   ├── _example-gmail.ts — Example tool template (skipped on load)
-│   │   └── _example-multi-action.ts — Multi-action tool template
-│   └── agents/
-│       ├── types.ts          — Agent type definitions
-│       └── researcher.ts     — Web research agent (search + synthesize)
-├── activity/                 — Discord Activity wrapper + Unity WebGL build
-│   ├── index.html            — Discord SDK + OAuth2 + Unity loader
-│   ├── test.html             — Local test page (no Discord SDK)
-│   └── Build/                — Unity WebGL build files (.gz compressed)
-├── persona/                  — Personality files (see Persona System above)
-├── public/                   — Web dashboard frontend
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-├── assets/                   — Static assets (bot graphics, etc.)
-├── data/                     — Runtime data (gitignored)
-│   └── radicale/             — Radicale CalDAV storage (auto-created)
-├── radicale-config           — Radicale server configuration
-├── radicale-users            — Radicale htpasswd credentials (bcrypt)
-├── settings.yaml             — Your config (gitignored)
-├── settings.example.yaml     — Config template
-├── openapi.yaml              — OpenAPI 3.1 spec for the REST API
-├── package.json
-└── tsconfig.json
+src/
+├── index.ts                 # Startup orchestration
+├── boot.ts                  # Process wrapper (auto-restart)
+├── config.ts                # YAML config + Zod validation
+├── llm.ts                   # LLM client, history, streaming, tool loop
+├── persona.ts               # Persona file discovery + composition
+├── tool-registry.ts         # Tool auto-discovery + execution
+├── agent-registry.ts        # Agent auto-discovery + execution
+├── cron.ts                  # Cron scheduler (file-based, atomic writes)
+├── sessions.ts              # Session tracking + persistence
+├── memory.ts                # Per-user/channel fact store
+├── daily-log.ts             # Daily activity logging
+├── users.ts                 # User profile tracking
+├── mood.ts                  # Emotion state (Plutchik's wheel)
+├── web.ts                   # Express dashboard + REST API
+├── ws.ts                    # WebSocket chat server
+├── heartbeat.ts             # Periodic handler system
+├── heartbeat-*.ts           # Calendar, memory, cleanup, reply-check, alive, conversations
+├── state.ts                 # Persisted bot state
+├── lifecycle.ts             # Graceful reboot
+├── logger.ts                # Console capture + SSE/WS broadcast + file logging
+├── utils.ts                 # Shared utilities
+├── discord/
+│   ├── client.ts            # Message routing, streaming
+│   ├── commands.ts          # Slash commands
+│   ├── attachments.ts       # Image vision + text file processing
+│   └── embeds.ts            # Embed builders
+├── tools/
+│   ├── types.ts             # defineTool(), param builders
+│   ├── ping.ts              # Test tool
+│   ├── notes.ts             # Persistent notes
+│   ├── calendar.ts          # CalDAV calendar CRUD
+│   ├── todo.ts              # CalDAV task management
+│   ├── brave-search.ts      # Brave Search
+│   ├── cron.ts              # Cron job management
+│   ├── memory.ts            # Memory save/list/forget
+│   ├── mood.ts              # Emotion override
+│   ├── gmail.ts             # Gmail operations
+│   ├── google-calendar.ts   # Google Calendar
+│   ├── google-docs.ts       # Google Docs
+│   ├── google-tasks.ts      # Google Tasks
+│   ├── _google-auth.ts      # Shared OAuth2 (skipped on load)
+│   └── _example-*.ts        # Example templates (skipped on load)
+└── agents/
+    ├── types.ts             # Agent type definitions
+    └── researcher.ts        # Web research agent
+
+activity/                    # Discord Activity (Unity WebGL)
+persona/                     # Personality files
+public/                      # Dashboard frontend (HTML/JS/CSS)
+data/                        # Runtime data (gitignored)
+settings.yaml                # Your config (gitignored)
+settings.example.yaml        # Config template
+openapi.yaml                 # REST API spec
 ```
 
 ## Scripts
@@ -435,6 +408,6 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 
 ## Further Reading
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — Deep technical reference for all systems
-- [ROADMAP.md](ROADMAP.md) — Planned features and specs
-- [openapi.yaml](openapi.yaml) — REST API specification (also available at `/api/docs` when the bot is running)
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Deep technical reference
+- [ROADMAP.md](ROADMAP.md) - Planned features and specs
+- [openapi.yaml](openapi.yaml) - REST API spec (also at `/api/docs` when running)

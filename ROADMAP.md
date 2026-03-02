@@ -27,8 +27,8 @@ Interactive multi-step missions that Aelora can assign, track, and mark complete
 
 | System | Role |
 |--------|------|
-| **Tool** | `quest` tool — accept, submit, check progress, list active/completed quests |
-| **Agent** | `quest-master` agent — evaluates submissions using LLM judgment, gives feedback |
+| **Tool** | `quest` tool -accept, submit, check progress, list active/completed quests |
+| **Agent** | `quest-master` agent -evaluates submissions using LLM judgment, gives feedback |
 | **Heartbeat** | Deadline reminders for active quests, nudges for stale quests |
 | **Persona** | Quest-related persona or skill file for tone when assigning/reviewing |
 
@@ -73,11 +73,11 @@ data/quests.json
 
 **Tool (`src/tools/quest.ts`):**
 - Actions: `list-available`, `accept`, `submit`, `status`, `history`
-- `list-available` — returns quests the user hasn't completed
-- `accept` — moves quest to `in_progress` for user, sets optional deadline
-- `submit` — stores submission text, triggers agent evaluation
-- `status` — shows active quests and progress
-- `history` — completed quests with feedback
+- `list-available` -returns quests the user hasn't completed
+- `accept` -moves quest to `in_progress` for user, sets optional deadline
+- `submit` -stores submission text, triggers agent evaluation
+- `status` -shows active quests and progress
+- `history` -completed quests with feedback
 
 **Agent (`src/agents/quest-master.ts`):**
 - System prompt: "You are a quest evaluator. Review the submission against the quest requirements. Give specific feedback and a pass/fail judgment."
@@ -103,8 +103,8 @@ Collaborative interactive fiction with persistent narrative state. Users can sta
 
 | System | Role |
 |--------|------|
-| **Tool** | `story` tool — start, continue, save, load, list sessions |
-| **Agent** | `narrator` agent — dedicated storytelling agent with world context |
+| **Tool** | `story` tool -start, continue, save, load, list sessions |
+| **Agent** | `narrator` agent -dedicated storytelling agent with world context |
 | **Persona** | `storyteller/` persona (switch via `persona.activePersona`) |
 | **Cron** | Optional "story recap" scheduled messages for ongoing sessions |
 
@@ -113,9 +113,9 @@ Collaborative interactive fiction with persistent narrative state. Users can sta
 ```
 data/stories/
 ├── {channel-id}/
-│   ├── session.json         — Active session state
+│   ├── session.json         # Active session state
 │   └── archive/
-│       └── {session-id}.json — Completed/saved sessions
+│       └── {session-id}.json # Completed/saved sessions
 
 session.json:
 {
@@ -155,10 +155,10 @@ session.json:
 
 **Tool (`src/tools/story.ts`):**
 - Actions: `start`, `continue`, `save`, `load`, `list`, `status`
-- `start` — creates session with genre/setting, enables storyteller persona
-- `continue` — appends player action, calls narrator agent for next scene
-- `save` / `load` — persist and restore sessions
-- `status` — current scene, characters, location, mood
+- `start` -creates session with genre/setting, enables storyteller persona
+- `continue` -appends player action, calls narrator agent for next scene
+- `save` / `load` -persist and restore sessions
+- `status` -current scene, characters, location, mood
 
 **Agent (`src/agents/narrator.ts`):**
 - System prompt built from: base narrator instructions + current session state (setting, characters, recent scenes, flags)
@@ -174,13 +174,13 @@ session.json:
 
 ### Overview
 
-Asynchronous message delivery between users, and from Aelora to users. Users can leave messages for people who are offline — delivered when the recipient next interacts with Aelora. Also supports system mail (quest completions, reminders, announcements).
+Asynchronous message delivery between users, and from Aelora to users. Users can leave messages for people who are offline -delivered when the recipient next interacts with Aelora. Also supports system mail (quest completions, reminders, announcements).
 
 ### How It Fits
 
 | System | Role |
 |--------|------|
-| **Tool** | `mail` tool — send, inbox, read, delete |
+| **Tool** | `mail` tool -send, inbox, read, delete |
 | **Heartbeat** | Check for undelivered mail when users become active |
 | **Cron** | Scheduled announcements or digest summaries |
 
@@ -210,10 +210,10 @@ data/mail.json
 
 **Tool (`src/tools/mail.ts`):**
 - Actions: `send`, `inbox`, `read`, `delete`
-- `send` — store message in recipient's inbox
-- `inbox` — list unread/all messages for the calling user
-- `read` — mark as read, return full message
-- `delete` — remove from inbox
+- `send` -store message in recipient's inbox
+- `inbox` -list unread/all messages for the calling user
+- `read` -mark as read, return full message
+- `delete` -remove from inbox
 
 **Delivery mechanism (heartbeat handler):**
 - On each tick, check if any users with undelivered mail have been recently active (based on Discord presence or recent messages)
@@ -239,7 +239,7 @@ Join Discord voice channels to speak (TTS) and listen (STT). Aelora can narrate 
 
 | System | Role |
 |--------|------|
-| **Tool** | `voice` tool — join, leave, speak, set voice settings |
+| **Tool** | `voice` tool -join, leave, speak, set voice settings |
 | **Discord** | Voice connection via @discordjs/voice |
 | **LLM** | STT transcription → LLM → TTS response pipeline |
 
@@ -268,21 +268,21 @@ type VoiceSession = {
 };
 ```
 
-No persistent storage needed — voice state is entirely in-memory.
+No persistent storage needed -voice state is entirely in-memory.
 
 ### Implementation Sketch
 
 **Tool (`src/tools/voice.ts`):**
 - Actions: `join`, `leave`, `speak`, `configure`
-- `join` — connect to the user's current voice channel
-- `leave` — disconnect
-- `speak` — add text to TTS queue, play audio
-- `configure` — set voice model, speed, pitch
+- `join` -connect to the user's current voice channel
+- `leave` -disconnect
+- `speak` -add text to TTS queue, play audio
+- `configure` -set voice model, speed, pitch
 
 **Voice pipeline (`src/voice/`):**
-- `src/voice/tts.ts` — text → audio buffer (via OpenAI or ElevenLabs API)
-- `src/voice/stt.ts` — audio stream → text (via Whisper API)
-- `src/voice/connection.ts` — manage Discord voice connection, audio player, receive streams
+- `src/voice/tts.ts` -text → audio buffer (via OpenAI or ElevenLabs API)
+- `src/voice/stt.ts` -audio stream → text (via Whisper API)
+- `src/voice/connection.ts` -manage Discord voice connection, audio player, receive streams
 
 **Estimated complexity:** High. ~200 lines tool + ~300 lines voice pipeline + external API integration.
 
@@ -298,9 +298,9 @@ Generate images from text prompts and send them as Discord attachments. Supports
 
 | System | Role |
 |--------|------|
-| **Tool** | `image` tool — generate from prompt, with style/size options |
+| **Tool** | `image` tool -generate from prompt, with style/size options |
 | **Discord** | Send generated images as message attachments |
-| **Persona** | Prompt enhancement — Aelora can refine user prompts before generation |
+| **Persona** | Prompt enhancement, Aelora can refine user prompts before generation |
 
 ### Configuration
 
@@ -337,8 +337,8 @@ Per-user memory, preferences, and interaction tracking. Aelora remembers user pr
 
 | System | Role |
 |--------|------|
-| **Tool** | `profile` tool — view, update preferences, clear |
-| **Persona** | `templates/user.md` — inject per-user context into system prompt |
+| **Tool** | `profile` tool -view, update preferences, clear |
+| **Persona** | `templates/user.md` -inject per-user context into system prompt |
 | **LLM** | Auto-inject user profile into conversation context |
 | **Memory** | Extends existing memory system with structured data |
 
@@ -370,9 +370,9 @@ data/profiles.json
 
 **Tool (`src/tools/profile.ts`):**
 - Actions: `view`, `set-preference`, `stats`
-- `view` — show the user's profile
-- `set-preference` — update communication style, verbosity, timezone, etc.
-- `stats` — interaction statistics
+- `view` -show the user's profile
+- `set-preference` -update communication style, verbosity, timezone, etc.
+- `stats` -interaction statistics
 
 **System prompt injection:**
 - On each `getLLMResponse()`, look up the user's profile

@@ -78,16 +78,16 @@ tags:
       **Protocol (JSON):**
 
       Client → Server:
-      - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` — bind session
-      - `{ "type": "message", "content": "..." }` — send chat message
-      - `{ "type": "clear" }` — start new session (clears history, summary, context, and session stats)
+      - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` - bind session
+      - `{ "type": "message", "content": "..." }` - send chat message
+      - `{ "type": "clear" }` - start new session (clears history, summary, context, and session stats)
 
       Server → Client:
-      - `{ "type": "ready", "sessionId": "..." }` — session bound
-      - `{ "type": "token", "content": "..." }` — streamed response chunk
-      - `{ "type": "done", "reply": "..." }` — full response
-      - `{ "type": "error", "error": "..." }` — error message
-      - `{ "type": "event", "event": "mood", "data": {...} }` — live broadcast event
+      - `{ "type": "ready", "sessionId": "..." }` - session bound
+      - `{ "type": "token", "content": "..." }` - streamed response chunk
+      - `{ "type": "done", "reply": "..." }` - full response
+      - `{ "type": "error", "error": "..." }` - error message
+      - `{ "type": "event", "event": "mood", "data": {...} }` - live broadcast event
 
 components:
   securitySchemes:
@@ -828,7 +828,7 @@ paths:
     delete:
       tags: [Chat]
       summary: Start new session
-      description: Full session reset — clears conversation history, summary, compaction queue, and session stats. The next message starts completely fresh.
+      description: Full session reset. Clears conversation history, summary, compaction queue, and session stats. The next message starts fresh.
       parameters:
         - name: sessionId
           in: path

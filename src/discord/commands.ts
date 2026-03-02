@@ -270,6 +270,7 @@ async function handleNew(
   deleteSession(interaction.channelId);
   await interaction.reply({
     embeds: [buildSuccessEmbed("New session started — history, summary, and context cleared.")],
+    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -304,6 +305,7 @@ async function handleReboot(
 ): Promise<void> {
   await interaction.reply({
     embeds: [buildSuccessEmbed("Rebooting... I'll be back in a moment.")],
+    flags: MessageFlags.Ephemeral,
   });
   setTimeout(() => reboot(), 500);
 }

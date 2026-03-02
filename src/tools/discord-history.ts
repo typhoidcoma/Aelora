@@ -23,7 +23,7 @@ export default defineTool({
       { required: true },
     ),
     channelId: param.string(
-      "Specific channel ID to fetch from. If omitted with 'fetch', retrieves from all text channels.",
+      "Specific channel ID to fetch from (pass as a quoted string, e.g. \"1234567890\"). If omitted with 'fetch', retrieves from all text channels.",
     ),
     limit: param.number(
       `Max messages per channel (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`,
@@ -38,8 +38,11 @@ export default defineTool({
     ),
   },
 
-  handler: async ({ action, channelId, limit, hoursBack, includeBotMessages }) => {
+  handler: async ({ action, channelId: rawChannelId, limit, hoursBack, includeBotMessages }) => {
     if (!discordClient) return "Error: Discord client is not connected.";
+    // Coerce channelId to string — models sometimes pass Discord snowflakes as numbers,
+    // which lose precision (snowflakes exceed Number.MAX_SAFE_INTEGER).
+    const channelId = rawChannelId != null ? String(rawChannelId) : undefined;
 
     switch (action) {
       case "list_channels": {

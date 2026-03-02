@@ -669,6 +669,7 @@ async function runCompletionLoop(
   console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
 
   const allToolRecords: ToolRecord[] = [];
+  let intentNudgeFired = false;
 
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
@@ -860,11 +861,39 @@ async function runCompletionLoop(
       }
     }
 
+    // Deferred intent detection: model said "let me check X" but never called a tool.
+    // Nudge it to follow through. Only fires once per completion to prevent loops.
+    if (
+      !intentNudgeFired &&
+      tools.length > 0 &&
+      !toolCalls &&
+      isUnfulfilledIntent(finalText)
+    ) {
+      intentNudgeFired = true;
+      console.warn(`LLM: deferred intent detected ("${finalText.slice(0, 80)}…"), nudging to follow through`);
+      messages.push({ role: "assistant", content: finalText });
+      messages.push({
+        role: "user",
+        content: "[SYSTEM: You announced you would take an action but didn't use any tools. Please use the appropriate tool now to complete it, or give your final answer if no tool is needed.]",
+      });
+      continue;
+    }
+
     return finalText;
   }
 
   console.warn(`LLM: hit max tool iterations (${maxIterations})`);
   return "(reached maximum tool call depth)";
+}
+
+// Matches short responses that announce a pending action but include no tool call.
+// "let me check", "I'll look at", "I'm pulling up", etc.
+const DEFERRED_INTENT_RE =
+  /\b(let me (check|look|pull|grab|see|fetch|get|find|review|read|load|access|query)|i'?ll (check|look|pull|grab|get|fetch|find|access|query)|i'?m (checking|looking|pulling|getting|fetching|finding)|give me (a )?(sec|moment)|one (sec|moment)|just a (sec|moment))\b/i;
+
+function isUnfulfilledIntent(text: string): boolean {
+  // Only flag short responses — a long one almost certainly contains the actual answer
+  return text.length < 280 && DEFERRED_INTENT_RE.test(text);
 }
 
 /**

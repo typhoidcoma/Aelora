@@ -176,9 +176,12 @@ async function fetchChannelMessages(
   if (!discordClient) return { channelName: "unknown", messages: [], error: "Client not connected" };
 
   try {
-    const channel = await discordClient.channels.fetch(channelId);
-    if (!channel || channel.type !== ChannelType.GuildText) {
-      return { channelName: "unknown", messages: [], error: `Channel ${channelId} is not a text channel` };
+    const channel = await discordClient.channels.fetch(channelId).catch(() => null);
+    if (!channel) {
+      return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found — the bot may not be in that server or lacks VIEW_CHANNEL permission.` };
+    }
+    if (channel.type !== ChannelType.GuildText) {
+      return { channelName: "unknown", messages: [], error: `Channel ${channelId} is not a text channel (type: ${channel.type}). Use list_channels to see available text channels.` };
     }
 
     const textChannel = channel as TextChannel;

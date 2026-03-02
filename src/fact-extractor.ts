@@ -88,9 +88,9 @@ export async function extractFacts(
 
     let parsed: { user_facts?: string[]; channel_facts?: string[]; global_facts?: string[] };
     try {
-      parsed = JSON.parse(jsonStr);
+      parsed = JSON.parse(repairJson(jsonStr));
     } catch {
-      console.warn("FactExtractor: failed to parse JSON:", jsonStr.slice(0, 100));
+      console.warn("FactExtractor: failed to parse JSON:", jsonStr.slice(0, 200));
       return;
     }
 
@@ -136,6 +136,12 @@ export async function extractFacts(
 
 // ── JSON extraction ─────────────────────────────────────
 
+/** Fix common LLM JSON mistakes that survive extractJson but fail JSON.parse. */
+function repairJson(json: string): string {
+  // Remove trailing commas before ] or } — common in LLM output
+  return json.replace(/,(\s*[}\]])/g, "$1");
+}
+
 /**
  * Extract the first balanced top-level JSON object from text, sanitizing
  * literal control characters inside strings (LLMs often embed raw newlines
@@ -169,10 +175,15 @@ function extractJson(text: string): string | null {
       continue;
     }
     if (inString) {
-      // Escape literal control chars that are invalid inside JSON strings
-      if (ch === "\n") { out.push("\\n"); continue; }
-      if (ch === "\r") { out.push("\\r"); continue; }
-      if (ch === "\t") { out.push("\\t"); continue; }
+      const code = ch.charCodeAt(0);
+      // Escape/drop all control characters invalid inside JSON strings (U+0000–U+001F)
+      if (code < 0x20) {
+        if (code === 0x09) { out.push("\\t"); continue; }   // tab
+        if (code === 0x0a) { out.push("\\n"); continue; }   // newline
+        if (code === 0x0d) { out.push("\\r"); continue; }   // carriage return
+        // All other control chars are just dropped — they shouldn't be in facts
+        continue;
+      }
       out.push(ch);
       continue;
     }

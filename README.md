@@ -1,5 +1,9 @@
 # Aelora
 
+<p align="center">
+  <img src="assets/aelora_art_04.png" alt="Aelora" width="320" />
+</p>
+
 **The embodiment layer of the Luminora Emotion Engine.**
 
 Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system (Persona), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, a scoring and gamification engine, and a live web dashboard.

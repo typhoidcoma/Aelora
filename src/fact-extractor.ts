@@ -136,24 +136,56 @@ export async function extractFacts(
 
 // ── JSON extraction ─────────────────────────────────────
 
-/** Extract the first balanced top-level JSON object from text, skipping braces inside strings. */
+/**
+ * Extract the first balanced top-level JSON object from text, sanitizing
+ * literal control characters inside strings (LLMs often embed raw newlines
+ * in string values, which makes JSON.parse throw).
+ */
 function extractJson(text: string): string | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
+
+  const out: string[] = [];
   let depth = 0;
   let inString = false;
   let escape = false;
+
   for (let i = start; i < text.length; i++) {
     const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\") { escape = inString; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
+
+    if (escape) {
+      escape = false;
+      out.push(ch);
+      continue;
+    }
+    if (ch === "\\") {
+      escape = inString;
+      out.push(ch);
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      out.push(ch);
+      continue;
+    }
+    if (inString) {
+      // Escape literal control chars that are invalid inside JSON strings
+      if (ch === "\n") { out.push("\\n"); continue; }
+      if (ch === "\r") { out.push("\\r"); continue; }
+      if (ch === "\t") { out.push("\\t"); continue; }
+      out.push(ch);
+      continue;
+    }
+
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
-      if (depth === 0) return text.slice(start, i + 1);
+      if (depth === 0) {
+        out.push(ch);
+        return out.join("");
+      }
     }
+    out.push(ch);
   }
   return null;
 }

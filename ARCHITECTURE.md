@@ -55,23 +55,23 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ╔═════════════════▼══════════════════════════════════════════════════╗
   ║                          TOOLS                                     ║
   ║                                                                    ║
-  ║  Built-in               Google Suite            Search             ║
-  ║  ─────────              ────────────            ──────             ║
-  ║  notes · memory         gmail                   brave-search       ║
-  ║  mood · cron            google-calendar                            ║
-  ║  ping                   google-tasks             CalDAV            ║
-  ║  discord_history        google-docs              ──────            ║
-  ║                                                  calendar · todo   ║
+  ║  Built-in               Google Suite            Scoring            ║
+  ║  ─────────              ────────────            ───────            ║
+  ║  notes · memory         gmail                   scoring.ts         ║
+  ║  mood · cron            google-calendar         (read-only:        ║
+  ║  ping                   google-tasks            stats/leaderboard/ ║
+  ║  discord_history        google-docs             achievements)      ║
+  ║                         todo (adapter)                             ║
   ╚════════╤════════════════════╤════════════════════════╤═════════════╝
            │                    │                        │
   ╔════════▼════════╗  ┌────────▼─────────┐   ┌─────────▼──────────────┐
-  ║   File Storage  ║  │   Google APIs    │   │  Radicale CalDAV       │
-  ║   data/*.json   ║  │   (OAuth2)      │   │  http://127.0.0.1:5232 │
-  ║                 ║  │                  │   │  VEVENT · VTODO        │
-  ║  memory.json    ║  └──────────────────┘   └────────────────────────┘
-  ║  sessions.json  ║
-  ║  users.json     ║  ┌──────────────────┐
-  ║  notes.json     ║  │   Brave Search   │
+  ║   File Storage  ║  │   Google APIs    │   │  Supabase (PostgreSQL) │
+  ║   data/*.json   ║  │   (OAuth2)       │   │  user_profiles         │
+  ║                 ║  │                  │   │  life_events           │
+  ║  memory.json    ║  └──────────────────┘   │  scoring_events        │
+  ║  sessions.json  ║                         │  category_stats        │
+  ║  users.json     ║  ┌──────────────────┐   │  achievements          │
+  ║  notes.json     ║  │   Brave Search   │   └────────────────────────┘
   ║  cron-jobs.json ║  │   API            │
   ║  mood.json      ║  └──────────────────┘
   ║  toggle-state   ║
@@ -84,6 +84,8 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  users.ts ────── profile tracking          classification          ║
   ║  daily-log.ts ── activity logging          (auto after each reply) ║
   ║  logger.ts ───── console capture + SSE broadcast + file logging    ║
+  ║  scoring.ts ──── pure 0-100 scoring engine (no I/O)               ║
+  ║  supabase.ts ─── Supabase client singleton + typed helpers         ║
   ║                                                                    ║
   ║  Discord Activity (optional) ── Unity WebGL in Discord iframe      ║
   ║  activity/index.html → SDK + OAuth2 + bridge API                   ║
@@ -92,7 +94,7 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
 
 ## Startup Sequence
 
-Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
+Defined in [src/index.ts](src/index.ts). Runs in order:
 
 | Step | What | Module |
 |------|------|--------|
@@ -100,11 +102,12 @@ Defined in [src/index.ts](src/index.ts). Runs 10 steps in order:
 | 2 | Load config from `settings.yaml`, set `process.env.TZ` | `config.ts` |
 | 3 | Load persona files → compose system prompt | `persona.ts` |
 | 4 | Initialize LLM client | `llm.ts` |
+| 4b | Connect Supabase client (if configured) | `supabase.ts` |
 | 5 | Auto-discover and load tools | `tool-registry.ts` |
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
-| 9 | Register heartbeat handlers (calendar, memory, cleanup, reply-check, last-alive, conversation-save), start ticker | `heartbeat.ts` |
+| 9 | Register heartbeat handlers (calendar, memory, cleanup, reply-check, last-alive, conversation-save, scoring-sync), start ticker | `heartbeat.ts` |
 | 10 | Start web dashboard + WebSocket, set system state provider | `web.ts`, `ws.ts`, `llm.ts` |
 
 Graceful shutdown on SIGINT/SIGTERM: saves conversations, saves state, stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged, conversations and state are saved, then the process exits with code 1.
@@ -480,13 +483,14 @@ Most tools use a single `action` enum param with a `switch` statement. See `src/
 
 ### Config Resolution
 
-Tools declare config dependencies as dotted paths (e.g. `["caldav.serverUrl", "caldav.password"]`). At runtime, `defineTool()` resolves these from the `tools:` section of `settings.yaml`:
+Tools declare config dependencies as dotted paths (e.g. `["google.clientId", "google.refreshToken"]`). At runtime, `defineTool()` resolves these from the `tools:` section of `settings.yaml`:
 
 ```yaml
 tools:
-  caldav:
-    serverUrl: "http://localhost:5232"
-    password: "secret"
+  google:
+    clientId: "..."
+    clientSecret: "..."
+    refreshToken: "..."
 ```
 
 If required config keys are missing, the tool returns an error message instead of executing.
@@ -560,17 +564,17 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 |------|-------------|--------|
 | `ping` | Responds with pong + server time | none |
 | `notes` | Persistent note storage (save/get/list/delete) | none |
-| `calendar` | CalDAV calendar CRUD (list/create/update/delete) | `caldav.*` |
 | `brave-search` | Web search via Brave Search API | `brave.apiKey` |
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
 | `mood` | Manual emotional state override (set_mood) | none |
-| `todo` | Task management via CalDAV VTODO (add/list/complete/update/delete) | `caldav.*` |
+| `todo` | Task list adapter over Google Tasks (list/get/create/complete/update/delete) | `google.*` |
 | `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
 | `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
 | `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
+| `scoring` | Read-only scoring tool: stats, leaderboard, achievements (Supabase) | `google.*` |
 
 ---
 
@@ -615,7 +619,7 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 60 seconds).
 
@@ -641,10 +645,10 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 ### Built-in Handlers
 
 **Calendar Reminder** (`heartbeat-calendar.ts`):
-- Every tick: connects to CalDAV, fetches events starting within 15 minutes
+- Every tick: calls Google Calendar API, fetches events starting within 15 minutes
 - Sends a formatted reminder to the guild's first text channel
-- Tracks notified events by UID to avoid duplicates
-- Silently skips if CalDAV is not configured
+- Tracks notified events by UID in `data/notified-events.json` to avoid duplicates
+- Silently skips if Google credentials are not configured
 
 **Memory Compaction** (`heartbeat-memory.ts`):
 - Periodically compacts memory facts for efficiency
@@ -670,6 +674,12 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 - Every 5 minutes: persists in-memory conversation history to `data/memory/conversations.json`
 - Guards with its own timestamp check independent of the heartbeat tick rate
 
+**Scoring Sync** (`heartbeat-scoring-sync.ts`):
+- Every 5 minutes: fetches all pending Google Tasks and upserts them into Supabase `life_events` for all known user profiles
+- Runs keyword inference on first insert to fill `category`, `irreversible`, `affects_others`
+- Silently skips if Google credentials or Supabase are not configured
+- Returns a summary log string (e.g. `synced 12 task(s) for 2 user(s)`)
+
 ### Adding a Handler
 
 ```typescript
@@ -689,91 +699,11 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 ---
 
-## CalDAV Server (Radicale)
-
-**External dependency** -required for the `calendar` and `todo` tools.
-
-Aelora uses a [Radicale](https://radicale.org/) CalDAV server for calendar events (VEVENT) and tasks/todos (VTODO). Radicale is a lightweight Python CalDAV server that runs locally.
-
-### Setup
-
-```bash
-# Install
-pip install radicale passlib bcrypt
-
-# Generate htpasswd file (run from project root)
-python -c "from passlib.hash import bcrypt; print('aelora:' + bcrypt.hash('aelora123'))" > radicale-users
-
-# Start with config
-python -m radicale --config radicale-config
-```
-
-### Configuration Files
-
-| File | Purpose |
-|------|---------|
-| `radicale-config` | Server config: host, auth, storage path, permissions |
-| `radicale-users` | Htpasswd file (bcrypt-hashed credentials) |
-| `data/radicale/` | Calendar/todo data storage (auto-created) |
-
-### Config (`radicale-config`)
-
-```ini
-[server]
-hosts = 0.0.0.0:5232
-
-[auth]
-type = htpasswd
-htpasswd_filename = radicale-users
-htpasswd_encryption = bcrypt
-
-[storage]
-filesystem_folder = data/radicale
-
-[rights]
-type = owner_only
-```
-
-### Connection
-
-Aelora connects via the `tsdav` npm library. Both the `calendar` and `todo` tools share the same CalDAV client and config:
-
-```yaml
-# settings.yaml
-tools:
-  caldav:
-    serverUrl: "http://127.0.0.1:5232"
-    username: "aelora"
-    password: "aelora123"
-    authMethod: "Basic"
-    calendarName: "Aelora"
-```
-
-The calendar must be created on first setup (Radicale web UI at `http://127.0.0.1:5232` or via MKCALENDAR request).
-
-### Remote Access
-
-For syncing with external CalDAV clients (Thunderbird, DAVx5, iOS), access Radicale via Tailscale's internal network:
-
-- **CalDAV URL:** `http://<tailscale-ip>:5232/aelora/Aelora/`
-- Radicale speaks plain HTTP only. Tailscale's WireGuard provides encryption in transit
-
-### What Uses CalDAV
-
-| Component | How |
-|-----------|-----|
-| `calendar` tool | CRUD for VEVENT objects (list/create/update/delete events) |
-| `todo` tool | CRUD for VTODO objects (add/list/complete/update/delete tasks) |
-| `heartbeat-calendar.ts` | Polls for upcoming events, sends Discord reminders |
-| `web.ts` REST API | `/api/calendar/events` and `/api/todos` endpoints |
-
----
-
 ## Google Workspace Integration
 
-**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts), [src/tools/google-tasks.ts](src/tools/google-tasks.ts)
+**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts), [src/tools/google-tasks.ts](src/tools/google-tasks.ts), [src/tools/todo.ts](src/tools/todo.ts)
 
-Four tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
+Five tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
 
 ### Authentication
 
@@ -821,7 +751,7 @@ Emails are built as RFC 2822 messages, base64url-encoded, and sent via the Gmail
 
 ### Google Calendar Tool (`google_calendar`)
 
-Separate from the CalDAV calendar -this operates on Google Calendar via the REST API.
+Operates on Google Calendar via the REST API.
 
 | Action | Description |
 |--------|-------------|
@@ -857,6 +787,170 @@ Document content is extracted by walking the Docs API structural elements (parag
 | `lists` | List all task lists |
 
 Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support). Tasks sync with Gmail and Google Calendar. The `add_many` action accepts a JSON string array and creates tasks sequentially, returning a summary of successes and failures.
+
+### Todo Adapter (`todo`)
+
+`src/tools/todo.ts` is a higher-level adapter over Google Tasks that exposes a normalized `TodoItem` interface used by the web dashboard and the scoring system.
+
+```typescript
+type TodoItem = {
+  uid: string;           // Google Task id
+  title: string;
+  description?: string;  // Google Tasks "notes"
+  completed: boolean;
+  priority: "low" | "medium" | "high";  // merged from Supabase life_events, default "medium"
+  dueDate?: string;      // ISO 8601 from Google Tasks RFC 3339 "due"
+  updatedAt?: string;    // Google Tasks "updated"
+};
+```
+
+Exported functions: `listTodos`, `getTodoByUid`, `createTodo`, `completeTodo`, `updateTodoItem`, `deleteTodoItem`. All accept a `GoogleConfig` param and call `googleFetch` internally. Priority is read from Supabase `life_events.priority` by `external_uid` when available; otherwise defaults to `"medium"`.
+
+---
+
+## Scoring System
+
+**Files:** [src/scoring.ts](src/scoring.ts), [src/supabase.ts](src/supabase.ts), [src/tools/scoring.ts](src/tools/scoring.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts)
+
+Fully automatic priority scoring across five life categories. Scores update in the background. Users see results via the Discord scoring tool or web dashboard; they never interact with the pipeline directly.
+
+### Architecture
+
+```
+Google Tasks API
+      │
+      ▼
+heartbeat-scoring-sync.ts        (every 5 min)
+      │  upsertLifeEvent()
+      ▼
+Supabase life_events table       (source of truth for scoring metadata)
+      │
+      ├─ scoring.ts: scoreTask() (pure formula, no I/O)
+      │
+      ├─ supabase.ts: recordScoringEvent(), updateUserProfile(),
+      │               updateCategoryStats(), checkAchievements()
+      │
+      └─ src/tools/scoring.ts    (read-only LLM tool: stats/leaderboard/achievements)
+```
+
+### Supabase Schema (5 tables)
+
+| Table | Purpose |
+|-------|---------|
+| `user_profiles` | Per-user XP total, streak, longest streak, last completion date |
+| `life_events` | All trackable events: tasks, health, finance, social, work. Linked to Google Tasks via `external_uid` |
+| `scoring_events` | Immutable scoring history: each completion records all 4 dimension scores, points awarded, streak at time |
+| `category_stats` | EMA-based adaptive stats per user per category: avg score, avg hours to complete, avg SMEQ, personal bias |
+| `achievements` | Unlocked achievements with timestamp |
+
+RLS is disabled on all five tables (server-side anon key access). The `(discord_user_id, external_uid)` unique constraint on `life_events` prevents duplicate syncs.
+
+### Score Formula
+
+```
+Total (0-100) = Urgency (0-35) + Impact (0-30) + Effort (0-20) + Context (0-15)
+```
+
+**Urgency (0-35):** Exponential temporal decay based on hyperbolic discounting.
+```
+Urgency = 35 * e^(-0.013 * hoursUntilDue)
+No deadline → 18 (neutral)    Overdue → 35 (max)
+```
+
+**Impact (0-30):** Consequence of not completing the task.
+```
+trivial=5, low=10, moderate=17, high=24, critical=30
++6 if irreversible (capped at 30)
++3 if affects_others (capped at 30)
+```
+Priority auto-maps to impact level: `low→low`, `medium→moderate`, `high→high`.
+
+**Effort (0-20):** SMEQ-based cognitive load score. Lower cognitive effort = higher score (WSJF throughput principle).
+```
+effortScore = max(1, round(20 * (1 - smeq / 150)))
+SMEQ=0 → 20 (effortless)    SMEQ=150 → 1 (extreme)
+```
+SMEQ is inferred in order: `smeq_estimate` → `estimated_minutes` → `size_label` → keyword hints → category EMA baseline → default 65.
+
+**Context (0-15):** Adaptive personalization.
+```
+Category bias (0-5): personal_bias[category] mapped 0.8..1.2 → 1..5
+Streak bonus  (0-5): 1d→1, 3d→2, 7d→3, 14d→4, 30d→5
+Momentum      (0-5): completions last 24h: 1→1, 3→3, 5→5
+```
+
+### Keyword Inference
+
+On first sync, `inferMetadata(title, description)` auto-fills `category`, `irreversible`, and `affects_others` from title/description keywords. No external deps.
+
+| Category | Keywords (sample) |
+|----------|-------------------|
+| `health` | doctor, gym, medicine, dentist, therapy, prescription, surgery |
+| `finance` | bill, payment, invoice, tax, bank, rent, mortgage, insurance |
+| `social` | birthday, anniversary, gift, family, friend, party, wedding |
+| `work` | meeting, project, report, client, deadline, review, deploy |
+| `tasks` | (default) |
+
+Irreversible triggers: `birthday, anniversary, appointment, flight, exam, interview, surgery, deadline, wedding`
+Affects-others triggers: `meeting, team, client, review, friend, family, gift, party, together, group`
+
+### XP and Points
+
+```
+pointsAwarded    = round(basePoints * streakMultiplier * overdueBonus)
+basePoints       = 10 + (score/100) * 90        // 10 (score=0) → 100 (score=100)
+streakMultiplier = 1 + min(streak, 30) / 30      // 1.0x → 2.0x
+overdueBonus     = 1.25 if completed overdue, else 1.0
+```
+
+### Achievements (9 total)
+
+`first_task` · `ten_tasks` · `hundred_tasks` · `streak_3` · `streak_7` · `streak_30` · `thousand_points` · `high_scorer` (score ≥ 90) · `overdue_hero`
+
+### Adaptive Learning (EMA, alpha=0.2)
+
+After each completion, `category_stats` updates via exponential moving average:
+```
+new_avg_score             = prev * 0.8 + score * 0.2
+new_avg_hours_to_complete = prev * 0.8 + hoursUntilDue * 0.2
+personal_bias             = globalAvgHours / categoryAvgHours  (clamped 0.8..1.2)
+```
+Requires `completion_count >= 3` before bias affects the Context dimension. Adapts without manual resets as patterns change over time.
+
+### Scoring Tool (LLM-accessible, read-only)
+
+**File:** [src/tools/scoring.ts](src/tools/scoring.ts)
+
+Three actions only. The system handles all writes automatically.
+
+| Action | Returns |
+|--------|---------|
+| `stats` | XP, streak, longest streak, completion count, recent achievements |
+| `leaderboard` | Top N pending tasks sorted by computed score, with per-dimension breakdown |
+| `achievements` | All achievements with unlock status and timestamp |
+
+The leaderboard action triggers a Google Tasks sync for the requesting user before querying Supabase, ensuring fresh data without requiring the user to do anything.
+
+### Setup
+
+1. Create a Supabase project
+2. Run `supabase/migrations/001_scoring_system.sql` in the SQL editor
+3. Disable RLS on all five tables:
+   ```sql
+   ALTER TABLE user_profiles DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE life_events DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE scoring_events DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE category_stats DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE achievements DISABLE ROW LEVEL SECURITY;
+   ```
+4. Add to `settings.yaml`:
+   ```yaml
+   supabase:
+     url: "https://your-project.supabase.co"
+     anonKey: "sb_publishable_..."
+   ```
+
+Supabase is optional. If not configured, the scoring tool returns an error and background sync silently skips.
 
 ---
 
@@ -1098,7 +1192,7 @@ When `activity.enabled` is false:
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard sections: Status, Persona (card grid + file editor), LLM Test, Sessions, Memory, Scheduled Tasks (cron), Tools, Agents, Notes (CRUD with scoped organization), Todos (CalDAV-backed task list), Users (profile table with cascading delete), Activity Preview (Unity WebGL test iframe), and Console (live log stream). An **Export Data** button in the header downloads a JSON bundle of all bot data.
+Dashboard sections: Status, Persona (card grid + file editor), LLM Test, Sessions, Memory, Scheduled Tasks (cron), Tools, Agents, Notes (CRUD with scoped organization), Todos (Google Tasks-backed, with score badges and smart sort), Scoring (XP bar, streak, leaderboard by score tier, achievements), Users (profile table with cascading delete), Activity Preview (Unity WebGL test iframe), and Console (live log stream). An **Export Data** button in the header downloads a JSON bundle of all bot data.
 
 ---
 
@@ -1157,6 +1251,10 @@ type Config = {
   cron: {
     maxHistory: number;         // Default: 10 -execution records per job
   };
+  supabase?: {
+    url: string;
+    anonKey: string;
+  };
 };
 ```
 
@@ -1204,7 +1302,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 |------|---------|-------------------|
 | Conversation history | In-memory Map + periodic disk save (`data/memory/conversations.json`) | Yes (saved every 5 min by heartbeat) |
 | Notes | `data/notes.json` (disk) | Yes |
-| Calendar events | External CalDAV server | Yes |
+| Tasks / todos | Google Tasks API (primary) | Yes |
 | Tool/agent enabled state | `data/toggle-state.json` (disk) | Yes |
 | Cron jobs + execution history | `data/cron-jobs.json` (disk, atomic writes) | Yes |
 | Memory facts | `data/memory.json` (disk) | Yes |
@@ -1213,9 +1311,14 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Mood state | `data/current-mood.json` (disk) | Yes |
 | Conversation summaries | `data/memory/summaries.json` (disk) | Yes |
 | Active persona | `data/bot-state.json` (disk) | Yes |
-| User profiles | `data/users.json` (disk) | Yes |
-| Todos | CalDAV server (VTODO) | Yes |
-| Heartbeat notified events | In-memory Set | No |
+| User profiles (Discord) | `data/users.json` (disk) | Yes |
+| Scoring user profiles | Supabase `user_profiles` table | Yes |
+| Life events (tasks + metadata) | Supabase `life_events` table | Yes |
+| Scoring history | Supabase `scoring_events` table | Yes |
+| Per-category adaptive stats | Supabase `category_stats` table | Yes |
+| Achievements | Supabase `achievements` table | Yes |
+| Calendar event notifications | `data/notified-events.json` (disk) | Yes |
+| Heartbeat notified events (legacy) | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
 | Log files | `data/logs/YYYY-MM-DD.log` (disk, when `logger.fileEnabled`) | Yes |
 | Persona files | Disk (`persona/` directory) | Yes |

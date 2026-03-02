@@ -18,7 +18,7 @@ import { registerConversationSave } from "./heartbeat-conversations.js";
 import { registerScoringSync } from "./heartbeat-scoring-sync.js";
 import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
-import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
+import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
@@ -82,16 +82,8 @@ async function main(): Promise<void> {
   console.log("Discord: connecting...");
   await startDiscord(config);
 
-  // 7. Check previous state and send restart notification
+  // 7. Check previous state (log only — no Discord message on startup)
   const prevState = consumePreviousState();
-  if (prevState && config.discord.statusChannelId) {
-    try {
-      const msg = formatRestartMessage(prevState);
-      await sendToChannel(config.discord.statusChannelId, msg);
-    } catch (err) {
-      console.error("Failed to send restart notification:", err);
-    }
-  }
   appendSystemEvent("startup", prevState ? `Restarted (${prevState.reason})` : "Cold start");
 
   // 8. Start cron scheduler

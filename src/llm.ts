@@ -670,6 +670,7 @@ async function runCompletionLoop(
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
+  let toolsDropped = false; // set when model template forces tools to be removed
 
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
@@ -686,6 +687,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
+            toolsDropped = true;
             try {
               stream = await client.chat.completions.create({ ...baseParams, stream: true });
             } catch (retryErr) {
@@ -759,6 +761,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
+            toolsDropped = true;
             try {
               completion = await client.chat.completions.create(baseParams);
             } catch (retryErr) {
@@ -796,7 +799,7 @@ async function runCompletionLoop(
       for (const toolCall of toolCalls) {
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(toolCall.function.arguments);
+          args = JSON.parse(safeToolArgs(toolCall.function.arguments));
         } catch {
           console.warn(
             `LLM: invalid JSON in tool call args for ${toolCall.function.name}`,
@@ -866,6 +869,7 @@ async function runCompletionLoop(
     // Nudge it to follow through. Only fires once per completion to prevent loops.
     if (
       !intentNudgeFired &&
+      !toolsDropped &&
       tools.length > 0 &&
       !toolCalls &&
       isUnfulfilledIntent(finalText)
@@ -896,6 +900,17 @@ const DEFERRED_INTENT_RE =
 function isUnfulfilledIntent(text: string): boolean {
   // Only flag short responses — a long one almost certainly contains the actual answer
   return text.length < 280 && DEFERRED_INTENT_RE.test(text);
+}
+
+/**
+ * Rewrite tool call argument JSON so large integer literals (Discord snowflakes,
+ * etc.) are preserved as strings instead of being rounded by JSON.parse.
+ * Any unquoted number >= 2^53 is wrapped in quotes before parsing.
+ */
+function safeToolArgs(raw: string): string {
+  // Replace bare integer literals that exceed Number.MAX_SAFE_INTEGER with quoted strings.
+  // The negative-lookbehind on `"` prevents double-quoting already-quoted values.
+  return raw.replace(/(?<!["\d])(\d{16,})(?!\d)/g, '"$1"');
 }
 
 /**

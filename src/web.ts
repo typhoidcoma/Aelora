@@ -37,9 +37,33 @@ import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel, classifyMood } from "./mood.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
-import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem } from "./tools/todo.js";
+import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem, getGoogleConfig } from "./tools/todo.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
-import { getClient as getCalDAVClient, parseICS, icsDateToISO } from "./tools/calendar.js";
+import { googleFetch } from "./tools/_google-auth.js";
+import {
+  tryGetSupabaseClient,
+  ensureUserProfile,
+  upsertLifeEvent,
+  recordScoringEvent,
+  updateUserProfile,
+  upsertCategoryStats,
+  unlockAchievement,
+  getUserStats,
+  getPendingLifeEvents,
+  getRecentScoringEvents,
+  type LifeEventRow,
+} from "./supabase.js";
+import {
+  scoreTask,
+  processCompletion,
+  ACHIEVEMENTS,
+  inferCategory,
+  inferIrreversible,
+  inferAffectsOthers,
+  type LifeCategory,
+  type ScoreInput,
+  type UserState,
+} from "./scoring.js";
 
 export type AppState = {
   config: Config;
@@ -876,77 +900,67 @@ export function startWeb(state: AppState): Server | null {
     res.json({ success: true });
   });
 
-  // --- Calendar (read-only) ---
+  // --- Calendar (Google Calendar) ---
 
   app.get("/api/calendar/events", async (req, res) => {
-    if (!isToolEnabled("calendar")) {
-      res.status(404).json({ error: "Calendar tool is not enabled" });
+    if (!isToolEnabled("google_calendar")) {
+      res.status(404).json({ error: "Google Calendar tool is not enabled" });
       return;
     }
 
-    const caldavConfig = config.tools?.caldav as
-      | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
-      | undefined;
-
-    if (!caldavConfig?.serverUrl || caldavConfig.serverUrl === "YOUR_CALDAV_SERVER_URL") {
-      res.status(503).json({ error: "Calendar is not configured. Set caldav settings in settings.yaml under tools:" });
+    let googleConfig;
+    try {
+      googleConfig = getGoogleConfig(config.tools as Record<string, Record<string, unknown>> | undefined);
+    } catch {
+      res.status(503).json({ error: "Google not configured. Add google.clientId/clientSecret/refreshToken to settings.yaml under tools:" });
       return;
     }
 
     const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
     const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
 
-    let client;
     try {
-      client = await getCalDAVClient({
-        serverUrl: caldavConfig.serverUrl,
-        username: caldavConfig.username,
-        password: caldavConfig.password,
-        authMethod: caldavConfig.authMethod || "Basic",
-      });
-    } catch {
-      res.status(502).json({ error: "Failed to connect to CalDAV server" });
-      return;
-    }
-
-    try {
-      const calendars = await client.fetchCalendars();
-      if (calendars.length === 0) {
-        res.json({ events: [], count: 0, daysAhead, maxResults });
-        return;
-      }
-
-      const calendar =
-        (caldavConfig.calendarName
-          ? calendars.find((c) => c.displayName === caldavConfig.calendarName)
-          : null) ?? calendars[0];
-
       const now = new Date();
       const end = new Date(now);
       end.setDate(end.getDate() + daysAhead);
 
-      const objects = await client.fetchCalendarObjects({
-        calendar,
-        timeRange: { start: now.toISOString(), end: end.toISOString() },
+      const params = new URLSearchParams({
+        timeMin: now.toISOString(),
+        timeMax: end.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: String(maxResults),
       });
 
-      if (!objects || objects.length === 0) {
-        res.json({ events: [], count: 0, daysAhead, maxResults });
+      const gcalRes = await googleFetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+        googleConfig,
+      );
+
+      if (!gcalRes.ok) {
+        res.status(502).json({ error: `Google Calendar API error (${gcalRes.status})` });
         return;
       }
 
-      const events = objects
-        .filter((o) => o.data)
-        .map((o) => {
-          const parsed = parseICS(o.data as string, o.url, o.etag ?? "");
-          return {
-            ...parsed,
-            dtstart: icsDateToISO(parsed.dtstart),
-            dtend: icsDateToISO(parsed.dtend),
-          };
-        })
-        .sort((a, b) => a.dtstart.localeCompare(b.dtstart))
-        .slice(0, maxResults);
+      const data = (await gcalRes.json()) as {
+        items?: Array<{
+          id: string;
+          summary?: string;
+          description?: string;
+          location?: string;
+          start: { dateTime?: string; date?: string };
+          end:   { dateTime?: string; date?: string };
+        }>;
+      };
+
+      const events = (data.items ?? []).map((e) => ({
+        uid: e.id,
+        summary: e.summary ?? "Untitled",
+        description: e.description,
+        location: e.location,
+        dtstart: e.start.dateTime ?? e.start.date ?? "",
+        dtend: e.end.dateTime ?? e.end.date ?? "",
+      }));
 
       res.json({ events, count: events.length, daysAhead, maxResults });
     } catch {
@@ -954,36 +968,25 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // --- Todos (CalDAV VTODO) ---
+  // --- Todos (Google Tasks) ---
 
-  const getTodoClient = async () => {
-    const caldavConfig = state.config.tools?.caldav as
-      | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
-      | undefined;
-    if (!caldavConfig?.serverUrl) throw new Error("CalDAV not configured");
-    const client = await getCalDAVClient({
-      serverUrl: caldavConfig.serverUrl,
-      username: caldavConfig.username,
-      password: caldavConfig.password,
-      authMethod: caldavConfig.authMethod || "Basic",
-    });
-    return { client, calendarName: caldavConfig.calendarName };
-  };
+  const getGoogleTasksConfig = () =>
+    getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
 
   // List todos, optionally filter by ?status=pending|completed|all
   app.get("/api/todos", async (req, res) => {
     if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
-      const { client, calendarName } = await getTodoClient();
+      const googleConfig = getGoogleTasksConfig();
       const status = (req.query.status as string) || "all";
-      const items = await listTodos(client, calendarName, status as "all" | "pending" | "completed");
+      const items = await listTodos(googleConfig, "@default", status as "all" | "pending" | "completed");
       res.json({ todos: items, count: items.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not configured")) {
-        res.status(503).json({ error: "CalDAV not configured" });
+        res.status(503).json({ error: msg });
       } else {
-        res.status(502).json({ error: `CalDAV error: ${msg}` });
+        res.status(502).json({ error: `Google Tasks error: ${msg}` });
       }
     }
   });
@@ -992,12 +995,12 @@ export function startWeb(state: AppState): Server | null {
   app.get("/api/todos/:uid", async (req, res) => {
     if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
-      const { client, calendarName } = await getTodoClient();
-      const item = await getTodoByUid(client, calendarName, req.params.uid);
+      const googleConfig = getGoogleTasksConfig();
+      const item = await getTodoByUid(googleConfig, req.params.uid);
       if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
       res.json(item);
     } catch (err) {
-      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
@@ -1010,31 +1013,149 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     try {
-      const { client, calendarName } = await getTodoClient();
-      const item = await createTodo(client, calendarName, { title, description, priority, dueDate });
+      const googleConfig = getGoogleTasksConfig();
+      const item = await createTodo(googleConfig, { title, description, priority, dueDate });
       res.status(201).json(item);
     } catch (err) {
-      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
-  // Update todo
+  // Update todo (or mark complete with { completed: true })
+  // Optional body fields for scoring on completion:
+  //   discordUserId  — required to trigger scoring pipeline
+  //   smeqActual     — post-completion SMEQ self-report (0–150)
   app.put("/api/todos/:uid", async (req, res) => {
     if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
-    const { title, description, priority, dueDate, completed } = req.body ?? {};
+    const { title, description, priority, dueDate, completed, discordUserId, smeqActual } = req.body ?? {};
     try {
-      const { client, calendarName } = await getTodoClient();
+      const googleConfig = getGoogleTasksConfig();
       if (completed === true) {
-        const item = await completeTodo(client, calendarName, req.params.uid);
+        const item = await completeTodo(googleConfig, req.params.uid);
         if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
-        res.json(item);
+
+        // --- Scoring pipeline (non-blocking, best-effort) ---
+        let scoringResult: { pointsAwarded: number; score: number; newAchievements: string[] } | null = null;
+        const sb = tryGetSupabaseClient(config);
+        if (sb && discordUserId && typeof discordUserId === "string") {
+          try {
+            await ensureUserProfile(sb, discordUserId);
+
+            // Upsert into life_events
+            const lifeEvent = await upsertLifeEvent(sb, {
+              discord_user_id:   discordUserId,
+              title:             item.title,
+              description:       item.description ?? null,
+              category:          inferCategory({ title: item.title, description: item.description }) as LifeCategory,
+              source:            "google_tasks",
+              external_uid:      item.uid,
+              priority:          item.priority,
+              due_date:          item.dueDate ?? null,
+              completed:         true,
+              completed_at:      new Date().toISOString(),
+              estimated_minutes: null,
+              size_label:        null,
+              impact_level:      null,
+              irreversible:      inferIrreversible({ title: item.title, description: item.description }) || null,
+              affects_others:    inferAffectsOthers({ title: item.title, description: item.description }) || null,
+              smeq_estimate:     null,
+              tags:              null,
+            });
+
+            // Load user state
+            const userData = await getUserStats(sb, discordUserId);
+            const catStats = userData?.categoryStats.find((cs) => cs.category === lifeEvent?.category);
+            const userState: UserState = {
+              totalPoints:         userData?.profile.total_points ?? 0,
+              currentStreak:       userData?.profile.current_streak ?? 0,
+              longestStreak:       userData?.profile.longest_streak ?? 0,
+              lastCompletionDate:  userData?.profile.last_completion_date ?? null,
+              achievements:        (userData?.achievements ?? []).map((a) => a.achievement_id),
+              categoryStats: catStats ? {
+                completionCount:      catStats.completion_count,
+                avgScore:             catStats.avg_score,
+                avgHoursToComplete:   catStats.avg_hours_to_complete,
+                avgSmeqActual:        catStats.avg_smeq_actual,
+                personalBias:         catStats.personal_bias,
+              } : undefined,
+            };
+
+            // Score input
+            const scoreInput: ScoreInput = {
+              title:             item.title,
+              description:       item.description,
+              category:          lifeEvent?.category as LifeCategory | undefined,
+              dueDate:           item.dueDate ?? null,
+              priority:          item.priority,
+              irreversible:      lifeEvent?.irreversible ?? undefined,
+              affectsOthers:     lifeEvent?.affects_others ?? undefined,
+              smeqEstimate:      lifeEvent?.smeq_estimate ?? undefined,
+              avgSmeqActual:     catStats?.avg_smeq_actual ?? undefined,
+              personalBias:      catStats?.personal_bias ?? 1.0,
+              categoryCompletionCount: catStats?.completion_count ?? 0,
+              streak:            userState.currentStreak,
+            };
+
+            const completion = processCompletion(scoreInput, userState, smeqActual != null ? Number(smeqActual) : null);
+
+            // Persist scoring event
+            await recordScoringEvent(sb, {
+              discord_user_id:    discordUserId,
+              life_event_id:      lifeEvent?.id ?? null,
+              score_at_completion: completion.scoreBreakdown.total,
+              points_awarded:     completion.pointsAwarded,
+              urgency_component:  completion.scoreBreakdown.urgency,
+              impact_component:   completion.scoreBreakdown.impact,
+              effort_component:   completion.scoreBreakdown.effort,
+              context_component:  completion.scoreBreakdown.context,
+              smeq_actual:        smeqActual != null ? Number(smeqActual) : null,
+              hours_until_due:    completion.scoreBreakdown.hoursUntilDue,
+              streak_at_time:     completion.updatedStreak,
+            });
+
+            // Update user profile
+            await updateUserProfile(sb, discordUserId, {
+              totalPoints:         (userData?.profile.total_points ?? 0) + completion.pointsAwarded,
+              currentStreak:       completion.updatedStreak,
+              longestStreak:       completion.updatedLongestStreak,
+              lastCompletionDate:  completion.lastCompletionDate,
+            });
+
+            // Update category stats
+            const cat = lifeEvent?.category ?? "tasks";
+            await upsertCategoryStats(sb, {
+              discord_user_id:       discordUserId,
+              category:              cat,
+              completion_count:      (catStats?.completion_count ?? 0) + 1,
+              avg_score:             completion.emaUpdates.avgScore,
+              avg_hours_to_complete: completion.emaUpdates.avgHoursToComplete,
+              avg_smeq_actual:       completion.emaUpdates.avgSmeqActual ?? catStats?.avg_smeq_actual ?? 65,
+              personal_bias:         completion.emaUpdates.personalBias,
+            });
+
+            // Unlock achievements
+            for (const achId of completion.newAchievements) {
+              await unlockAchievement(sb, discordUserId, achId);
+            }
+
+            scoringResult = {
+              pointsAwarded:   completion.pointsAwarded,
+              score:           completion.scoreBreakdown.total,
+              newAchievements: completion.newAchievements,
+            };
+          } catch (scoringErr) {
+            console.warn("Scoring pipeline error (non-fatal):", scoringErr instanceof Error ? scoringErr.message : String(scoringErr));
+          }
+        }
+
+        res.json({ ...item, ...(scoringResult ?? {}) });
       } else {
-        const item = await updateTodoItem(client, calendarName, req.params.uid, { title, description, priority, dueDate });
+        const item = await updateTodoItem(googleConfig, req.params.uid, { title, description, priority, dueDate });
         if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
         res.json(item);
       }
     } catch (err) {
-      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
@@ -1042,13 +1163,234 @@ export function startWeb(state: AppState): Server | null {
   app.delete("/api/todos/:uid", async (req, res) => {
     if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     try {
-      const { client, calendarName } = await getTodoClient();
-      const deleted = await deleteTodoItem(client, calendarName, req.params.uid);
+      const googleConfig = getGoogleTasksConfig();
+      const deleted = await deleteTodoItem(googleConfig, req.params.uid);
       if (!deleted) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
       res.json({ success: true });
     } catch (err) {
-      res.status(502).json({ error: `CalDAV error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
+  });
+
+  // --- Scoring API ---
+  // All scoring endpoints require X-Discord-User-Id header or ?userId= query param.
+
+  function requireScoringUser(req: express.Request, res: express.Response): string | null {
+    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    if (!uid) {
+      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required" });
+      return null;
+    }
+    return uid;
+  }
+
+  function requireSupabase(res: express.Response) {
+    const sb = tryGetSupabaseClient(config);
+    if (!sb) {
+      res.status(503).json({ error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml." });
+      return null;
+    }
+    return sb;
+  }
+
+  // GET /api/scoring/stats — XP, streak, achievements, category breakdown
+  app.get("/api/scoring/stats", async (req, res) => {
+    const discordUserId = requireScoringUser(req, res);
+    if (!discordUserId) return;
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const data = await getUserStats(sb, discordUserId);
+    if (!data) {
+      res.json({ exists: false, profile: null, categoryStats: [], achievements: [] });
+      return;
+    }
+    res.json({ exists: true, ...data });
+  });
+
+  // GET /api/scoring/leaderboard — tasks sorted by score
+  app.get("/api/scoring/leaderboard", async (req, res) => {
+    const discordUserId = requireScoringUser(req, res);
+    if (!discordUserId) return;
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const category = req.query.category as string | undefined;
+
+    const [events, userData] = await Promise.all([
+      getPendingLifeEvents(sb, discordUserId, category, limit * 3),
+      getUserStats(sb, discordUserId),
+    ]);
+
+    const catStatMap = new Map((userData?.categoryStats ?? []).map((cs) => [cs.category, cs]));
+
+    const scored = events.map((ev) => {
+      const cs = catStatMap.get(ev.category);
+      const input: ScoreInput = {
+        title:            ev.title,
+        description:      ev.description ?? undefined,
+        category:         ev.category as LifeCategory,
+        dueDate:          ev.due_date ?? undefined,
+        priority:         ev.priority,
+        impactLevel:      ev.impact_level ?? undefined,
+        irreversible:     ev.irreversible ?? undefined,
+        affectsOthers:    ev.affects_others ?? undefined,
+        smeqEstimate:     ev.smeq_estimate ?? undefined,
+        estimatedMinutes: ev.estimated_minutes ?? undefined,
+        sizeLabel:        ev.size_label ?? undefined,
+        avgSmeqActual:    cs?.avg_smeq_actual ?? undefined,
+        personalBias:     cs?.personal_bias ?? 1.0,
+        categoryCompletionCount: cs?.completion_count ?? 0,
+        streak:           userData?.profile.current_streak ?? 0,
+      };
+      return { event: ev, scoreBreakdown: scoreTask(input) };
+    });
+
+    scored.sort((a, b) => b.scoreBreakdown.total - a.scoreBreakdown.total);
+    const page = scored.slice(0, limit);
+
+    res.json({
+      count: page.length,
+      tasks: page.map(({ event, scoreBreakdown }) => ({ ...event, scoreBreakdown })),
+    });
+  });
+
+  // GET /api/scoring/history — recent scoring events
+  app.get("/api/scoring/history", async (req, res) => {
+    const discordUserId = requireScoringUser(req, res);
+    if (!discordUserId) return;
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const events = await getRecentScoringEvents(sb, discordUserId, limit);
+    res.json({ count: events.length, events });
+  });
+
+  // GET /api/scoring/achievements
+  app.get("/api/scoring/achievements", async (req, res) => {
+    const discordUserId = requireScoringUser(req, res);
+    if (!discordUserId) return;
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const data = await getUserStats(sb, discordUserId);
+    const unlockedIds = new Set((data?.achievements ?? []).map((a) => a.achievement_id));
+
+    res.json({
+      total: ACHIEVEMENTS.length,
+      unlocked: unlockedIds.size,
+      achievements: ACHIEVEMENTS.map((a) => ({
+        ...a,
+        unlocked: unlockedIds.has(a.id),
+        unlockedAt: data?.achievements.find((ua) => ua.achievement_id === a.id)?.unlocked_at ?? null,
+      })),
+    });
+  });
+
+  // --- Life Events CRUD ---
+
+  // POST /api/life-events — create a non-Google life event (health, finance, etc.)
+  app.post("/api/life-events", async (req, res) => {
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const { discordUserId, title, description, category, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags } = req.body ?? {};
+
+    if (!discordUserId || typeof discordUserId !== "string") {
+      res.status(400).json({ error: "discordUserId is required" });
+      return;
+    }
+    if (!title || typeof title !== "string") {
+      res.status(400).json({ error: "title is required" });
+      return;
+    }
+
+    const ev = await upsertLifeEvent(sb, {
+      discord_user_id:   discordUserId,
+      title,
+      description:       description ?? null,
+      category:          (category ?? inferCategory({ title, description })) as LifeCategory,
+      source:            "manual",
+      external_uid:      null,
+      priority:          priority ?? "medium",
+      due_date:          dueDate ?? null,
+      completed:         false,
+      completed_at:      null,
+      estimated_minutes: estimatedMinutes ?? null,
+      size_label:        sizeLabel ?? null,
+      impact_level:      impactLevel ?? null,
+      irreversible:      irreversible ?? null,
+      affects_others:    affectsOthers ?? null,
+      smeq_estimate:     smeqEstimate ?? null,
+      tags:              tags ?? null,
+    });
+
+    if (!ev) {
+      res.status(500).json({ error: "Failed to create life event" });
+      return;
+    }
+
+    const scoreBreakdown = scoreTask({
+      title: ev.title,
+      description: ev.description ?? undefined,
+      category: ev.category as LifeCategory,
+      dueDate: ev.due_date ?? undefined,
+      priority: ev.priority,
+      impactLevel: ev.impact_level ?? undefined,
+      irreversible: ev.irreversible ?? undefined,
+      affectsOthers: ev.affects_others ?? undefined,
+      smeqEstimate: ev.smeq_estimate ?? undefined,
+      estimatedMinutes: ev.estimated_minutes ?? undefined,
+      sizeLabel: ev.size_label ?? undefined,
+    });
+
+    res.status(201).json({ event: ev, scoreBreakdown });
+  });
+
+  // PUT /api/life-events/:id — update a life event's metadata
+  app.put("/api/life-events/:id", async (req, res) => {
+    const sb = requireSupabase(res);
+    if (!sb) return;
+
+    const { id } = req.params;
+    const { discordUserId, title, description, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags, completed } = req.body ?? {};
+
+    if (!discordUserId) {
+      res.status(400).json({ error: "discordUserId is required" });
+      return;
+    }
+
+    const patch: Partial<LifeEventRow> = {};
+    if (title !== undefined)            patch.title = title;
+    if (description !== undefined)      patch.description = description;
+    if (priority !== undefined)         patch.priority = priority;
+    if (dueDate !== undefined)          patch.due_date = dueDate;
+    if (estimatedMinutes !== undefined) patch.estimated_minutes = estimatedMinutes;
+    if (sizeLabel !== undefined)        patch.size_label = sizeLabel;
+    if (impactLevel !== undefined)      patch.impact_level = impactLevel;
+    if (irreversible !== undefined)     patch.irreversible = irreversible;
+    if (affectsOthers !== undefined)    patch.affects_others = affectsOthers;
+    if (smeqEstimate !== undefined)     patch.smeq_estimate = smeqEstimate;
+    if (tags !== undefined)             patch.tags = tags;
+    if (completed !== undefined)        patch.completed = completed;
+
+    const { data, error } = await sb
+      .from("life_events")
+      .update(patch)
+      .eq("id", id)
+      .eq("discord_user_id", discordUserId)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") { res.status(404).json({ error: "Life event not found" }); return; }
+      res.status(500).json({ error: error.message });
+      return;
+    }
+
+    res.json({ event: data });
   });
 
   // --- Users ---

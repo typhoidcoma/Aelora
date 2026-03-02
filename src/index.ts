@@ -15,12 +15,14 @@ import { registerDataCleanup } from "./heartbeat-cleanup.js";
 import { registerReplyCheck } from "./heartbeat-reply-check.js";
 import { registerLastAlive } from "./heartbeat-alive.js";
 import { registerConversationSave } from "./heartbeat-conversations.js";
+import { registerScoringSync } from "./heartbeat-scoring-sync.js";
 import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, formatRestartMessage, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
+import { tryGetSupabaseClient } from "./supabase.js";
 
 // Install logger first so all console output is captured
 installLogger();
@@ -61,6 +63,11 @@ async function main(): Promise<void> {
   console.log(`LLM: ${config.llm.baseURL} / ${config.llm.model}`);
   initLLM(config);
 
+  // 3b. Initialize Supabase client (if configured)
+  const sb = tryGetSupabaseClient(config);
+  if (sb) console.log("Supabase: connected");
+  else if (config.supabase) console.warn("Supabase: configured but failed to connect");
+
   // 4. Load tools
   await loadTools();
 
@@ -98,6 +105,7 @@ async function main(): Promise<void> {
     registerReplyCheck();
     registerLastAlive();
     registerConversationSave();
+    registerScoringSync();
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,

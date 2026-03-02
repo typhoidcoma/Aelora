@@ -1425,3 +1425,92 @@ pre {
   margin-top: 0.75rem;
   align-items: center;
 }
+
+/* --- Scoring --- */
+
+.scoring-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.scoring-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.scoring-stat-label {
+  font-size: 0.62rem;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scoring-stat-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.scoring-prompt {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(242, 197, 114, 0.06);
+  border: 1px solid rgba(242, 197, 114, 0.2);
+  border-radius: 4px;
+  margin-bottom: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-subtle);
+}
+
+/* Score badge in todo table */
+.score-badge {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: "Roboto Mono", monospace;
+  min-width: 2.2rem;
+  text-align: center;
+}
+
+.score-critical {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.score-high {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.score-medium {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.score-low {
+  background: rgba(107, 114, 128, 0.12);
+  color: var(--text-subtle);
+  border: 1px solid var(--border-soft);
+}
+
+.score-none {
+  background: transparent;
+  color: var(--text-subtle);
+  border: 1px solid var(--border-soft);
+}

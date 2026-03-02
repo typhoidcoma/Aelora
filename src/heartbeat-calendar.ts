@@ -1,99 +1,118 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
-import { getClient, parseICS, icsDateToISO, formatTime } from "./tools/calendar.js";
 import { loadCalendarNotified, saveCalendarNotified } from "./state.js";
+import { googleFetch, type GoogleConfig } from "./tools/_google-auth.js";
 
 const REMINDER_MINUTES = 15;
+const CAL_BASE = "https://www.googleapis.com/calendar/v3";
 
-// Track which events we've already sent reminders for (by UID)
+// Track which events we've already sent reminders for (by event ID)
 // Loaded from disk so reminders survive restarts
 const notifiedEvents = new Set<string>(loadCalendarNotified());
 
+type GoogleCalendarEvent = {
+  id: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end:   { dateTime?: string; date?: string };
+};
+
+function formatEventTime(event: GoogleCalendarEvent): string {
+  const dt = event.start.dateTime;
+  if (!dt) return "all day";
+  try {
+    return new Date(dt).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    });
+  } catch {
+    return dt;
+  }
+}
+
 const calendarReminder: HeartbeatHandler = {
   name: "calendar-reminder",
-  description: `Sends a reminder ${REMINDER_MINUTES} minutes before upcoming calendar events`,
+  description: `Sends a reminder ${REMINDER_MINUTES} minutes before upcoming Google Calendar events`,
   enabled: true,
 
   execute: async (ctx): Promise<string | void> => {
-    const caldavConfig = ctx.config.tools?.caldav as
-      | { serverUrl: string; username: string; password: string; authMethod: string; calendarName?: string }
+    const google = ctx.config.tools?.google as
+      | { clientId?: string; clientSecret?: string; refreshToken?: string }
       | undefined;
 
-    if (!caldavConfig?.serverUrl || caldavConfig.serverUrl === "YOUR_CALDAV_SERVER_URL") {
-      return; // CalDAV not configured
+    if (!google?.clientId || !google?.refreshToken) {
+      return; // Google not configured
     }
 
-    let client;
-    try {
-      client = await getClient({
-        serverUrl: caldavConfig.serverUrl,
-        username: caldavConfig.username,
-        password: caldavConfig.password,
-        authMethod: caldavConfig.authMethod || "Basic",
-      });
-    } catch {
-      return; // CalDAV server not available
-    }
-
-    const calendars = await client.fetchCalendars();
-    if (calendars.length === 0) return;
-
-    const calendar =
-      (caldavConfig.calendarName
-        ? calendars.find((c) => c.displayName === caldavConfig.calendarName)
-        : null) ?? calendars[0];
+    const googleConfig: GoogleConfig = {
+      clientId: google.clientId,
+      clientSecret: google.clientSecret ?? "",
+      refreshToken: google.refreshToken,
+    };
 
     const now = new Date();
     const windowEnd = new Date(now.getTime() + (REMINDER_MINUTES + 1) * 60_000);
 
-    const objects = await client.fetchCalendarObjects({
-      calendar,
-      timeRange: {
-        start: now.toISOString(),
-        end: windowEnd.toISOString(),
-      },
-    });
+    let res: Response;
+    try {
+      const params = new URLSearchParams({
+        timeMin: now.toISOString(),
+        timeMax: windowEnd.toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "10",
+      });
+      res = await googleFetch(
+        `${CAL_BASE}/calendars/primary/events?${params}`,
+        googleConfig,
+      );
+    } catch {
+      return; // Google not reachable
+    }
 
-    if (!objects || objects.length === 0) return;
+    if (!res.ok) return;
 
-    const events = objects
-      .filter((o) => o.data)
-      .map((o) => parseICS(o.data as string, o.url, o.etag ?? ""));
+    const data = (await res.json()) as { items?: GoogleCalendarEvent[] };
+    const events = data.items ?? [];
+    if (events.length === 0) return;
 
     const reminded: string[] = [];
 
     for (const event of events) {
-      if (notifiedEvents.has(event.uid)) continue;
+      if (notifiedEvents.has(event.id)) continue;
 
-      const startISO = icsDateToISO(event.dtstart);
-      const startTime = new Date(startISO).getTime();
+      const startStr = event.start.dateTime ?? event.start.date;
+      if (!startStr) continue;
+
+      const startTime = new Date(startStr).getTime();
       const minutesUntil = (startTime - now.getTime()) / 60_000;
 
       if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
-        notifiedEvents.add(event.uid);
+        notifiedEvents.add(event.id);
         saveCalendarNotified([...notifiedEvents]);
 
         const mins = Math.round(minutesUntil);
         const lines: string[] = [
           `**Calendar Reminder** — in ${mins} minute${mins === 1 ? "" : "s"}`,
-          `**${event.summary}**`,
-          `Time: ${formatTime(event.dtstart)}`,
+          `**${event.summary ?? "Untitled event"}**`,
+          `Time: ${formatEventTime(event)}`,
         ];
         if (event.location) lines.push(`Location: ${event.location}`);
-        if (event.description) lines.push(`Description: ${event.description}`);
+        if (event.description) lines.push(`Notes: ${event.description.slice(0, 200)}`);
 
-        // Send to the guild's first text channel or default channel
         const guildId = ctx.config.discord.guildId;
         if (guildId) {
           const { discordClient } = await import("./discord.js");
           const guild = discordClient?.guilds.cache.get(guildId);
           if (guild) {
-            // Find the first text channel the bot can send to
             const channel = guild.channels.cache.find(
               (ch) => ch.isTextBased() && "send" in ch,
             );
             if (channel && "send" in channel) {
               await (channel as any).send(lines.join("\n"));
-              reminded.push(event.summary);
+              reminded.push(event.summary ?? event.id);
             }
           }
         }
@@ -104,8 +123,7 @@ const calendarReminder: HeartbeatHandler = {
       return `sent ${reminded.length} reminder(s): ${reminded.join(", ")}`;
     }
 
-    // Clean up old notifications (older than 1 hour)
-    // We do this periodically by clearing events that started more than 1hr ago
+    // Prune old notification cache periodically
     if (notifiedEvents.size > 100) {
       notifiedEvents.clear();
       saveCalendarNotified([]);

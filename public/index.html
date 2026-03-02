@@ -294,9 +294,43 @@
         <div class="section-header" data-section="todos">
           <span class="chevron">&#9660;</span>
           <h2>Todos</h2>
-          <button class="btn btn-primary btn-xs" onclick="showTodoForm()">+ New</button>
+          <div style="display:flex; gap:0.4rem; align-items:center; margin-left:auto;">
+            <select id="todo-sort" onchange="handleTodoSortChange()" style="font-size:0.75rem; padding:0.2rem 0.4rem;">
+              <option value="score">Sort: Score</option>
+              <option value="due">Sort: Due Date</option>
+              <option value="priority">Sort: Priority</option>
+            </select>
+            <button class="btn btn-primary btn-xs" onclick="showTodoForm()">+ New</button>
+          </div>
         </div>
         <div class="section-body" data-section="todos">
+
+          <!-- Scoring stats bar (shown when discordUserId is set) -->
+          <div id="scoring-stats-bar" class="scoring-stats-bar" style="display:none;">
+            <div class="scoring-stat">
+              <span class="scoring-stat-label">Total XP</span>
+              <span class="scoring-stat-value" id="stat-total-xp">--</span>
+            </div>
+            <div class="scoring-stat">
+              <span class="scoring-stat-label">Streak</span>
+              <span class="scoring-stat-value" id="stat-streak">--</span>
+            </div>
+            <div class="scoring-stat">
+              <span class="scoring-stat-label">Achievements</span>
+              <span class="scoring-stat-value" id="stat-achievements">--</span>
+            </div>
+            <div class="scoring-stat" style="margin-left:auto;">
+              <label style="font-size:0.7rem; opacity:0.7;">Discord User ID</label>
+              <input type="text" id="discord-user-id-input" placeholder="your Discord ID" style="font-size:0.72rem; padding:0.15rem 0.35rem; width:160px;" oninput="onDiscordUserIdChange()" />
+            </div>
+          </div>
+
+          <!-- Discord ID prompt when scoring is available but no ID set -->
+          <div id="scoring-prompt" class="scoring-prompt" style="display:none;">
+            <span>Enter your Discord User ID to see task scores:</span>
+            <input type="text" id="discord-user-id-prompt" placeholder="Discord User ID" style="font-size:0.8rem;" oninput="onDiscordUserIdPromptChange()" />
+          </div>
+
           <!-- Create form (hidden by default) -->
           <div id="todo-form" class="card" style="display: none; margin-bottom: 0.5rem;">
             <div class="cron-form-grid">
@@ -333,13 +367,14 @@
               <tr>
                 <th></th>
                 <th>Title</th>
+                <th>Score</th>
                 <th>Priority</th>
                 <th>Due</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody id="todos-body">
-              <tr><td colspan="5" class="muted">Loading...</td></tr>
+              <tr><td colspan="6" class="muted">Loading...</td></tr>
             </tbody>
           </table>
         </div>

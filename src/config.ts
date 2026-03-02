@@ -87,6 +87,13 @@ const activitySchema = z.object({
   serverUrl: z.string().default(""),
 });
 
+const supabaseSchema = z
+  .object({
+    url: z.string(),
+    anonKey: z.string(),
+  })
+  .optional();
+
 const configSchema = z.object({
   timezone: z.string().default("UTC"),
   discord: discordSchema,
@@ -100,6 +107,7 @@ const configSchema = z.object({
   memory: memorySchema.default({}),
   logger: loggerSchema.default({}),
   cron: cronSchema.default({}),
+  supabase: supabaseSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -161,6 +169,14 @@ function applyEnvOverrides(config: Config): void {
   }
   if (env.AELORA_ACTIVITY_CLIENT_ID)     { config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID; applied.push("AELORA_ACTIVITY_CLIENT_ID"); }
   if (env.AELORA_ACTIVITY_CLIENT_SECRET) { config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET; applied.push("AELORA_ACTIVITY_CLIENT_SECRET"); }
+  if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY) {
+    config.supabase = {
+      url: env.AELORA_SUPABASE_URL ?? config.supabase?.url ?? "",
+      anonKey: env.AELORA_SUPABASE_ANON_KEY ?? config.supabase?.anonKey ?? "",
+    };
+    if (env.AELORA_SUPABASE_URL)      applied.push("AELORA_SUPABASE_URL");
+    if (env.AELORA_SUPABASE_ANON_KEY) applied.push("AELORA_SUPABASE_ANON_KEY");
+  }
   if (applied.length > 0) {
     console.log(`Config: env overrides applied: ${applied.join(", ")}`);
   }

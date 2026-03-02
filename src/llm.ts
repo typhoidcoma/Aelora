@@ -888,9 +888,9 @@ async function runCompletionLoop(
 }
 
 // Matches short responses that announce a pending action but include no tool call.
-// "let me check", "I'll look at", "I'm pulling up", etc.
+// "let me check", "I'll look at", "I'm pulling up", "let me try again", etc.
 const DEFERRED_INTENT_RE =
-  /\b(let me (check|look|pull|grab|see|fetch|get|find|review|read|load|access|query)|i'?ll (check|look|pull|grab|get|fetch|find|access|query)|i'?m (checking|looking|pulling|getting|fetching|finding)|give me (a )?(sec|moment)|one (sec|moment)|just a (sec|moment))\b/i;
+  /\b(let me (check|look|pull|grab|see|fetch|get|find|review|read|load|access|query|try|retry|search|run|call|use)|i'?ll (check|look|pull|grab|get|fetch|find|access|query|try|retry|search|run|call|use)|i'?m (checking|looking|pulling|getting|fetching|finding|trying|searching|calling)|give me (a )?(sec|moment)|one (sec|moment)|just a (sec|moment))\b/i;
 
 function isUnfulfilledIntent(text: string): boolean {
   // Only flag short responses — a long one almost certainly contains the actual answer

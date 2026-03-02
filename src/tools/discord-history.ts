@@ -11,8 +11,9 @@ export default defineTool({
   name: "discord_history",
   description:
     "Fetch recent message history from Discord text channels. " +
-    "Use 'list_channels' to see available channels, or 'fetch' to retrieve messages. " +
-    "When no channelId is given, fetches from all text channels. " +
+    "Actions: 'list_channels' (see all channels with their IDs), 'fetch' (retrieve messages). " +
+    "To fetch a specific channel, pass its ID as channelId. " +
+    "When no channelId is given, 'fetch' retrieves from all text channels. " +
     "Useful for creating channel digests, summaries, or catching up on conversations.",
 
   params: {

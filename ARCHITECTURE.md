@@ -58,10 +58,11 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  Built-in               Google Suite            Scoring            ║
   ║  ─────────              ────────────            ───────            ║
   ║  notes · memory         gmail                   scoring.ts         ║
-  ║  mood · cron            google-calendar         (read-only:        ║
-  ║  ping                   google-tasks            stats/leaderboard/ ║
-  ║  discord_history        google-docs             achievements)      ║
-  ║                         todo (adapter)                             ║
+  ║  mood · cron            google-calendar         stats · leaderboard║
+  ║  ping                   google-tasks            achievements       ║
+  ║  discord_history        google-docs             rate_effort        ║
+  ║                         todo (adapter)          set_metadata       ║
+  ║                                                 add_event          ║
   ╚════════╤════════════════════╤════════════════════════╤═════════════╝
            │                    │                        │
   ╔════════▼════════╗  ┌────────▼─────────┐   ┌─────────▼──────────────┐
@@ -574,7 +575,7 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
 | `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
-| `scoring` | Read-only scoring tool: stats, leaderboard, achievements (Supabase) | `google.*` |
+| `scoring` | Scoring tool: stats, leaderboard, achievements, rate_effort, set_metadata, add_event (Supabase) | `google.*` |
 
 ---
 
@@ -830,7 +831,7 @@ Supabase life_events table       (source of truth for scoring metadata)
       ├─ supabase.ts: recordScoringEvent(), updateUserProfile(),
       │               updateCategoryStats(), checkAchievements()
       │
-      └─ src/tools/scoring.ts    (read-only LLM tool: stats/leaderboard/achievements)
+      └─ src/tools/scoring.ts    (LLM tool: stats/leaderboard/achievements/rate_effort/set_metadata/add_event)
 ```
 
 ### Supabase Schema (5 tables)
@@ -917,19 +918,30 @@ personal_bias             = globalAvgHours / categoryAvgHours  (clamped 0.8..1.2
 ```
 Requires `completion_count >= 3` before bias affects the Context dimension. Adapts without manual resets as patterns change over time.
 
-### Scoring Tool (LLM-accessible, read-only)
+### Scoring Tool (LLM-accessible)
 
 **File:** [src/tools/scoring.ts](src/tools/scoring.ts)
 
-Three actions only. The system handles all writes automatically.
+Six actions. The first three are read-only; the last three write to Supabase to close the adaptive learning loop.
 
-| Action | Returns |
-|--------|---------|
-| `stats` | XP, streak, longest streak, completion count, recent achievements |
-| `leaderboard` | Top N pending tasks sorted by computed score, with per-dimension breakdown |
-| `achievements` | All achievements with unlock status and timestamp |
+| Action | Direction | Description |
+|--------|-----------|-------------|
+| `stats` | read | XP, streak, longest streak, completion count, recent achievements |
+| `leaderboard` | read | Top N pending tasks sorted by computed score, with per-dimension breakdown. Triggers a Google Tasks sync first. |
+| `achievements` | read | All achievements with unlock status and timestamp |
+| `rate_effort` | write | Report post-task `smeq_actual` (0–150). Updates `scoring_events.smeq_actual` and EMA-shifts `category_stats.avg_smeq_actual` for the event's category. Closes the adaptive learning loop: future tasks in that category inherit the updated SMEQ baseline as their effort estimate. |
+| `set_metadata` | write | Update scoring metadata on a `life_events` row (`smeq_estimate`, `size_label`, `impact_level`, `irreversible`, `affects_others`). Returns the recomputed score. |
+| `add_event` | write | Create a non-Google life event (`source='discord'`) in any category. Runs keyword inference for `irreversible`/`affects_others` if not provided. Returns score preview. |
 
-The leaderboard action triggers a Google Tasks sync for the requesting user before querying Supabase, ensuring fresh data without requiring the user to do anything.
+**Adaptive SMEQ loop via `rate_effort`:**
+```
+User completes task → LLM asks "how hard was that?"
+  → rate_effort(life_event_id, smeq_actual=110)
+  → scoring_events.smeq_actual = 110
+  → category_stats.avg_smeq_actual = EMA(prev, 110)
+  → next unrated task in same category uses new avg as effort baseline
+```
+Requires `completion_count >= 3` before the adapted baseline meaningfully diverges from the default 65.
 
 ### Setup
 

@@ -1,456 +1,354 @@
-import { randomUUID } from "node:crypto";
 import { defineTool, param } from "./types.js";
-import {
-  getClient,
-  toICSDateTime,
-  icsDateToISO,
-  getICSProp,
-  getICSDateValue,
-  type DAVClientInstance,
-} from "./calendar.js";
+import { googleFetch, extractGoogleConfig, resetGoogleToken, type GoogleConfig } from "./_google-auth.js";
+
+const TASKS_BASE = "https://tasks.googleapis.com/tasks/v1";
 
 // ============================================================
 // Types
 // ============================================================
 
 export type TodoItem = {
-  uid: string;
+  uid: string;           // Google Task id
   title: string;
-  description?: string;
+  description?: string;  // Google Tasks "notes"
   completed: boolean;
-  priority: "low" | "medium" | "high";
-  dueDate?: string;
-  url: string;
-  etag: string;
-  createdAt?: string;
-  updatedAt?: string;
+  priority: "low" | "medium" | "high";  // metadata only (Google Tasks has no priority field)
+  dueDate?: string;      // ISO 8601 date (YYYY-MM-DD)
+  updatedAt?: string;    // Google Tasks "updated" timestamp
+};
+
+export type ScoredTodoItem = TodoItem & {
+  score?: number;
+  scoreBreakdown?: {
+    urgency: number;
+    impact: number;
+    effort: number;
+    context: number;
+  };
+};
+
+type GoogleTask = {
+  id: string;
+  title: string;
+  notes?: string;
+  status: "needsAction" | "completed";
+  due?: string;       // RFC 3339 (only date part is meaningful: "2025-03-15T00:00:00.000Z")
+  completed?: string; // RFC 3339 timestamp of completion
+  updated?: string;   // RFC 3339 timestamp of last update
+  position?: string;
 };
 
 // ============================================================
-// RFC 5545 priority mapping
+// Helpers
 // ============================================================
 
-const PRIORITY_TO_ICS: Record<string, number> = { high: 1, medium: 5, low: 9 };
-const PRIORITY_FROM_ICS: Record<number, "high" | "medium" | "low"> = {
-  1: "high", 2: "high", 3: "high", 4: "high",
-  5: "medium",
-  6: "low", 7: "low", 8: "low", 9: "low",
-};
-
-function icsPriority(n: string): "low" | "medium" | "high" {
-  const num = parseInt(n, 10);
-  if (isNaN(num) || num === 0) return "medium";
-  return PRIORITY_FROM_ICS[num] ?? "medium";
-}
-
-// ============================================================
-// VTODO ICS helpers
-// ============================================================
-
-function buildVTODO(opts: {
-  uid: string;
-  summary: string;
-  description?: string;
-  priority?: "low" | "medium" | "high";
-  dueDate?: string;
-  status?: "NEEDS-ACTION" | "COMPLETED";
-  completedDate?: string;
-}): string {
-  const now = toICSDateTime(new Date().toISOString());
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Aelora//Calendar//EN",
-    "BEGIN:VTODO",
-    `UID:${opts.uid}`,
-    `DTSTAMP:${now}`,
-    `CREATED:${now}`,
-    `LAST-MODIFIED:${now}`,
-    `SUMMARY:${opts.summary}`,
-    `STATUS:${opts.status ?? "NEEDS-ACTION"}`,
-    `PRIORITY:${PRIORITY_TO_ICS[opts.priority ?? "medium"]}`,
-  ];
-
-  if (opts.description) lines.push(`DESCRIPTION:${opts.description}`);
-  if (opts.dueDate) lines.push(`DUE:${toICSDateTime(opts.dueDate)}`);
-  if (opts.status === "COMPLETED" && opts.completedDate) {
-    lines.push(`COMPLETED:${toICSDateTime(opts.completedDate)}`);
-  }
-
-  lines.push("END:VTODO", "END:VCALENDAR");
-  return lines.join("\r\n");
-}
-
-function parseVTODO(ics: string, url: string, etag: string): TodoItem {
-  const status = getICSProp(ics, "STATUS") || "NEEDS-ACTION";
-  const priorityStr = getICSProp(ics, "PRIORITY") || "0";
-  const dueRaw = getICSDateValue(ics, "DUE");
-  const createdRaw = getICSDateValue(ics, "CREATED");
-  const modifiedRaw = getICSDateValue(ics, "LAST-MODIFIED");
-
+function taskToTodoItem(task: GoogleTask): TodoItem {
   return {
-    uid: getICSProp(ics, "UID") || "",
-    title: getICSProp(ics, "SUMMARY") || "(No title)",
-    description: getICSProp(ics, "DESCRIPTION") || undefined,
-    completed: status === "COMPLETED",
-    priority: icsPriority(priorityStr),
-    dueDate: dueRaw ? icsDateToISO(dueRaw) : undefined,
-    url,
-    etag: etag || "",
-    createdAt: createdRaw ? icsDateToISO(createdRaw) : undefined,
-    updatedAt: modifiedRaw ? icsDateToISO(modifiedRaw) : undefined,
+    uid: task.id,
+    title: task.title,
+    description: task.notes,
+    completed: task.status === "completed",
+    priority: "medium",  // Google Tasks has no priority — overlaid from Supabase later
+    dueDate: task.due ? task.due.slice(0, 10) : undefined,  // extract YYYY-MM-DD
+    updatedAt: task.updated,
+  };
+}
+
+export function getGoogleConfig(
+  toolsConfig: Record<string, Record<string, unknown>> | undefined,
+): GoogleConfig {
+  const google = toolsConfig?.google as Record<string, unknown> | undefined;
+  if (!google?.clientId) {
+    throw new Error(
+      "Google not configured. Add google.clientId, google.clientSecret, and google.refreshToken to settings.yaml under tools:",
+    );
+  }
+  return {
+    clientId: google.clientId as string,
+    clientSecret: google.clientSecret as string,
+    refreshToken: google.refreshToken as string,
   };
 }
 
 // ============================================================
-// VTODO filter for tsdav
+// CRUD operations (exported for use by web.ts API routes)
 // ============================================================
-
-const VTODO_FILTER = [
-  {
-    "comp-filter": {
-      _attributes: { name: "VCALENDAR" },
-      "comp-filter": { _attributes: { name: "VTODO" } },
-    },
-  },
-];
-
-// ============================================================
-// Data helpers (exported for REST API)
-// ============================================================
-
-async function resolveCalendar(client: DAVClientInstance, calendarName?: string) {
-  const calendars = await client.fetchCalendars();
-  if (calendars.length === 0) return null;
-  return (calendarName ? calendars.find((c) => c.displayName === calendarName) : null) ?? calendars[0];
-}
 
 export async function listTodos(
-  client: DAVClientInstance,
-  calendarName?: string,
-  status?: "all" | "pending" | "completed",
+  config: GoogleConfig,
+  taskListId = "@default",
+  status: "all" | "pending" | "completed" = "pending",
 ): Promise<TodoItem[]> {
-  const calendar = await resolveCalendar(client, calendarName);
-  if (!calendar) return [];
-
-  const objects = await client.fetchCalendarObjects({
-    calendar,
-    filters: VTODO_FILTER,
+  const showCompleted = status === "completed" || status === "all";
+  const params = new URLSearchParams({
+    maxResults: "100",
+    showCompleted: String(showCompleted),
+    showHidden: String(showCompleted),
   });
 
-  if (!objects || objects.length === 0) return [];
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks?${params}`,
+    config,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google Tasks API error (${res.status}): ${body.slice(0, 200)}`);
+  }
 
-  let items = objects
-    .filter((o) => o.data && String(o.data).includes("VTODO"))
-    .map((o) => parseVTODO(o.data as string, o.url, o.etag ?? ""));
+  const data = (await res.json()) as { items?: GoogleTask[] };
+  const items = (data.items ?? []).map(taskToTodoItem);
 
-  if (status === "pending") items = items.filter((t) => !t.completed);
-  else if (status === "completed") items = items.filter((t) => t.completed);
-
+  if (status === "pending") return items.filter((t) => !t.completed);
+  if (status === "completed") return items.filter((t) => t.completed);
   return items;
 }
 
 export async function getTodoByUid(
-  client: DAVClientInstance,
-  calendarName: string | undefined,
+  config: GoogleConfig,
   uid: string,
+  taskListId = "@default",
 ): Promise<TodoItem | null> {
-  const todos = await listTodos(client, calendarName, "all");
-  return todos.find((t) => t.uid === uid) ?? null;
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
+    config,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  const task = (await res.json()) as GoogleTask;
+  return taskToTodoItem(task);
 }
 
 export async function createTodo(
-  client: DAVClientInstance,
-  calendarName: string | undefined,
-  opts: { title: string; description?: string; priority?: "low" | "medium" | "high"; dueDate?: string },
+  config: GoogleConfig,
+  opts: {
+    title: string;
+    description?: string;
+    priority?: string;
+    dueDate?: string;
+    taskListId?: string;
+  },
 ): Promise<TodoItem> {
-  const calendar = await resolveCalendar(client, calendarName);
-  if (!calendar) throw new Error("No calendars found on CalDAV server");
+  const listId = opts.taskListId ?? "@default";
+  const body: Record<string, unknown> = { title: opts.title };
+  if (opts.description) body.notes = opts.description;
+  if (opts.dueDate) body.due = `${opts.dueDate}T00:00:00.000Z`;
 
-  const uid = `${randomUUID()}@aelora`;
-  const filename = `${uid}.ics`;
-
-  const ics = buildVTODO({
-    uid,
-    summary: opts.title,
-    description: opts.description,
-    priority: opts.priority,
-    dueDate: opts.dueDate,
-  });
-
-  const res = await client.createCalendarObject({
-    calendar,
-    iCalString: ics,
-    filename,
-  });
-
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(listId)}/tasks`,
+    config,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
   if (!res.ok) {
-    throw new Error(`CalDAV create failed: ${res.status} ${res.statusText}`);
+    const errBody = await res.text();
+    throw new Error(`Google Tasks API error (${res.status}): ${errBody.slice(0, 200)}`);
   }
 
-  const todoUrl = new URL(filename, calendar.url).toString();
-  const etag = res.headers.get("etag") ?? "";
-
-  return {
-    uid,
-    title: opts.title,
-    description: opts.description,
-    completed: false,
-    priority: opts.priority ?? "medium",
-    dueDate: opts.dueDate,
-    url: todoUrl,
-    etag,
-  };
+  const task = (await res.json()) as GoogleTask;
+  const item = taskToTodoItem(task);
+  // Preserve priority from opts in the immediate response
+  if (opts.priority && ["low", "medium", "high"].includes(opts.priority)) {
+    item.priority = opts.priority as "low" | "medium" | "high";
+  }
+  return item;
 }
 
 export async function completeTodo(
-  client: DAVClientInstance,
-  calendarName: string | undefined,
+  config: GoogleConfig,
   uid: string,
+  taskListId = "@default",
 ): Promise<TodoItem | null> {
-  const todo = await getTodoByUid(client, calendarName, uid);
-  if (!todo) return null;
-
-  const objects = await client.fetchCalendarObjects({
-    calendar: { url: todo.url.replace(/[^/]+\.ics$/, "") } as any,
-    objectUrls: [todo.url],
-  });
-  if (!objects || objects.length === 0) return null;
-
-  let ics = objects[0].data as string;
-  const currentEtag = objects[0].etag ?? todo.etag;
-
-  const now = toICSDateTime(new Date().toISOString());
-  if (/^STATUS:/mi.test(ics)) {
-    ics = ics.replace(/^STATUS:.*$/mi, "STATUS:COMPLETED");
-  } else {
-    ics = ics.replace(/^END:VTODO/mi, "STATUS:COMPLETED\r\nEND:VTODO");
-  }
-
-  if (/^COMPLETED:/mi.test(ics)) {
-    ics = ics.replace(/^COMPLETED:.*$/mi, `COMPLETED:${now}`);
-  } else {
-    ics = ics.replace(/^END:VTODO/mi, `COMPLETED:${now}\r\nEND:VTODO`);
-  }
-
-  ics = ics.replace(/^LAST-MODIFIED:.*$/mi, `LAST-MODIFIED:${now}`);
-
-  const res = await client.updateCalendarObject({
-    calendarObject: { url: todo.url, data: ics, etag: currentEtag },
-  });
-
-  if (!res.ok) {
-    throw new Error(`CalDAV update failed: ${res.status} ${res.statusText}`);
-  }
-
-  return parseVTODO(ics, todo.url, res.headers.get("etag") ?? currentEtag);
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
+    config,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "completed" }),
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  const task = (await res.json()) as GoogleTask;
+  return taskToTodoItem(task);
 }
 
 export async function updateTodoItem(
-  client: DAVClientInstance,
-  calendarName: string | undefined,
+  config: GoogleConfig,
   uid: string,
-  updates: { title?: string; description?: string; priority?: "low" | "medium" | "high"; dueDate?: string },
+  updates: {
+    title?: string;
+    description?: string;
+    priority?: string;
+    dueDate?: string;
+  },
+  taskListId = "@default",
 ): Promise<TodoItem | null> {
-  const todo = await getTodoByUid(client, calendarName, uid);
-  if (!todo) return null;
+  const patch: Record<string, unknown> = {};
+  if (updates.title) patch.title = updates.title;
+  if (updates.description !== undefined) patch.notes = updates.description;
+  if (updates.dueDate) patch.due = `${updates.dueDate}T00:00:00.000Z`;
 
-  const objects = await client.fetchCalendarObjects({
-    calendar: { url: todo.url.replace(/[^/]+\.ics$/, "") } as any,
-    objectUrls: [todo.url],
-  });
-  if (!objects || objects.length === 0) return null;
-
-  let ics = objects[0].data as string;
-  const currentEtag = objects[0].etag ?? todo.etag;
-  const now = toICSDateTime(new Date().toISOString());
-
-  if (updates.title) {
-    ics = ics.replace(/^SUMMARY:.*$/mi, `SUMMARY:${updates.title}`);
+  if (Object.keys(patch).length === 0) {
+    // Only priority changed — priority is Supabase-only, fetch current task for response
+    return getTodoByUid(config, uid, taskListId);
   }
 
-  if (updates.description !== undefined) {
-    if (/^DESCRIPTION:/mi.test(ics)) {
-      ics = ics.replace(/^DESCRIPTION:.*$/mi, `DESCRIPTION:${updates.description}`);
-    } else {
-      ics = ics.replace(/^END:VTODO/mi, `DESCRIPTION:${updates.description}\r\nEND:VTODO`);
-    }
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
+    config,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+
+  const task = (await res.json()) as GoogleTask;
+  const item = taskToTodoItem(task);
+  if (updates.priority && ["low", "medium", "high"].includes(updates.priority)) {
+    item.priority = updates.priority as "low" | "medium" | "high";
   }
-
-  if (updates.priority) {
-    const pVal = PRIORITY_TO_ICS[updates.priority];
-    if (/^PRIORITY:/mi.test(ics)) {
-      ics = ics.replace(/^PRIORITY:.*$/mi, `PRIORITY:${pVal}`);
-    } else {
-      ics = ics.replace(/^END:VTODO/mi, `PRIORITY:${pVal}\r\nEND:VTODO`);
-    }
-  }
-
-  if (updates.dueDate !== undefined) {
-    const dueVal = updates.dueDate ? toICSDateTime(updates.dueDate) : "";
-    if (/^DUE:/mi.test(ics)) {
-      if (dueVal) {
-        ics = ics.replace(/^DUE:.*$/mi, `DUE:${dueVal}`);
-      } else {
-        ics = ics.replace(/^DUE:.*\r?\n?/mi, "");
-      }
-    } else if (dueVal) {
-      ics = ics.replace(/^END:VTODO/mi, `DUE:${dueVal}\r\nEND:VTODO`);
-    }
-  }
-
-  ics = ics.replace(/^LAST-MODIFIED:.*$/mi, `LAST-MODIFIED:${now}`);
-
-  const res = await client.updateCalendarObject({
-    calendarObject: { url: todo.url, data: ics, etag: currentEtag },
-  });
-
-  if (!res.ok) {
-    throw new Error(`CalDAV update failed: ${res.status} ${res.statusText}`);
-  }
-
-  return parseVTODO(ics, todo.url, res.headers.get("etag") ?? currentEtag);
+  return item;
 }
 
 export async function deleteTodoItem(
-  client: DAVClientInstance,
-  calendarName: string | undefined,
+  config: GoogleConfig,
   uid: string,
+  taskListId = "@default",
 ): Promise<boolean> {
-  const todo = await getTodoByUid(client, calendarName, uid);
-  if (!todo) return false;
-
-  const res = await client.deleteCalendarObject({
-    calendarObject: { url: todo.url, etag: todo.etag },
-  });
-
-  return res.ok || res.status === 204;
+  const res = await googleFetch(
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
+    config,
+    { method: "DELETE" },
+  );
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  return true;
 }
 
 // ============================================================
-// Formatters
-// ============================================================
-
-function formatTodo(item: TodoItem): string {
-  const check = item.completed ? "[x]" : "[ ]";
-  const priority = item.priority !== "medium" ? ` (${item.priority})` : "";
-  const due = item.dueDate ? ` — due ${item.dueDate}` : "";
-  const desc = item.description ? `\n  ${item.description}` : "";
-  return `${check} **${item.title}**${priority}${due} \`${item.uid}\`${desc}`;
-}
-
-// ============================================================
-// Tool definition
+// LLM Tool definition
 // ============================================================
 
 export default defineTool({
   name: "todo",
   description:
-    "Manage to-do items via CalDAV (VTODO). Add, list, complete, update, or delete tasks. " +
-    "Tasks are stored on the CalDAV server and sync with any CalDAV client.",
+    "Manage todos and tasks. Actions: list, add, complete, update, delete. " +
+    "Uses Google Tasks as the backend. Priority is stored as metadata and does not " +
+    "sync to Google Tasks (Google Tasks has no priority field).",
 
-  config: [
-    "caldav.serverUrl",
-    "caldav.username",
-    "caldav.password",
-    "caldav.authMethod",
-  ],
+  config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
 
   params: {
     action: param.enum(
-      "The action to perform.",
-      ["add", "list", "complete", "update", "delete"] as const,
+      "Action to perform.",
+      ["list", "add", "complete", "update", "delete"] as const,
       { required: true },
     ),
-    title: param.string("Todo title. Required for add.", { maxLength: 200 }),
-    description: param.string("Todo description. Optional for add/update."),
-    todoId: param.string("Todo UID (from list results). Required for complete, update, delete."),
-    priority: param.enum("Priority level. Default: medium.", ["low", "medium", "high"] as const),
-    dueDate: param.date("Due date in the user's local timezone (e.g. '2025-03-15' or '2025-03-15T14:00:00'). Do NOT append Z or UTC offset. Optional for add/update."),
-    status: param.enum("Filter for list.", ["all", "pending", "completed"] as const),
+    title: param.string("Task title. Required for add."),
+    description: param.string("Task description/notes. Optional for add and update."),
+    todoId: param.string("Task ID (uid). Required for complete, update, and delete."),
+    priority: param.enum(
+      "Task priority (stored as metadata, not synced to Google Tasks).",
+      ["low", "medium", "high"] as const,
+    ),
+    dueDate: param.date("Due date. Optional for add and update.", { format: "date" }),
+    status: param.enum(
+      "Filter status for list action. Default: pending.",
+      ["all", "pending", "completed"] as const,
+    ),
   },
 
-  handler: async ({ action, title, description, todoId, priority, dueDate, status }, { toolConfig }) => {
-    const { serverUrl, username, password, authMethod } = toolConfig as {
-      serverUrl: string;
-      username: string;
-      password: string;
-      authMethod: string;
-    };
-    const calendarName = (toolConfig as Record<string, unknown>).calendarName as string | undefined;
-
-    let client: DAVClientInstance;
-    try {
-      client = await getClient({ serverUrl, username, password, authMethod: authMethod || "Basic" });
-    } catch (err) {
-      return `Error: failed to connect to CalDAV server: ${err instanceof Error ? err.message : String(err)}`;
-    }
-
+  handler: async (
+    { action, title, description, todoId, priority, dueDate, status },
+    { toolConfig },
+  ) => {
+    const config = extractGoogleConfig(toolConfig);
     try {
       switch (action) {
-        case "add": {
-          if (!title) return "Error: title is required for add.";
-          const item = await createTodo(client, calendarName, { title, description, priority, dueDate });
-          return { text: "Added todo: " + formatTodo(item), data: { action: "add", todo: item } };
+        case "list": {
+          const items = await listTodos(
+            config,
+            "@default",
+            (status as "all" | "pending" | "completed") ?? "pending",
+          );
+          if (items.length === 0) {
+            return { text: "No todos found.", data: { action: "list", count: 0, todos: [] } };
+          }
+          const lines = items.map((t, i) => {
+            let line = `${i + 1}. [${t.completed ? "x" : " "}] ${t.title}`;
+            if (t.dueDate) line += ` (due ${t.dueDate})`;
+            if (t.description) line += `\n   ${t.description.slice(0, 100)}`;
+            line += `\n   ID: ${t.uid}`;
+            return line;
+          });
+          return {
+            text: `Todos (${items.length}):\n\n${lines.join("\n\n")}`,
+            data: { action: "list", count: items.length, todos: items },
+          };
         }
 
-        case "list": {
-          const items = await listTodos(client, calendarName, status ?? "all");
-          if (items.length === 0) return { text: "No todos found.", data: { action: "list", count: 0, todos: [] } };
-
-          const pending = items.filter((t) => !t.completed);
-          const done = items.filter((t) => t.completed);
-          const lines: string[] = [];
-
-          if (pending.length > 0) {
-            lines.push(`**Pending** (${pending.length}):`);
-            for (const t of pending) lines.push(formatTodo(t));
-          }
-          if (done.length > 0) {
-            if (lines.length > 0) lines.push("");
-            lines.push(`**Completed** (${done.length}):`);
-            for (const t of done) lines.push(formatTodo(t));
-          }
-
-          return { text: lines.join("\n"), data: { action: "list", count: items.length, pending: pending.length, completed: done.length, todos: items } };
+        case "add": {
+          if (!title) return "Error: title is required for add.";
+          const item = await createTodo(config, {
+            title: title as string,
+            description: description as string | undefined,
+            priority: priority as string | undefined,
+            dueDate: dueDate as string | undefined,
+          });
+          return {
+            text: `Todo added: ${item.title}${item.dueDate ? ` (due ${item.dueDate})` : ""}\nID: ${item.uid}`,
+            data: { action: "add", todo: item },
+          };
         }
 
         case "complete": {
           if (!todoId) return "Error: todoId is required for complete.";
-          const item = await completeTodo(client, calendarName, todoId);
-          if (!item) return `Error: no todo found with UID "${todoId}".`;
-          return { text: "Completed: " + formatTodo(item), data: { action: "complete", todo: item } };
+          const item = await completeTodo(config, todoId as string);
+          if (!item) return `Error: todo "${todoId}" not found.`;
+          return {
+            text: `Todo completed: ${item.title}`,
+            data: { action: "complete", todo: item },
+          };
         }
 
         case "update": {
           if (!todoId) return "Error: todoId is required for update.";
-          const updates: { title?: string; description?: string; priority?: "low" | "medium" | "high"; dueDate?: string } = {};
-          if (title) updates.title = title;
-          if (description) updates.description = description;
-          if (priority) updates.priority = priority;
-          if (dueDate) updates.dueDate = dueDate;
-
-          if (Object.keys(updates).length === 0) {
-            return "Error: provide at least one field to update (title, description, priority, or dueDate).";
-          }
-
-          const item = await updateTodoItem(client, calendarName, todoId, updates);
-          if (!item) return `Error: no todo found with UID "${todoId}".`;
-          return { text: "Updated: " + formatTodo(item), data: { action: "update", todo: item } };
+          const item = await updateTodoItem(config, todoId as string, {
+            title: title as string | undefined,
+            description: description as string | undefined,
+            priority: priority as string | undefined,
+            dueDate: dueDate as string | undefined,
+          });
+          if (!item) return `Error: todo "${todoId}" not found.`;
+          return {
+            text: `Todo updated: ${item.title}`,
+            data: { action: "update", todo: item },
+          };
         }
 
         case "delete": {
           if (!todoId) return "Error: todoId is required for delete.";
-          const deleted = await deleteTodoItem(client, calendarName, todoId);
-          if (!deleted) return `Error: no todo found with UID "${todoId}".`;
-          return { text: `Deleted todo "${todoId}".`, data: { action: "delete", todoId } };
+          const deleted = await deleteTodoItem(config, todoId as string);
+          if (!deleted) return `Error: todo "${todoId}" not found.`;
+          return {
+            text: `Todo deleted (ID: ${todoId}).`,
+            data: { action: "delete", uid: todoId },
+          };
         }
 
         default:
-          return `Error: unknown action "${action}". Use add, list, complete, update, or delete.`;
+          return `Error: unknown action "${action}".`;
       }
     } catch (err) {
-      return `Error: todo operation failed: ${err instanceof Error ? err.message : String(err)}`;
+      resetGoogleToken();
+      return `Error: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
 });

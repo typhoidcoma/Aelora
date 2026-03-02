@@ -89,16 +89,7 @@ tools: {}
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
-  # CalDAV (Radicale) — required for calendar and todo tools.
-  # See README.md for Radicale setup instructions.
-  # caldav:
-  #   serverUrl: "http://127.0.0.1:5232"
-  #   username: "aelora"
-  #   password: "aelora123"
-  #   authMethod: "Basic"       # Basic, Oauth, or Bearer
-  #   calendarName: "Aelora"    # Must match the calendar name on the server
-
-  # Google Workspace — required for gmail, google_calendar, google_docs, google_tasks tools.
+  # Google Workspace — required for todo, gmail, google_calendar, google_docs, google_tasks tools.
   # Uses OAuth2 refresh token flow. See README.md "Google Workspace Setup" for full instructions.
   # You need a Google Cloud project with Gmail, Calendar, Docs, Tasks, and Drive APIs enabled,
   # plus an OAuth2 client ID and a refresh token generated via the Google OAuth Playground.
@@ -106,6 +97,14 @@ tools: {}
   #   clientId: "YOUR_GOOGLE_CLIENT_ID"
   #   clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
   #   refreshToken: "YOUR_REFRESH_TOKEN"
+
+# --- Supabase ---
+# Required for the scoring/gamification system. Create a free project at supabase.com
+# and run supabase/migrations/001_scoring_system.sql in the SQL editor.
+
+# supabase:
+#   url: "https://your-project.supabase.co"
+#   anonKey: "your-anon-key"
 
 # --- Agents ---
 # Sub-agents that perform multi-step tasks with LLM reasoning + tools.

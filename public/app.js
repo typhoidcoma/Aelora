@@ -1280,53 +1280,162 @@ async function deleteNoteDash(scope, title) {
   }
 }
 
-// --- Todos ---
+// --- Todos + Scoring ---
+
+// Discord User ID — persisted in localStorage
+let _discordUserId = localStorage.getItem("aelora_discord_uid") || "";
+
+function getDiscordUserId() { return _discordUserId; }
+function setDiscordUserId(uid) {
+  _discordUserId = uid;
+  localStorage.setItem("aelora_discord_uid", uid);
+}
+
+function onDiscordUserIdChange() {
+  const val = document.getElementById("discord-user-id-input").value.trim();
+  setDiscordUserId(val);
+  fetchTodos();
+  if (val) fetchScoringStats();
+}
+
+function onDiscordUserIdPromptChange() {
+  const val = document.getElementById("discord-user-id-prompt").value.trim();
+  document.getElementById("discord-user-id-input").value = val;
+  setDiscordUserId(val);
+  if (val) { fetchTodos(); fetchScoringStats(); }
+}
+
+function handleTodoSortChange() {
+  fetchTodos();
+}
+
+function getScoreTierClass(score) {
+  if (score >= 75) return "score-badge score-critical";
+  if (score >= 55) return "score-badge score-high";
+  if (score >= 35) return "score-badge score-medium";
+  return "score-badge score-low";
+}
+
+async function fetchScoringStats() {
+  const uid = getDiscordUserId();
+  if (!uid) return;
+
+  const statsBar = document.getElementById("scoring-stats-bar");
+  const prompt   = document.getElementById("scoring-prompt");
+  statsBar.style.display = "";
+  prompt.style.display   = "none";
+
+  // Keep input in sync
+  const inp = document.getElementById("discord-user-id-input");
+  if (inp.value !== uid) inp.value = uid;
+
+  try {
+    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.exists) return;
+
+    document.getElementById("stat-total-xp").textContent = data.profile.total_points.toLocaleString() + " XP";
+    document.getElementById("stat-streak").textContent = data.profile.current_streak + "d";
+    document.getElementById("stat-achievements").textContent = `${data.achievements.length}/${9}`;
+  } catch { /* graceful */ }
+}
 
 async function fetchTodos() {
   if (!isToolActive("todo")) {
     document.getElementById("todos-body").innerHTML =
-      '<tr><td colspan="5" class="muted">Todo tool is disabled</td></tr>';
+      '<tr><td colspan="6" class="muted">Todo tool is disabled</td></tr>';
     return;
   }
+
+  // Show the scoring stats bar / prompt depending on whether UID is set
+  const uid = getDiscordUserId();
+  const statsBar = document.getElementById("scoring-stats-bar");
+  const prompt   = document.getElementById("scoring-prompt");
+
+  if (uid) {
+    statsBar.style.display = "";
+    const inp = document.getElementById("discord-user-id-input");
+    if (inp && inp.value !== uid) inp.value = uid;
+    prompt.style.display = "none";
+    fetchScoringStats();
+  } else {
+    statsBar.style.display = "none";
+    prompt.style.display   = "";
+  }
+
+  const sortMode = document.getElementById("todo-sort")?.value || "score";
+
   try {
-    const res = await apiFetch("/api/todos");
-    if (res.status === 503) {
-      document.getElementById("todos-body").innerHTML =
-        '<tr><td colspan="5" class="muted">CalDAV not configured</td></tr>';
-      return;
+    // Score-sorted leaderboard (requires uid) or plain list
+    let todos;
+    if (uid && sortMode === "score") {
+      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=50`);
+      if (res.ok) {
+        const data = await res.json();
+        todos = (data.tasks || []).map(t => ({
+          ...t,
+          uid: t.external_uid || t.id,
+          dueDate: t.due_date ? t.due_date.slice(0, 10) : undefined,
+          scoreBreakdown: t.scoreBreakdown,
+        }));
+      }
     }
-    const data = await res.json();
-    const todos = data.todos || [];
+
+    // Fallback: plain Google Tasks list
+    if (!todos) {
+      const res = await apiFetch("/api/todos");
+      if (res.status === 503) {
+        document.getElementById("todos-body").innerHTML =
+          '<tr><td colspan="6" class="muted">Google Tasks not configured</td></tr>';
+        return;
+      }
+      const data = await res.json();
+      todos = data.todos || [];
+    }
+
     const tbody = document.getElementById("todos-body");
-
     if (todos.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">No todos</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No todos</td></tr>';
       return;
     }
 
-    // Sort: pending first, then by due date, then by priority
-    const priOrder = { high: 0, medium: 1, low: 2 };
-    todos.sort((a, b) => {
-      if (a.completed !== b.completed) return a.completed ? 1 : -1;
-      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
-      if (a.dueDate) return -1;
-      if (b.dueDate) return 1;
-      return (priOrder[a.priority] ?? 1) - (priOrder[b.priority] ?? 1);
-    });
+    // Sort based on sortMode (score mode is pre-sorted by API)
+    if (sortMode === "due") {
+      todos.sort((a, b) => {
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
+        if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+        if (a.dueDate) return -1;
+        if (b.dueDate) return 1;
+        return 0;
+      });
+    } else if (sortMode === "priority") {
+      const priOrder = { high: 0, medium: 1, low: 2 };
+      todos.sort((a, b) => {
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
+        return (priOrder[a.priority] ?? 1) - (priOrder[b.priority] ?? 1);
+      });
+    }
 
     tbody.innerHTML = todos
       .map((t) => {
         const priClass = t.priority === "high" ? "error" : t.priority === "low" ? "muted" : "";
         const dueStr = t.dueDate ? formatTodoDate(t.dueDate) : "--";
         const overdue = t.dueDate && !t.completed && new Date(t.dueDate) < new Date() ? ' class="error"' : "";
+        const score = t.scoreBreakdown?.total;
+        const scoreBadge = score != null
+          ? `<span class="${getScoreTierClass(score)}">${score}</span>`
+          : `<span class="score-badge score-none">--</span>`;
+        const taskUid = t.uid || t.external_uid;
 
         return `
       <tr${t.completed ? ' class="disabled-row"' : ""}>
-        <td><input type="checkbox" ${t.completed ? "checked disabled" : ""} onchange="completeTodo('${esc(t.uid)}')"></td>
-        <td>${t.completed ? "<s>" : ""}${esc(t.title)}${t.completed ? "</s>" : ""}${t.description ? `<br><span class="muted">${esc(t.description.slice(0, 80))}</span>` : ""}</td>
+        <td><input type="checkbox" ${t.completed ? "checked disabled" : ""} onchange="completeTodo('${esc(taskUid)}')"></td>
+        <td>${t.completed ? "<s>" : ""}${esc(t.title)}${t.completed ? "</s>" : ""}${t.description ? `<br><span class="muted">${esc((t.description || "").slice(0, 80))}</span>` : ""}</td>
+        <td>${scoreBadge}</td>
         <td><span class="${priClass}">${esc(t.priority)}</span></td>
         <td${overdue}>${dueStr}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="deleteTodo('${esc(t.uid)}')">&times;</button></td>
+        <td><button class="btn btn-danger btn-xs" onclick="deleteTodo('${esc(taskUid)}')">&times;</button></td>
       </tr>`;
       })
       .join("");
@@ -1395,15 +1504,26 @@ async function submitTodo() {
 
 async function completeTodo(uid) {
   try {
+    const discordUserId = getDiscordUserId();
+    const body = { completed: true };
+    if (discordUserId) body.discordUserId = discordUserId;
+
     const res = await apiFetch(`/api/todos/${encodeURIComponent(uid)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: true }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
 
     if (data.uid) {
-      showToast("Todo completed");
+      if (data.pointsAwarded) {
+        const achMsg = data.newAchievements?.length
+          ? ` 🏆 ${data.newAchievements.join(", ")}` : "";
+        showToast(`✓ Done! +${data.pointsAwarded} XP (score: ${data.score})${achMsg}`);
+        fetchScoringStats();
+      } else {
+        showToast("Todo completed");
+      }
       fetchTodos();
     } else {
       showToast(data.error || "Complete failed", "error");

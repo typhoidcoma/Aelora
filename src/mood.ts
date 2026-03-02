@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { broadcastEvent } from "./logger.js";
-import { getLLMClient, getLLMModel } from "./llm.js";
+import { getLLMClient, getLLMModel, getDisableThinking } from "./llm.js";
 
 // Plutchik's 8 primary emotions with intensity levels (low → mid → high)
 export const PLUTCHIK_EMOTIONS = {
@@ -120,13 +120,15 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const client = getLLMClient();
   const model = getLLMModel();
 
+  const disableThinking = getDisableThinking();
+  const moodSnippet = `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}`;
   const result = await (client.chat.completions.create as Function)({
     model,
     max_completion_tokens: 300,
-    enable_thinking: false,
+    ...(disableThinking ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
-      { role: "user", content: `/no_think\nUser: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}` },
+      { role: "user", content: disableThinking ? `/no_think\n${moodSnippet}` : moodSnippet },
     ],
   });
 

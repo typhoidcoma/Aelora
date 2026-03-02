@@ -240,6 +240,7 @@ export function initLLM(cfg: Config): void {
 /** Expose the initialized OpenAI client for lightweight direct calls (e.g. mood classification). */
 export function getLLMClient(): OpenAI { return client; }
 export function getLLMModel(): string { return config.llm.model; }
+export function getDisableThinking(): boolean { return config.llm.disableThinking; }
 
 /** Full session reset: clears history, summary, and compaction queue for a channel. */
 export function clearSession(channelId: string): void {

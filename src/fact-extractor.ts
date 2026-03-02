@@ -3,7 +3,7 @@
  * Follows the same lightweight fire-and-forget pattern as mood.ts.
  */
 
-import { getLLMClient, getLLMModel, stripThinkBlocks } from "./llm.js";
+import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, searchFacts } from "./memory.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
@@ -66,13 +66,14 @@ export async function extractFacts(
   const snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
 
   try {
+    const disableThinking = getDisableThinking();
     const result = await (client.chat.completions.create as Function)({
       model,
       max_completion_tokens: 400,
-      enable_thinking: false,
+      ...(disableThinking ? { enable_thinking: false } : {}),
       messages: [
         { role: "system", content: EXTRACT_SYSTEM },
-        { role: "user", content: `/no_think\n${snippet}` },
+        { role: "user", content: disableThinking ? `/no_think\n${snippet}` : snippet },
       ],
     });
 

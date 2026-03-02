@@ -827,11 +827,12 @@ async function runCompletionLoop(
       }
 
       // Use flattened plain-text format instead of tool role messages
-      // to avoid template errors with models like Qwen3 in LM Studio
-      const names = toolResults.map((t) => t.name).join(", ");
+      // to avoid template errors with models like Qwen3 in LM Studio.
+      // Use null (not a placeholder string) when the model had no preamble text —
+      // a non-null placeholder gets parroted back by the model in the next iteration.
       messages.push({
         role: "assistant",
-        content: content || `[Used tools: ${names}]`,
+        content: content || null,
       });
       const resultsText = toolResults
         .map((t) => {

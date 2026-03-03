@@ -16,8 +16,8 @@ export default defineTool({
   description:
     "Fetch recent message history from Discord text channels. " +
     "Actions: 'list_channels' (see all channels with their IDs), 'fetch' (retrieve messages). " +
-    "Always call list_channels first to get channel IDs, then fetch a specific channel by passing channelId. " +
-    "Omitting channelId fetches all channels at once but is capped at 10 messages per channel — use channelId for full history.",
+    "Prefer channelName over channelId when fetching a specific channel — names are exact strings. " +
+    "Omitting both channelId and channelName fetches all channels but is capped at 10 messages per channel.",
 
   params: {
     action: param.enum(
@@ -25,8 +25,11 @@ export default defineTool({
       ["fetch", "list_channels"] as const,
       { required: true },
     ),
+    channelName: param.string(
+      "Channel name to fetch from (e.g. \"general\"). Preferred over channelId — use the exact name from list_channels.",
+    ),
     channelId: param.string(
-      "Specific channel ID to fetch from (pass as a quoted string, e.g. \"1234567890\"). If omitted with 'fetch', retrieves from all text channels.",
+      "Channel ID (snowflake) to fetch from. Use channelName instead when possible to avoid precision issues.",
     ),
     limit: param.number(
       `Max messages per channel (default ${DEFAULT_LIMIT}, max ${MAX_LIMIT}).`,
@@ -41,11 +44,17 @@ export default defineTool({
     ),
   },
 
-  handler: async ({ action, channelId: rawChannelId, limit, hoursBack, includeBotMessages }) => {
+  handler: async ({ action, channelId: rawChannelId, channelName, limit, hoursBack, includeBotMessages }) => {
     if (!discordClient) return "Error: Discord client is not connected.";
     // Coerce channelId to string — models sometimes pass Discord snowflakes as numbers,
     // which lose precision (snowflakes exceed Number.MAX_SAFE_INTEGER).
-    const channelId = rawChannelId != null ? String(rawChannelId) : undefined;
+    // Prefer channelName: resolve it to an ID here so the rest of the code stays the same.
+    let channelId = rawChannelId != null ? String(rawChannelId) : undefined;
+    if (!channelId && channelName) {
+      const resolved = await resolveChannelByName(channelName);
+      if (!resolved) return `Channel named "${channelName}" not found. Use list_channels to see available channels.`;
+      channelId = resolved;
+    }
 
     switch (action) {
       case "list_channels": {
@@ -139,6 +148,30 @@ export default defineTool({
 });
 
 // --- Helpers ---
+
+/** Resolve a channel name to its ID. Case-insensitive, prefers exact match. */
+async function resolveChannelByName(name: string): Promise<string | null> {
+  if (!discordClient) return null;
+  const needle = name.toLowerCase().replace(/^#/, "");
+
+  // Check cache first across all guilds
+  for (const guild of discordClient.guilds.cache.values()) {
+    for (const channel of guild.channels.cache.values()) {
+      if (channel.type === ChannelType.GuildText && channel.name.toLowerCase() === needle) {
+        return channel.id;
+      }
+    }
+  }
+
+  // Fall back to API fetch
+  const all = await getTextChannels();
+  const exact = all.find((ch) => ch.name.toLowerCase() === needle);
+  if (exact) return exact.id;
+
+  // Partial match fallback
+  const partial = all.find((ch) => ch.name.toLowerCase().includes(needle));
+  return partial?.id ?? null;
+}
 
 async function getTextChannels(): Promise<TextChannel[]> {
   if (!discordClient) return [];

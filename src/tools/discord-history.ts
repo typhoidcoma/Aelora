@@ -179,9 +179,22 @@ async function fetchChannelMessages(
   if (!discordClient) return { channelName: "unknown", messages: [], error: "Client not connected" };
 
   try {
-    const channel = await discordClient.channels.fetch(channelId).catch(() => null);
+    // Try cache first (avoids precision issues — cache keys are exact string IDs)
+    let channel = discordClient.channels.cache.get(channelId) ?? null;
     if (!channel) {
-      return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found — the bot may not be in that server or lacks VIEW_CHANNEL permission.` };
+      try {
+        channel = await discordClient.channels.fetch(channelId);
+      } catch (err: unknown) {
+        const status = (err as { status?: number }).status;
+        const code = (err as { code?: number }).code;
+        if (status === 403 || code === 50013) {
+          return { channelName: "unknown", messages: [], error: `Missing VIEW_CHANNEL permission on channel ${channelId}. Grant the bot View Channel access in Discord server settings.` };
+        }
+        return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found. Use list_channels to get valid channel IDs — make sure to copy the ID exactly as a string.` };
+      }
+    }
+    if (!channel) {
+      return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found. Use list_channels to get valid channel IDs.` };
     }
     if (channel.type !== ChannelType.GuildText) {
       return { channelName: "unknown", messages: [], error: `Channel ${channelId} is not a text channel (type: ${channel.type}). Use list_channels to see available text channels.` };
@@ -191,7 +204,17 @@ async function fetchChannelMessages(
     const channelName = textChannel.name;
 
     // Fetch messages (Discord returns newest first)
-    const fetched = await textChannel.messages.fetch({ limit });
+    let fetched;
+    try {
+      fetched = await textChannel.messages.fetch({ limit });
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const code = (err as { code?: number }).code;
+      if (status === 403 || code === 50013) {
+        return { channelName, messages: [], error: `Missing READ_MESSAGE_HISTORY permission in #${channelName}. Grant the bot Read Message History access in Discord server settings.` };
+      }
+      throw err;
+    }
     const messages: FormattedMessage[] = [];
 
     for (const msg of fetched.values()) {

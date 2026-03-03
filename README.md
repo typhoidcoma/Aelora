@@ -8,7 +8,10 @@
 
 Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system (Persona), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, a scoring and gamification engine, and a live web dashboard.
 
-## Features
+---
+
+<details>
+<summary><strong>Features</strong></summary>
 
 - **LLM Chat** - Any OpenAI-compatible endpoint (OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio)
 - **Streaming** - Token-by-token streaming to Discord, dashboard, and WebSocket clients
@@ -40,7 +43,12 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
-## Quick Start
+</details>
+
+---
+
+<details>
+<summary><strong>Quick Start</strong></summary>
 
 ### Prerequisites
 
@@ -70,7 +78,12 @@ Or double-click `start.bat` on Windows.
 4. Permissions: `Send Messages`, `Read Message History`, `Embed Links`, `Attach Files`
 5. Open the generated URL to invite the bot
 
-## Configuration
+</details>
+
+---
+
+<details>
+<summary><strong>Configuration</strong></summary>
 
 All configuration lives in `settings.yaml`. See [settings.example.yaml](settings.example.yaml) for the full reference.
 
@@ -90,7 +103,12 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `web` | Dashboard toggle and port |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 
-## Scoring System
+</details>
+
+---
+
+<details>
+<summary><strong>Scoring System</strong></summary>
 
 Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: tasks sync from Google Tasks every 5 minutes, scores update continuously, and streaks and achievements are tracked without any user input required.
 
@@ -179,7 +197,12 @@ supabase:
   anonKey: "your-anon-key"
 ```
 
-## Google Workspace Setup
+</details>
+
+---
+
+<details>
+<summary><strong>Google Workspace Setup</strong></summary>
 
 Gmail, Google Calendar, Google Docs, and Google Tasks all use OAuth2 with a refresh token.
 
@@ -225,7 +248,12 @@ tools:
     refreshToken: "1//your-refresh-token"
 ```
 
-## Persona System
+</details>
+
+---
+
+<details>
+<summary><strong>Persona System</strong></summary>
 
 Aelora's personality is composed from markdown files in `persona/`. Each file has YAML frontmatter controlling load order, enable/disable, and section labels.
 
@@ -264,7 +292,12 @@ persona/
     └── skills.md
 ```
 
-## Tools and Agents
+</details>
+
+---
+
+<details>
+<summary><strong>Tools and Agents</strong></summary>
 
 ### Adding a Tool
 
@@ -313,7 +346,12 @@ export default agent;
 
 A `researcher` agent is included. It searches the web, synthesizes findings, and saves results as notes.
 
-## Slash Commands
+</details>
+
+---
+
+<details>
+<summary><strong>Slash Commands</strong></summary>
 
 | Command | Description |
 |---|---|
@@ -334,7 +372,12 @@ A `researcher` agent is included. It searches the web, synthesizes findings, and
 | `/reboot` | Graceful restart |
 | `/play` | Launch the Discord Activity in a voice channel |
 
-## Discord Activity
+</details>
+
+---
+
+<details>
+<summary><strong>Discord Activity</strong></summary>
 
 Host a Unity WebGL build (or any web app) as an embedded Discord Activity in voice channels.
 
@@ -371,7 +414,12 @@ Unity C# scripts access Discord context via a `.jslib` plugin:
 
 Pre-compressed (gzip) build files are served with correct `Content-Encoding` headers.
 
-## Web Dashboard
+</details>
+
+---
+
+<details>
+<summary><strong>Web Dashboard</strong></summary>
 
 Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard is at `/dashboard`.
 
@@ -391,7 +439,12 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 - **Mood** - Live emotion indicator via SSE
 - **Console** - Live log stream via SSE
 
-## Project Structure
+</details>
+
+---
+
+<details>
+<summary><strong>Project Structure</strong></summary>
 
 ```
 src/
@@ -459,7 +512,12 @@ openapi.yaml                    # REST API spec
 start.bat                       # Windows launcher
 ```
 
-## Scripts
+</details>
+
+---
+
+<details>
+<summary><strong>Scripts</strong></summary>
 
 | Command | Description |
 |---|---|
@@ -468,8 +526,15 @@ start.bat                       # Windows launcher
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm start` | Run compiled production build |
 
-## Further Reading
+</details>
+
+---
+
+<details>
+<summary><strong>Further Reading</strong></summary>
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Deep technical reference
 - [ROADMAP.md](ROADMAP.md) - Planned features and specs
 - [openapi.yaml](openapi.yaml) - REST API spec (also at `/api/docs` when running)
+
+</details>

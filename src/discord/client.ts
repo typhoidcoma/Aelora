@@ -56,6 +56,12 @@ export async function startDiscord(config: Config): Promise<Client> {
     console.log(`Discord: shard ${shardId} resumed (${replayedEvents} events replayed)`);
   });
 
+  client.on(Events.ChannelCreate, (channel) => {
+    const guildName = "guild" in channel && channel.guild ? channel.guild.name : "unknown";
+    const channelName = "name" in channel ? channel.name : channel.id;
+    console.log(`Discord: new channel created — #${channelName} (${channel.id}) in ${guildName}`);
+  });
+
   const ready = new Promise<void>((resolve) => {
     client.once(Events.ClientReady, async (readyClient) => {
       botUserId = readyClient.user.id;

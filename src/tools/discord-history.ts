@@ -46,7 +46,7 @@ export default defineTool({
 
     switch (action) {
       case "list_channels": {
-        const channels = getTextChannels();
+        const channels = await getTextChannels();
         if (channels.length === 0) return "No accessible text channels found.";
 
         const lines = channels.map((ch) => {
@@ -90,7 +90,7 @@ export default defineTool({
         }
 
         // All channels fetch
-        const channels = getTextChannels();
+        const channels = await getTextChannels();
         if (channels.length === 0) return "No accessible text channels found.";
 
         const results: string[] = [];
@@ -130,13 +130,16 @@ export default defineTool({
 
 // --- Helpers ---
 
-function getTextChannels(): TextChannel[] {
+async function getTextChannels(): Promise<TextChannel[]> {
   if (!discordClient) return [];
 
   const channels: TextChannel[] = [];
   for (const guild of discordClient.guilds.cache.values()) {
-    for (const channel of guild.channels.cache.values()) {
-      if (channel.type === ChannelType.GuildText) {
+    // Fetch from the API so newly-created channels are always included
+    const fetched = await guild.channels.fetch().catch(() => null);
+    const source = fetched ?? guild.channels.cache;
+    for (const channel of source.values()) {
+      if (channel && channel.type === ChannelType.GuildText) {
         channels.push(channel as TextChannel);
       }
     }

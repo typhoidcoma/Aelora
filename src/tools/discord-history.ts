@@ -179,28 +179,42 @@ async function fetchChannelMessages(
   if (!discordClient) return { channelName: "unknown", messages: [], error: "Client not connected" };
 
   try {
-    // Try cache first (avoids precision issues — cache keys are exact string IDs)
-    let channel = discordClient.channels.cache.get(channelId) ?? null;
-    if (!channel) {
-      try {
-        channel = await discordClient.channels.fetch(channelId);
-      } catch (err: unknown) {
-        const status = (err as { status?: number }).status;
-        const code = (err as { code?: number }).code;
-        if (status === 403 || code === 50013) {
-          return { channelName: "unknown", messages: [], error: `Missing VIEW_CHANNEL permission on channel ${channelId}. Grant the bot View Channel access in Discord server settings.` };
-        }
-        return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found. Use list_channels to get valid channel IDs — make sure to copy the ID exactly as a string.` };
+    // Search guild caches first — same path as list_channels uses, avoids
+    // client.channels.fetch() which can fail for channels that guild.channels.fetch() returns fine.
+    let textChannel: TextChannel | null = null;
+    for (const guild of discordClient.guilds.cache.values()) {
+      const cached = guild.channels.cache.get(channelId);
+      if (cached?.type === ChannelType.GuildText) {
+        textChannel = cached as TextChannel;
+        break;
       }
     }
-    if (!channel) {
-      return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found. Use list_channels to get valid channel IDs.` };
-    }
-    if (channel.type !== ChannelType.GuildText) {
-      return { channelName: "unknown", messages: [], error: `Channel ${channelId} is not a text channel (type: ${channel.type}). Use list_channels to see available text channels.` };
+
+    // Not in any guild cache — fetch from each guild's API (same as getTextChannels)
+    if (!textChannel) {
+      for (const guild of discordClient.guilds.cache.values()) {
+        let ch;
+        try {
+          ch = await guild.channels.fetch(channelId);
+        } catch (err: unknown) {
+          const code = (err as { code?: number }).code;
+          const status = (err as { status?: number }).status;
+          if (status === 403 || code === 50013) {
+            return { channelName: "unknown", messages: [], error: `Missing VIEW_CHANNEL permission on channel ${channelId}. Grant the bot View Channel access in Discord server settings.` };
+          }
+          continue; // not in this guild, try the next one
+        }
+        if (ch?.type === ChannelType.GuildText) {
+          textChannel = ch as TextChannel;
+          break;
+        }
+      }
     }
 
-    const textChannel = channel as TextChannel;
+    if (!textChannel) {
+      return { channelName: "unknown", messages: [], error: `Channel ${channelId} not found in any accessible guild. Use list_channels to get valid IDs.` };
+    }
+
     const channelName = textChannel.name;
 
     // Fetch messages (Discord returns newest first)

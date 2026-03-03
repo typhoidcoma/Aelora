@@ -3,6 +3,7 @@
  * Follows the same lightweight fire-and-forget pattern as mood.ts.
  */
 
+import type OpenAI from "openai";
 import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, searchFacts } from "./memory.js";
 import { getUser, updateUserSynthesis } from "./users.js";
@@ -85,7 +86,7 @@ export async function extractFacts(
 
   try {
     const disableThinking = getDisableThinking();
-    const result = await (client.chat.completions.create as Function)({
+    const extractParams: Record<string, unknown> = {
       model,
       max_completion_tokens: 400,
       ...(disableThinking ? { enable_thinking: false } : {}),
@@ -93,7 +94,10 @@ export async function extractFacts(
         { role: "system", content: EXTRACT_SYSTEM },
         { role: "user", content: disableThinking ? `/no_think\n${snippet}` : snippet },
       ],
-    });
+    };
+    const result = await client.chat.completions.create(
+      extractParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+    );
 
     const rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return;
@@ -193,7 +197,7 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
 
   const userContent = `Facts about this user:\n${factList}`;
 
-  const result = await (client.chat.completions.create as Function)({
+  const synthesisParams: Record<string, unknown> = {
     model,
     max_completion_tokens: 150,
     ...(disableThinking ? { enable_thinking: false } : {}),
@@ -201,7 +205,10 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
       { role: "system", content: SYNTHESIS_SYSTEM },
       { role: "user", content: disableThinking ? `/no_think\n${userContent}` : userContent },
     ],
-  });
+  };
+  const result = await client.chat.completions.create(
+    synthesisParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+  );
 
   const summary = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
   if (!summary) return;

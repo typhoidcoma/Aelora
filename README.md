@@ -15,7 +15,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Persona System** - Composable personality from layered markdown files with hot-reload
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
-- **Memory** - Per-user and per-channel fact storage, auto-injected into the system prompt
+- **Memory** - Per-user and per-channel fact storage, auto-injected into the system prompt; auto-synthesizes personality profiles from accumulated facts
 - **Web Search** - Brave Search API integration
 - **Google Tasks** - Full task management: list, create, complete, update, delete
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
@@ -23,6 +23,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Google Docs** - Read, create, append, search documents
 - **Scoring System** - Science-backed 0-100 task scoring with XP, streaks, achievements, and adaptive per-user learning (see below)
 - **Notes** - Persistent notes scoped to channels or global
+- **Date Resolution** - Natural language date parsing (chrono-node) for accurate scheduling ("next Friday", "in 2 hours")
 - **Cron Jobs** - Scheduled messages (static or LLM-generated) with timezone support, silent mode, runtime CRUD
 - **Sessions** - Conversation tracking with metadata, persisted to disk
 - **Daily Log** - Automatic daily activity logging
@@ -433,6 +434,7 @@ src/
 │   ├── google-docs.ts          # Google Docs read/write/search
 │   ├── _google-auth.ts         # Shared OAuth2 helpers (skipped on load)
 │   ├── brave-search.ts         # Brave Search
+│   ├── date.ts                 # Natural language date resolution (chrono-node)
 │   ├── cron.ts                 # Cron job management
 │   ├── memory.ts               # Memory save/list/forget
 │   ├── mood.ts                 # Emotion override

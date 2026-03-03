@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { broadcastEvent } from "./logger.js";
+import type OpenAI from "openai";
 import { getLLMClient, getLLMModel, getDisableThinking } from "./llm.js";
 
 // Plutchik's 8 primary emotions with intensity levels (low → mid → high)
@@ -122,7 +123,7 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
 
   const disableThinking = getDisableThinking();
   const moodSnippet = `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}`;
-  const result = await (client.chat.completions.create as Function)({
+  const moodParams: Record<string, unknown> = {
     model,
     max_completion_tokens: 300,
     ...(disableThinking ? { enable_thinking: false } : {}),
@@ -130,7 +131,10 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
       { role: "system", content: CLASSIFY_SYSTEM },
       { role: "user", content: disableThinking ? `/no_think\n${moodSnippet}` : moodSnippet },
     ],
-  });
+  };
+  const result = await client.chat.completions.create(
+    moodParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+  );
 
   const rawContent = result.choices[0]?.message?.content?.trim();
   if (!rawContent) return;

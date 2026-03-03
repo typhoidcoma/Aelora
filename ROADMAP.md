@@ -14,6 +14,8 @@ These features from prior roadmap versions are now live:
 | **Web Search** | Done | Brave Search API integration via `brave-search` tool. |
 | **Researcher Agent** | Done | Multi-step web research agent with synthesis and note saving (`src/agents/researcher.ts`). |
 | **Configurable Timezone** | Done | Global IANA timezone via `settings.yaml`. Affects cron, logs, and date formatting. |
+| **User Profiles** | Done | Per-user tracking (message count, channels, first/last seen), detail overlay in dashboard, cascading delete. Personality synthesis auto-builds a profile from accumulated facts and injects it into the system prompt. |
+| **Date Resolution** | Done | Natural language date parsing via `date` tool (chrono-node). LLM calls this before scheduling tasks or cron jobs to avoid date arithmetic errors. |
 
 ---
 
@@ -327,68 +329,12 @@ tools:
 
 ---
 
-## 6. User Profiles
-
-### Overview
-
-Per-user memory, preferences, and interaction tracking. Aelora remembers user preferences (communication style, interests, timezone), maintains relationship context, and adapts her responses per user. Builds on the existing memory system with structured preference tracking.
-
-### How It Fits
-
-| System | Role |
-|--------|------|
-| **Tool** | `profile` tool -view, update preferences, clear |
-| **Persona** | `templates/user.md` -inject per-user context into system prompt |
-| **LLM** | Auto-inject user profile into conversation context |
-| **Memory** | Extends existing memory system with structured data |
-
-### Data Model
-
-```
-data/profiles.json
-{
-  "userId": {
-    "displayName": "Tesse",
-    "timezone": "America/Chicago",
-    "preferences": {
-      "communicationStyle": "casual",
-      "verbosity": "concise",
-      "interests": ["worldbuilding", "fantasy", "programming"],
-      "pronouns": "they/them"
-    },
-    "stats": {
-      "firstSeen": "ISO timestamp",
-      "lastSeen": "ISO timestamp",
-      "messageCount": 142,
-      "toolsUsed": ["notes", "calendar", "quest"]
-    }
-  }
-}
-```
-
-### Implementation Sketch
-
-**Tool (`src/tools/profile.ts`):**
-- Actions: `view`, `set-preference`, `stats`
-- `view` -show the user's profile
-- `set-preference` -update communication style, verbosity, timezone, etc.
-- `stats` -interaction statistics
-
-**System prompt injection:**
-- On each `getLLMResponse()`, look up the user's profile
-- If profile exists, append a `## User Context` section to the system prompt
-
-**Estimated complexity:** Medium. ~200 lines tool + ~30 lines LLM injection.
-
----
-
 ## Priority Overview
 
 | Feature | Complexity | Dependencies | Priority |
 |---------|-----------|--------------|----------|
 | Mail | Low-medium | None | Short-term |
-| User Profiles | Medium | Extends existing memory | Short-term |
-| Quests | Medium-high | Profiles (for per-user progress) | Medium-term |
+| Quests | Medium-high | None | Medium-term |
 | Image Generation | Medium | External API key | Medium-term |
-| Storytelling Engine | High | Profiles, possibly quests | Medium-term |
+| Storytelling Engine | High | None | Medium-term |
 | Voice Integration | High | ffmpeg, external TTS/STT APIs, @discordjs/voice | Long-term |

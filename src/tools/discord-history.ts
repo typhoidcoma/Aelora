@@ -7,14 +7,17 @@ const MAX_LIMIT = 200;
 const DEFAULT_HOURS_BACK = 24;
 const MAX_HOURS_BACK = 168; // 7 days
 
+// When fetching all channels at once, cap per-channel and total to avoid context overflow
+const ALL_CHANNELS_PER_CHANNEL_LIMIT = 10;
+const ALL_CHANNELS_TOTAL_LIMIT = 150;
+
 export default defineTool({
   name: "discord_history",
   description:
     "Fetch recent message history from Discord text channels. " +
     "Actions: 'list_channels' (see all channels with their IDs), 'fetch' (retrieve messages). " +
-    "To fetch a specific channel, pass its ID as channelId. " +
-    "When no channelId is given, 'fetch' retrieves from all text channels. " +
-    "Useful for creating channel digests, summaries, or catching up on conversations.",
+    "Always call list_channels first to get channel IDs, then fetch a specific channel by passing channelId. " +
+    "Omitting channelId fetches all channels at once but is capped at 10 messages per channel — use channelId for full history.",
 
   params: {
     action: param.enum(
@@ -89,7 +92,8 @@ export default defineTool({
           };
         }
 
-        // All channels fetch
+        // All channels fetch — use lower per-channel limit to prevent context overflow
+        const allChannelLimit = Math.min(msgLimit, ALL_CHANNELS_PER_CHANNEL_LIMIT);
         const channels = await getTextChannels();
         if (channels.length === 0) return "No accessible text channels found.";
 
@@ -98,7 +102,9 @@ export default defineTool({
         let totalMessages = 0;
 
         for (const ch of channels) {
-          const result = await fetchChannelMessages(ch.id, msgLimit, cutoff, skipBots);
+          if (totalMessages >= ALL_CHANNELS_TOTAL_LIMIT) break;
+          const remaining = ALL_CHANNELS_TOTAL_LIMIT - totalMessages;
+          const result = await fetchChannelMessages(ch.id, Math.min(allChannelLimit, remaining), cutoff, skipBots);
           if (result.error || result.messages.length === 0) continue;
 
           results.push(formatChannelBlock(result.channelName, ch.id, result.messages));
@@ -110,8 +116,12 @@ export default defineTool({
           return { text: `No messages found across any channels in the last ${hours} hour(s).`, data: { action: "fetch", count: 0, channels: [] } };
         }
 
+        const cappedNote = totalMessages >= ALL_CHANNELS_TOTAL_LIMIT
+          ? ` (capped at ${ALL_CHANNELS_TOTAL_LIMIT} — use channelId to fetch a specific channel for more)`
+          : "";
+
         return {
-          text: `**Channel History** (${totalMessages} messages across ${results.length} channels, last ${hours}h):\n\n` +
+          text: `**Channel History** (${totalMessages} messages across ${results.length} channels, last ${hours}h${cappedNote}):\n\n` +
             results.join("\n\n---\n\n"),
           data: {
             action: "fetch",

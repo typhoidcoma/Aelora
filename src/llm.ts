@@ -412,6 +412,9 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
         userLine += ` (${profile.messageCount} messages since ${new Date(profile.firstSeen).toLocaleDateString()})`;
       }
       userLine += ".";
+      if (profile.personalitySummary) {
+        userLine += `\n\n${profile.personalitySummary}`;
+      }
       sections.push("\n\n" + userLine);
     }
   }

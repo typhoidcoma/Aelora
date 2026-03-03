@@ -9,6 +9,9 @@ export type UserProfile = {
   lastSeen: string;
   messageCount: number;
   channels: string[];
+  personalitySummary?: string;
+  personalitySynthesizedAt?: string;
+  factCountAtSynthesis?: number;
 };
 
 type UserStore = Record<string, UserProfile>;
@@ -63,6 +66,15 @@ export function updateUser(userId: string, username: string, channelId: string):
     profile.channels.push(channelId);
   }
 
+  save();
+}
+
+export function updateUserSynthesis(userId: string, summary: string, factCount: number): void {
+  const profile = store[userId];
+  if (!profile) return;
+  profile.personalitySummary = summary;
+  profile.personalitySynthesizedAt = new Date().toISOString();
+  profile.factCountAtSynthesis = factCount;
   save();
 }
 

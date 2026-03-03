@@ -4,7 +4,8 @@
  */
 
 import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
-import { saveFact, searchFacts } from "./memory.js";
+import { saveFact, getFacts, searchFacts } from "./memory.js";
+import { getUser, updateUserSynthesis } from "./users.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
 
@@ -13,6 +14,11 @@ const channelMessageCount = new Map<string, number>();
 
 const COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes between extractions per channel
 const MIN_MESSAGES = 4; // minimum messages since last extraction
+
+// ── Synthesis thresholds ──────────────────────────────────
+
+const SYNTHESIS_MIN_FACTS = 5;  // need at least this many facts before first synthesis
+const SYNTHESIS_DELTA = 3;      // re-synthesize after this many new facts
 
 // ── Extraction prompt ────────────────────────────────────
 
@@ -23,12 +29,24 @@ const EXTRACT_SYSTEM =
   "- Personal details (name, location, job, projects, pets, etc.)\n" +
   "- Decisions made or plans committed to\n" +
   "- Technical context (what they're working on, tools they use)\n" +
-  "- Relationship dynamics or recurring topics\n\n" +
+  "- Relationship dynamics or recurring topics\n" +
+  "- Communication style and tone (how they write, humor, energy level, verbosity)\n" +
+  "- Emotional patterns (what energizes or frustrates them, how they engage)\n\n" +
   "Rules:\n" +
   "- Only extract facts that are clearly stated or strongly implied, not speculation\n" +
   "- Each fact must be a short, self-contained statement (under 200 chars)\n" +
   '- If no noteworthy facts exist, return empty arrays\n\n' +
-  'Response format:\n{"user_facts":["fact1","fact2"],"channel_facts":["fact3"],"global_facts":["fact4"]}';
+  'Response format:\n{"user_facts":["fact1","fact2"],"personality_facts":["style1"],"channel_facts":["fact3"],"global_facts":["fact4"]}';
+
+// ── Synthesis prompt ──────────────────────────────────────
+
+const SYNTHESIS_SYSTEM =
+  "You are building a personality model for a personal AI companion. " +
+  "Based on the facts provided about a user, write a 3-4 sentence personality profile " +
+  "that captures who they are, how they communicate, what they care about, and their emotional style. " +
+  "Start with 'You are talking to someone who...' " +
+  "Be specific and personal, not generic. Keep it under 400 characters. " +
+  "Reply with ONLY the profile text, no explanation or markdown.";
 
 // ── Public API ───────────────────────────────────────────
 
@@ -87,7 +105,7 @@ export async function extractFacts(
       return;
     }
 
-    let parsed: { user_facts?: string[]; channel_facts?: string[]; global_facts?: string[] };
+    let parsed: { user_facts?: string[]; personality_facts?: string[]; channel_facts?: string[]; global_facts?: string[] };
     try {
       parsed = JSON.parse(repairJson(jsonStr));
     } catch {
@@ -102,8 +120,18 @@ export async function extractFacts(
       for (const fact of parsed.user_facts.slice(0, 3)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
         if (isDuplicate(fact, `user:${userId}`)) continue;
-        const result = saveFact(`user:${userId}`, fact.trim());
-        if (result.success) saved++;
+        const r = saveFact(`user:${userId}`, fact.trim());
+        if (r.success) saved++;
+      }
+    }
+
+    // Save personality/style facts to user scope (max 2 per extraction)
+    if (userId && Array.isArray(parsed.personality_facts)) {
+      for (const fact of parsed.personality_facts.slice(0, 2)) {
+        if (typeof fact !== "string" || !fact.trim()) continue;
+        if (isDuplicate(fact, `user:${userId}`)) continue;
+        const r = saveFact(`user:${userId}`, fact.trim());
+        if (r.success) saved++;
       }
     }
 
@@ -112,8 +140,8 @@ export async function extractFacts(
       for (const fact of parsed.channel_facts.slice(0, 2)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
         if (isDuplicate(fact, `channel:${channelId}`)) continue;
-        const result = saveFact(`channel:${channelId}`, fact.trim());
-        if (result.success) saved++;
+        const r = saveFact(`channel:${channelId}`, fact.trim());
+        if (r.success) saved++;
       }
     }
 
@@ -122,17 +150,64 @@ export async function extractFacts(
       for (const fact of parsed.global_facts.slice(0, 1)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
         if (isDuplicate(fact, "global")) continue;
-        const result = saveFact("global", fact.trim());
-        if (result.success) saved++;
+        const r = saveFact("global", fact.trim());
+        if (r.success) saved++;
       }
     }
 
     if (saved > 0) {
       console.log(`FactExtractor: saved ${saved} fact(s) from channel ${channelId}`);
     }
+
+    // Trigger personality synthesis if enough new facts have accumulated
+    if (userId) {
+      const totalFacts = getFacts(`user:${userId}`).length;
+      const profile = getUser(userId);
+      const factsAtLast = profile?.factCountAtSynthesis ?? 0;
+      if (totalFacts >= SYNTHESIS_MIN_FACTS && totalFacts - factsAtLast >= SYNTHESIS_DELTA) {
+        synthesizeUserPersonality(userId, totalFacts).catch((err) =>
+          console.warn("FactExtractor: personality synthesis failed:", err),
+        );
+      }
+    }
   } catch (err) {
     console.warn("FactExtractor: extraction failed:", err);
   }
+}
+
+// ── Personality synthesis ────────────────────────────────
+
+/**
+ * Synthesize all known facts about a user into a compact personality profile.
+ * Stored on UserProfile.personalitySummary and injected into the system prompt.
+ */
+async function synthesizeUserPersonality(userId: string, factCount: number): Promise<void> {
+  const facts = getFacts(`user:${userId}`);
+  if (facts.length === 0) return;
+
+  const factList = facts.map((f) => `- ${f.fact}`).join("\n");
+
+  const client = getLLMClient();
+  const model = getLLMModel();
+  const disableThinking = getDisableThinking();
+
+  const userContent = `Facts about this user:\n${factList}`;
+
+  const result = await (client.chat.completions.create as Function)({
+    model,
+    max_completion_tokens: 150,
+    ...(disableThinking ? { enable_thinking: false } : {}),
+    messages: [
+      { role: "system", content: SYNTHESIS_SYSTEM },
+      { role: "user", content: disableThinking ? `/no_think\n${userContent}` : userContent },
+    ],
+  });
+
+  const summary = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
+  if (!summary) return;
+
+  updateUserSynthesis(userId, summary, factCount);
+  console.log(`FactExtractor: synthesized personality profile for user ${userId}`);
 }
 
 // ── JSON extraction ─────────────────────────────────────

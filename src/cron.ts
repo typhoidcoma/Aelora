@@ -177,7 +177,8 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
 
   try {
     output = await resolveCronPayload(job);
-    if (!output.trim()) {
+    const trimmed = output.trim();
+    if (!trimmed || trimmed === "(no response)") {
       // Nothing to post — skip silently (not an error)
       console.log(`Cron [${name}]: no output, skipping`);
       return { success: true, output: "(no output)" };

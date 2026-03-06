@@ -711,33 +711,47 @@ async function runCompletionLoop(
       const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
       const thinkFilter = new ThinkBlockFilter(onToken);
 
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta;
-        if (!delta) continue;
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta;
+          if (!delta) continue;
 
-        if (delta.content) {
-          contentAccum += delta.content;
-          thinkFilter.push(delta.content);
-        }
+          if (delta.content) {
+            contentAccum += delta.content;
+            thinkFilter.push(delta.content);
+          }
 
-        if (delta.tool_calls) {
-          for (const tc of delta.tool_calls) {
-            if (!toolCallAccum.has(tc.index)) {
-              toolCallAccum.set(tc.index, { id: "", name: "", arguments: "" });
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              if (!toolCallAccum.has(tc.index)) {
+                toolCallAccum.set(tc.index, { id: "", name: "", arguments: "" });
+              }
+              const accum = toolCallAccum.get(tc.index)!;
+              if (tc.id) accum.id = tc.id;
+              if (tc.function?.name) accum.name += tc.function.name;
+              if (tc.function?.arguments) accum.arguments += tc.function.arguments;
             }
-            const accum = toolCallAccum.get(tc.index)!;
-            if (tc.id) accum.id = tc.id;
-            if (tc.function?.name) accum.name += tc.function.name;
-            if (tc.function?.arguments) accum.arguments += tc.function.arguments;
+          }
+
+          // Capture usage from final chunk (if API supports it)
+          const chunkAny = chunk as unknown as { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
+          if (chunkAny.usage) {
+            const u = chunkAny.usage;
+            console.log(`LLM: tokens (in=${u.prompt_tokens}, out=${u.completion_tokens}, total=${u.total_tokens})`);
           }
         }
-
-        // Capture usage from final chunk (if API supports it)
-        const chunkAny = chunk as unknown as { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
-        if (chunkAny.usage) {
-          const u = chunkAny.usage;
-          console.log(`LLM: tokens (in=${u.prompt_tokens}, out=${u.completion_tokens}, total=${u.total_tokens})`);
+      } catch (streamErr) {
+        if (isToolTemplateError(streamErr)) {
+          if (baseParams.tools) {
+            console.warn("LLM: model template error during streaming, retrying without tools");
+            delete baseParams.tools;
+            toolsDropped = true;
+            continue;
+          }
+          console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
+          return "(I encountered a formatting issue and couldn't process that request.)";
         }
+        throw streamErr;
       }
 
       thinkFilter.flush();

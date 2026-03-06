@@ -113,8 +113,16 @@ export async function extractFacts(
     try {
       parsed = JSON.parse(repairJson(jsonStr));
     } catch {
-      console.warn("FactExtractor: failed to parse JSON:", jsonStr.slice(0, 200));
-      return;
+      // Fallback: try stripping everything outside the JSON structure more aggressively
+      try {
+        const cleaned = repairJson(jsonStr)
+          .replace(/[\x00-\x1f]/g, " ")           // strip all control chars
+          .replace(/\t/g, " ");                     // tabs to spaces
+        parsed = JSON.parse(cleaned);
+      } catch (parseErr2) {
+        console.warn("FactExtractor: failed to parse JSON:", (parseErr2 as Error).message, "| input:", jsonStr.slice(0, 300));
+        return;
+      }
     }
 
     let saved = 0;
@@ -221,8 +229,17 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
 
 /** Fix common LLM JSON mistakes that survive extractJson but fail JSON.parse. */
 function repairJson(json: string): string {
-  // Remove trailing commas before ] or } — common in LLM output
-  return json.replace(/,(\s*[}\]])/g, "$1");
+  let s = json;
+  // Remove trailing commas before ] or }
+  s = s.replace(/,(\s*[}\]])/g, "$1");
+  // Remove single-line comments (// ...) outside of strings
+  s = s.replace(/(?<=[:,\[\{}\]]\s*)\/\/[^\n]*/g, "");
+  // Replace single-quoted strings with double-quoted (simple cases)
+  // Only when outside of already-double-quoted strings
+  s = s.replace(/:\s*'([^']*?)'/g, ': "$1"');
+  s = s.replace(/\[\s*'([^']*?)'/g, '["$1"');
+  s = s.replace(/,\s*'([^']*?)'/g, ', "$1"');
+  return s;
 }
 
 /**

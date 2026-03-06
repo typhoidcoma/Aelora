@@ -156,6 +156,25 @@ function syncSchedulers(jobs: PersistedCronJob[]): void {
   }
 }
 
+// --- Empty response detection ---
+
+/** Catch LLM responses that say "nothing to report" instead of actually being empty. */
+function isEmptyResponse(text: string): boolean {
+  // Exact known sentinels
+  if (text === "(no response)" || text === "none" || text === "none.") return true;
+  // Short responses that are just the LLM explaining it has nothing to say
+  if (text.length > 200) return false; // real content is usually longer
+  const noChangePatterns = [
+    /^no\s*(new\s*)?(changes?|updates?|activity|issues?|results?)/,
+    /^nothing\s*(new|to\s*report|has\s*changed|found)/,
+    /^empty\s*message/,
+    /^there\s*(are|is|were?)\s*no\s*(new\s*)?(changes?|updates?|activity|issues?)/,
+    /^no\s*new\s/,
+    /^\(no\s*(output|response|changes?|updates?)\)/,
+  ];
+  return noChangePatterns.some((p) => p.test(text));
+}
+
 // --- Job execution ---
 
 async function executeJob(name: string): Promise<{ success: boolean; output: string }> {
@@ -177,8 +196,8 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
 
   try {
     output = await resolveCronPayload(job);
-    const trimmed = output.trim();
-    if (!trimmed || trimmed === "(no response)") {
+    const trimmed = output.trim().toLowerCase();
+    if (!trimmed || isEmptyResponse(trimmed)) {
       // Nothing to post — skip silently (not an error)
       console.log(`Cron [${name}]: no output, skipping`);
       return { success: true, output: "(no output)" };
@@ -228,15 +247,15 @@ async function resolveCronPayload(
     // Find the last successful run timestamp so the LLM knows the time window
     const lastSuccess = [...job.history].reverse().find((h) => h.success);
     const lastRunInfo = lastSuccess
-      ? `Last run: ${lastSuccess.timestamp}. Only report changes AFTER that time. If nothing changed since then, respond with an empty message.`
+      ? `Last run: ${lastSuccess.timestamp}. Only report changes AFTER that time.`
       : `This is the first run. Report current status.`;
 
     const wrappedPrompt =
       `[AUTOMATED CRON TASK — "${job.name}"]\n` +
       `Current time: ${new Date().toISOString()}\n` +
       `${lastRunInfo}\n` +
-      `Execute the following task directly. Do not ask questions, request clarification, or wait for input. ` +
-      `If there is nothing new to report, respond with an empty message.\n\n` +
+      `Execute the following task directly. Do not ask questions, request clarification, or wait for input.\n` +
+      `IMPORTANT: If there is nothing new to report, respond with ONLY the word NONE. Do not explain why there is nothing, do not say "no changes", just respond: NONE\n\n` +
       job.prompt;
     return getLLMOneShot(wrappedPrompt);
   }

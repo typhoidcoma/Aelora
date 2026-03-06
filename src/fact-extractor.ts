@@ -230,6 +230,8 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
 /** Fix common LLM JSON mistakes that survive extractJson but fail JSON.parse. */
 function repairJson(json: string): string {
   let s = json;
+  // Replace lazy placeholder [...] with empty arrays
+  s = s.replace(/\[\s*\.\.\.\s*\]/g, "[]");
   // Remove trailing commas before ] or }
   s = s.replace(/,(\s*[}\]])/g, "$1");
   // Remove single-line comments (// ...) outside of strings

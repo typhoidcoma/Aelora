@@ -687,6 +687,28 @@ async function runCompletionLoop(
   let contextTrimmed = false; // set when we've already trimmed for context overflow
 
   /**
+   * Strip tool-related messages from history so models whose Jinja templates
+   * don't understand tool/assistant(tool_calls) roles can still process the
+   * conversation. Keeps system, user, and plain assistant messages.
+   */
+  function stripToolMessages(): void {
+    for (let idx = messages.length - 1; idx >= 0; idx--) {
+      const msg = messages[idx] as unknown as Record<string, unknown>;
+      if (msg.role === "tool") {
+        messages.splice(idx, 1);
+      } else if (msg.role === "assistant" && msg.tool_calls) {
+        // Convert to plain assistant message, keeping any text content
+        const content = (msg.content as string) || "";
+        if (content) {
+          delete msg.tool_calls;
+        } else {
+          messages.splice(idx, 1);
+        }
+      }
+    }
+  }
+
+  /**
    * Trim oldest history messages (preserving system prompt + last user message)
    * to reduce context size. Returns true if messages were actually removed.
    */
@@ -722,6 +744,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
+            stripToolMessages();
             toolsDropped = true;
             try {
               stream = await client.chat.completions.create({ ...baseParams, stream: true });
@@ -784,6 +807,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template error during streaming, retrying without tools");
             delete baseParams.tools;
+            stripToolMessages();
             toolsDropped = true;
             continue;
           }
@@ -822,6 +846,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
             delete baseParams.tools;
+            stripToolMessages();
             toolsDropped = true;
             try {
               completion = await client.chat.completions.create(baseParams);

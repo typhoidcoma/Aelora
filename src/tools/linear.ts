@@ -8,15 +8,20 @@ function getClient(apiKey: string): LinearClient {
 const ALL_ACTIONS = [
   "list_issues", "get_issue", "search", "my_issues", "list_projects", "list_teams",
   "create_issue", "update_issue", "add_comment", "delete_issue",
+  "create_sub_issue", "list_sub_issues",
+  "create_project", "update_project", "add_project_update",
+  "graphql",
 ] as const;
 
 export default defineTool({
   name: "linear",
   description:
     "Full read/write access to Linear project management. " +
-    "Read: list_issues, get_issue, search, my_issues, list_projects, list_teams. " +
-    "Write: create_issue (requires title + team), update_issue (requires issue_id), " +
-    "add_comment (requires issue_id + comment), delete_issue (requires issue_id).",
+    "Read: list_issues, get_issue, search, my_issues, list_projects, list_teams, list_sub_issues. " +
+    "Write: create_issue, create_sub_issue (requires parent_issue_id + title + team), " +
+    "update_issue, add_comment, delete_issue. " +
+    "Projects: create_project, update_project, add_project_update. " +
+    "Advanced: graphql (raw GraphQL query).",
 
   params: {
     action: param.enum("The action to perform.", ALL_ACTIONS, { required: true }),
@@ -46,6 +51,24 @@ export default defineTool({
     comment: param.string("Comment body in markdown (for add_comment action)."),
     project: param.string("Project name (for create_issue or update_issue)."),
     since: param.date("Only return issues updated after this timestamp (ISO 8601). For list_issues and my_issues.", { format: "date-time" }),
+    parent_issue_id: param.string(
+      "Parent issue identifier (e.g. 'ENG-123'). Required for create_sub_issue, used by list_sub_issues.",
+    ),
+    project_name: param.string(
+      "Project name. Required for create_project, used by update_project and add_project_update.",
+    ),
+    project_status: param.string(
+      "Project status (e.g. 'planned', 'started', 'paused', 'completed', 'canceled'). For create/update_project.",
+    ),
+    project_content: param.string(
+      "Long-form project content/description in markdown. For create_project or update_project.",
+    ),
+    health: param.enum(
+      "Project health status for add_project_update.",
+      ["onTrack", "atRisk", "offTrack"] as const,
+    ),
+    graphql_query: param.string("Raw GraphQL query string. For graphql action."),
+    graphql_variables: param.string("JSON-encoded variables for the GraphQL query."),
   },
 
   config: ["linear.apiKey"],
@@ -287,6 +310,152 @@ export default defineTool({
         return {
           text: `Deleted **${identifier}**: ${issueTitle}`,
           data: { action: "delete_issue", identifier },
+        };
+      }
+
+      // ── Sub-issue actions ───────────────────────────────────────────
+
+      case "create_sub_issue": {
+        if (!args.parent_issue_id) return "Error: parent_issue_id is required for create_sub_issue.";
+        if (!args.title) return "Error: title is required for create_sub_issue.";
+        if (!args.team) return "Error: team is required for create_sub_issue.";
+
+        const parent = await client.issue(args.parent_issue_id);
+        const teams = await client.teams({ filter: { key: { eq: args.team } } });
+        const teamNode = teams.nodes[0];
+        if (!teamNode) return `Error: team '${args.team}' not found.`;
+
+        const input: { teamId: string; title: string; parentId: string; [k: string]: unknown } = {
+          teamId: teamNode.id,
+          title: args.title,
+          parentId: parent.id,
+        };
+        if (args.description) input.description = args.description;
+        if (args.priority != null) input.priority = args.priority;
+        if (args.due_date) input.dueDate = args.due_date;
+        if (args.assignee_email) {
+          const userId = await resolveUserByEmail(client, args.assignee_email);
+          if (!userId) return `Error: no Linear user found with email '${args.assignee_email}'.`;
+          input.assigneeId = userId;
+        }
+        if (args.status) {
+          const stateId = await resolveStateByName(client, teamNode.id, args.status);
+          if (stateId) input.stateId = stateId;
+        }
+        if (args.labels && args.labels.length > 0) {
+          const labelIds = await resolveLabelsByName(client, teamNode.id, args.labels as string[]);
+          if (labelIds.length > 0) input.labelIds = labelIds;
+        }
+
+        const result = await client.createIssue(input as Parameters<typeof client.createIssue>[0]);
+        const created = await result.issue;
+        if (!created) return "Error: failed to create sub-issue.";
+
+        return {
+          text: `Created sub-issue **${created.identifier}**: ${created.title} (parent: ${parent.identifier})`,
+          data: { action: "create_sub_issue", identifier: created.identifier, parentIdentifier: parent.identifier },
+        };
+      }
+
+      case "list_sub_issues": {
+        if (!args.parent_issue_id) return "Error: parent_issue_id is required for list_sub_issues.";
+
+        const parent = await client.issue(args.parent_issue_id);
+        const children = await parent.children({ first: maxResults });
+        return formatIssueList(children.nodes, `Sub-issues of ${parent.identifier}`);
+      }
+
+      // ── Project actions ─────────────────────────────────────────────
+
+      case "create_project": {
+        if (!args.project_name) return "Error: project_name is required for create_project.";
+        if (!args.team) return "Error: team is required for create_project (at least one team).";
+
+        const teams = await client.teams({ filter: { key: { eq: args.team } } });
+        const teamNode = teams.nodes[0];
+        if (!teamNode) return `Error: team '${args.team}' not found.`;
+
+        const input: Record<string, unknown> = {
+          name: args.project_name,
+          teamIds: [teamNode.id],
+        };
+        if (args.description) input.description = args.description;
+        if (args.project_content) input.content = args.project_content;
+        if (args.project_status) input.state = args.project_status;
+
+        const result = await client.createProject(input as Parameters<typeof client.createProject>[0]);
+        const created = await result.project;
+        if (!created) return "Error: failed to create project.";
+
+        return {
+          text: `Created project **${created.name}** (${created.state})`,
+          data: { action: "create_project", name: created.name, id: created.id, state: created.state },
+        };
+      }
+
+      case "update_project": {
+        if (!args.project_name) return "Error: project_name is required for update_project.";
+
+        const projectId = await resolveProjectByName(client, args.project_name);
+        if (!projectId) return `Error: project '${args.project_name}' not found.`;
+
+        const input: Record<string, unknown> = {};
+        if (args.title) input.name = args.title;
+        if (args.description) input.description = args.description;
+        if (args.project_content) input.content = args.project_content;
+        if (args.project_status) input.state = args.project_status;
+        if (args.due_date) input.targetDate = args.due_date;
+
+        if (Object.keys(input).length === 0) return "Error: no fields to update provided.";
+
+        await client.updateProject(projectId, input);
+
+        return {
+          text: `Updated project **${args.project_name}**`,
+          data: { action: "update_project", name: args.project_name },
+        };
+      }
+
+      case "add_project_update": {
+        if (!args.project_name) return "Error: project_name is required for add_project_update.";
+        if (!args.description) return "Error: description is required for add_project_update (the update body).";
+
+        const projectId = await resolveProjectByName(client, args.project_name);
+        if (!projectId) return `Error: project '${args.project_name}' not found.`;
+
+        const input: Record<string, unknown> = {
+          projectId,
+          body: args.description,
+        };
+        if (args.health) input.health = args.health;
+
+        await client.createProjectUpdate(input as Parameters<typeof client.createProjectUpdate>[0]);
+
+        return {
+          text: `Posted update to project **${args.project_name}**${args.health ? ` (health: ${args.health})` : ""}`,
+          data: { action: "add_project_update", name: args.project_name, health: args.health },
+        };
+      }
+
+      // ── GraphQL escape hatch ────────────────────────────────────────
+
+      case "graphql": {
+        if (!args.graphql_query) return "Error: graphql_query is required for graphql action.";
+
+        let variables: Record<string, unknown> = {};
+        if (args.graphql_variables) {
+          try {
+            variables = JSON.parse(args.graphql_variables);
+          } catch {
+            return "Error: graphql_variables must be valid JSON.";
+          }
+        }
+
+        const result = await client.client.rawRequest(args.graphql_query, variables);
+
+        return {
+          text: "```json\n" + JSON.stringify(result.data, null, 2) + "\n```",
+          data: { action: "graphql", result: result.data },
         };
       }
 

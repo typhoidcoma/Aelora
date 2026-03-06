@@ -220,14 +220,23 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
 }
 
 async function resolveCronPayload(
-  job: Pick<PersistedCronJob, "type" | "name" | "prompt" | "message">,
+  job: Pick<PersistedCronJob, "type" | "name" | "prompt" | "message" | "history">,
 ): Promise<string> {
   if (job.type === "llm") {
     if (!job.prompt) throw new Error(`Cron [${job.name}]: type is "llm" but no prompt defined`);
+
+    // Find the last successful run timestamp so the LLM knows the time window
+    const lastSuccess = [...job.history].reverse().find((h) => h.success);
+    const lastRunInfo = lastSuccess
+      ? `Last run: ${lastSuccess.timestamp}. Only report changes AFTER that time. If nothing changed since then, respond with an empty message.`
+      : `This is the first run. Report current status.`;
+
     const wrappedPrompt =
       `[AUTOMATED CRON TASK — "${job.name}"]\n` +
+      `Current time: ${new Date().toISOString()}\n` +
+      `${lastRunInfo}\n` +
       `Execute the following task directly. Do not ask questions, request clarification, or wait for input. ` +
-      `Produce your final output immediately.\n\n` +
+      `If there is nothing new to report, respond with an empty message.\n\n` +
       job.prompt;
     return getLLMOneShot(wrappedPrompt);
   }

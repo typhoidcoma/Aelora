@@ -45,6 +45,7 @@ export default defineTool({
     labels: param.array("Label names to apply (for create_issue or update_issue)."),
     comment: param.string("Comment body in markdown (for add_comment action)."),
     project: param.string("Project name (for create_issue or update_issue)."),
+    since: param.date("Only return issues updated after this timestamp (ISO 8601). For list_issues and my_issues.", { format: "date-time" }),
   },
 
   config: ["linear.apiKey"],
@@ -59,9 +60,12 @@ export default defineTool({
 
       case "my_issues": {
         const me = await client.viewer;
+        const myFilter: Record<string, unknown> = {};
+        if (args.status) myFilter.state = { name: { eq: args.status } };
+        if (args.since) myFilter.updatedAt = { gte: new Date(args.since) };
         const assigned = await me.assignedIssues({
           first: maxResults,
-          filter: args.status ? { state: { name: { eq: args.status } } } : undefined,
+          filter: Object.keys(myFilter).length > 0 ? myFilter : undefined,
         });
         return formatIssueList(assigned.nodes, `My assigned issues`);
       }
@@ -70,6 +74,7 @@ export default defineTool({
         const filter: Record<string, unknown> = {};
         if (args.team) filter.team = { key: { eq: args.team } };
         if (args.status) filter.state = { name: { eq: args.status } };
+        if (args.since) filter.updatedAt = { gte: new Date(args.since) };
 
         const issues = await client.issues({
           first: maxResults,

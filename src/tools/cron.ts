@@ -13,7 +13,8 @@ export default defineTool({
   description:
     "Manage scheduled cron jobs. List all jobs, create or edit scheduled tasks, " +
     "toggle jobs on/off, manually trigger a job, or delete runtime jobs. " +
-    "Jobs can send static messages or LLM-generated content to a Discord channel on a schedule.",
+    "Jobs can send static messages or LLM-generated content to a Discord channel on a schedule. " +
+    "LLM jobs have full tool access and can query external services. If the LLM returns an empty response, the job stays silent (no message posted).",
 
   params: {
     action: param.enum(
@@ -36,7 +37,7 @@ export default defineTool({
       "Discord channel ID to send messages to. Defaults to the current channel. Optional for create.",
     ),
     type: param.enum(
-      "Job type: 'static' sends a fixed message, 'llm' generates a response from a prompt. Required for create.",
+      "Job type: 'static' sends a fixed message, 'llm' generates a response from a prompt (with full tool access). If the LLM returns empty, nothing is posted. Required for create.",
       ["static", "llm"] as const,
     ),
     message: param.string(

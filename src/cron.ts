@@ -178,7 +178,9 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
   try {
     output = await resolveCronPayload(job);
     if (!output.trim()) {
-      throw new Error("LLM returned empty response — nothing to send");
+      // Nothing to post — skip silently (not an error)
+      console.log(`Cron [${name}]: no output, skipping`);
+      return { success: true, output: "(no output)" };
     }
     if (!job.silent) {
       await sendToChannel(job.channelId, output);

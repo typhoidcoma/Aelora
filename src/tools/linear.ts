@@ -52,7 +52,7 @@ export default defineTool({
     project: param.string("Project name (for create_issue or update_issue)."),
     since: param.date("Only return issues updated after this timestamp (ISO 8601). For list_issues and my_issues.", { format: "date-time" }),
     parent_issue_id: param.string(
-      "Parent issue identifier (e.g. 'ENG-123'). Required for create_sub_issue, used by list_sub_issues.",
+      "Parent issue identifier (e.g. 'ENG-123'). For create_sub_issue and list_sub_issues. You can also use issue_id instead.",
     ),
     project_name: param.string(
       "Project name. Required for create_project, used by update_project and add_project_update.",
@@ -316,11 +316,12 @@ export default defineTool({
       // ── Sub-issue actions ───────────────────────────────────────────
 
       case "create_sub_issue": {
-        if (!args.parent_issue_id) return "Error: parent_issue_id is required for create_sub_issue.";
+        const parentId = args.parent_issue_id ?? args.issue_id;
+        if (!parentId) return "Error: parent_issue_id (or issue_id) is required for create_sub_issue.";
         if (!args.title) return "Error: title is required for create_sub_issue.";
         if (!args.team) return "Error: team is required for create_sub_issue.";
 
-        const parent = await client.issue(args.parent_issue_id);
+        const parent = await client.issue(parentId);
         const teams = await client.teams({ filter: { key: { eq: args.team } } });
         const teamNode = teams.nodes[0];
         if (!teamNode) return `Error: team '${args.team}' not found.`;
@@ -358,9 +359,10 @@ export default defineTool({
       }
 
       case "list_sub_issues": {
-        if (!args.parent_issue_id) return "Error: parent_issue_id is required for list_sub_issues.";
+        const subParentId = args.parent_issue_id ?? args.issue_id;
+        if (!subParentId) return "Error: parent_issue_id (or issue_id) is required for list_sub_issues.";
 
-        const parent = await client.issue(args.parent_issue_id);
+        const parent = await client.issue(subParentId);
         const children = await parent.children({ first: maxResults });
         return formatIssueList(children.nodes, `Sub-issues of ${parent.identifier}`);
       }

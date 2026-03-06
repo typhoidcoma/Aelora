@@ -23,6 +23,7 @@
     "start": "node dist/boot.js"
   },
   "dependencies": {
+    "@linear/sdk": "^76.0.0",
     "@supabase/supabase-js": "^2.49.4",
     "chrono-node": "^2.9.0",
     "croner": "^10.0.1",

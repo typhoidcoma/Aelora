@@ -170,6 +170,12 @@ function applyEnvOverrides(config: Config): void {
   }
   if (env.AELORA_ACTIVITY_CLIENT_ID)     { config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID; applied.push("AELORA_ACTIVITY_CLIENT_ID"); }
   if (env.AELORA_ACTIVITY_CLIENT_SECRET) { config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET; applied.push("AELORA_ACTIVITY_CLIENT_SECRET"); }
+  if (env.AELORA_LINEAR_API_KEY) {
+    config.tools = config.tools ?? {};
+    config.tools.linear = config.tools.linear ?? {};
+    config.tools.linear.apiKey = env.AELORA_LINEAR_API_KEY;
+    applied.push("AELORA_LINEAR_API_KEY");
+  }
   if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY) {
     config.supabase = {
       url: env.AELORA_SUPABASE_URL ?? config.supabase?.url ?? "",

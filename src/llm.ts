@@ -22,10 +22,19 @@ export type OnTokenCallback = (token: string) => void;
 // --- Error detection for models whose templates don't support tool calling ---
 
 function isToolTemplateError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message
+  const msg = errorMessage(err);
+  return /jinja template|no user query found/i.test(msg);
+}
+
+function isContextSizeError(err: unknown): boolean {
+  const msg = errorMessage(err);
+  return /context (size|length|window).*exceeded|maximum context|token limit|too many tokens|model's maximum|context_length_exceeded/i.test(msg);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message
     : typeof err === "object" && err !== null ? JSON.stringify(err)
     : String(err);
-  return /jinja template|no user query found/i.test(msg);
 }
 
 
@@ -675,6 +684,24 @@ async function runCompletionLoop(
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
   let toolsDropped = false; // set when model template forces tools to be removed
+  let contextTrimmed = false; // set when we've already trimmed for context overflow
+
+  /**
+   * Trim oldest history messages (preserving system prompt + last user message)
+   * to reduce context size. Returns true if messages were actually removed.
+   */
+  function trimForContext(): boolean {
+    // Keep system prompt (index 0) and at least the last 2 messages
+    if (messages.length <= 3) return false;
+    const before = messages.length;
+    // Remove ~half of the history messages (between system prompt and the last 4 messages)
+    const removable = messages.length - 5; // keep system + last 4
+    if (removable <= 0) return false;
+    const toRemove = Math.max(2, Math.ceil(removable / 2));
+    messages.splice(1, toRemove);
+    console.warn(`LLM: context overflow, trimmed ${before - messages.length} messages (${before} -> ${messages.length})`);
+    return true;
+  }
 
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
@@ -687,6 +714,10 @@ async function runCompletionLoop(
       try {
         stream = await client.chat.completions.create({ ...baseParams, stream: true });
       } catch (err) {
+        if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
+          contextTrimmed = true;
+          continue;
+        }
         if (isToolTemplateError(err)) {
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
@@ -695,6 +726,10 @@ async function runCompletionLoop(
             try {
               stream = await client.chat.completions.create({ ...baseParams, stream: true });
             } catch (retryErr) {
+              if (!contextTrimmed && isContextSizeError(retryErr) && trimForContext()) {
+                contextTrimmed = true;
+                continue;
+              }
               console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
               return "(I encountered a formatting issue and couldn't process that request.)";
             }
@@ -741,6 +776,10 @@ async function runCompletionLoop(
           }
         }
       } catch (streamErr) {
+        if (!contextTrimmed && isContextSizeError(streamErr) && trimForContext()) {
+          contextTrimmed = true;
+          continue;
+        }
         if (isToolTemplateError(streamErr)) {
           if (baseParams.tools) {
             console.warn("LLM: model template error during streaming, retrying without tools");
@@ -775,6 +814,10 @@ async function runCompletionLoop(
       try {
         completion = await client.chat.completions.create(baseParams);
       } catch (err) {
+        if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
+          contextTrimmed = true;
+          continue;
+        }
         if (isToolTemplateError(err)) {
           if (baseParams.tools) {
             console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
@@ -783,6 +826,10 @@ async function runCompletionLoop(
             try {
               completion = await client.chat.completions.create(baseParams);
             } catch (retryErr) {
+              if (!contextTrimmed && isContextSizeError(retryErr) && trimForContext()) {
+                contextTrimmed = true;
+                continue;
+              }
               console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
               return "(I encountered a formatting issue and couldn't process that request.)";
             }

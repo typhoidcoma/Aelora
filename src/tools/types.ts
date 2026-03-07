@@ -332,6 +332,19 @@ export function setToolConfigStore(store: Record<string, Record<string, unknown>
   toolConfigStore = store;
 }
 
+/** Read a single dotted config value (e.g. "linear.apiKey") without making it a hard dependency. */
+export function getToolConfigValue(dottedKey: string): unknown {
+  let current: unknown = toolConfigStore;
+  for (const part of dottedKey.split(".")) {
+    if (current && typeof current === "object") {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
 /** Resolve dotted config keys into a flat object for the handler. */
 function resolveToolConfig(keys: string[]): Record<string, unknown> {
   const result: Record<string, unknown> = {};

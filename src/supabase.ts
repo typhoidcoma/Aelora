@@ -54,7 +54,7 @@ export type LifeEventRow = {
   category: "tasks" | "health" | "finance" | "social" | "work";
   title: string;
   description: string | null;
-  source: "google_tasks" | "google_calendar" | "manual" | "discord";
+  source: "google_tasks" | "google_calendar" | "manual" | "discord" | "linear";
   external_uid: string | null;
   priority: "low" | "medium" | "high";
   due_date: string | null;     // ISO 8601

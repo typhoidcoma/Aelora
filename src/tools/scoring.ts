@@ -1,4 +1,5 @@
-import { defineTool, param } from "./types.js";
+import { LinearClient } from "@linear/sdk";
+import { defineTool, param, getToolConfigValue } from "./types.js";
 import { getCachedSupabaseClient, getUserStats, getPendingLifeEvents, upsertLifeEvent, upsertCategoryStats, ensureUserProfile, type LifeEventRow } from "../supabase.js";
 import { scoreTask, emaUpdate, inferCategory, inferIrreversible, inferAffectsOthers, ACHIEVEMENTS, type LifeCategory, type ScoreInput } from "../scoring.js";
 import { listTodos } from "./todo.js";
@@ -69,6 +70,77 @@ async function syncGoogleTasksForUser(
       estimated_minutes: null,
       size_label:        null,
       impact_level:      null,
+      irreversible:      null,
+      affects_others:    null,
+      smeq_estimate:     null,
+      tags:              null,
+    });
+  }
+}
+
+// ============================================================
+// Linear → Supabase sync helper
+// ============================================================
+
+function mapLinearPriority(p: number): "low" | "medium" | "high" {
+  if (p <= 2) return "high";   // 1=urgent, 2=high
+  if (p === 3) return "medium";
+  return "low";                 // 4=low, 0=none
+}
+
+function mapLinearPriorityToImpact(p: number): "trivial" | "low" | "moderate" | "high" | "critical" | null {
+  switch (p) {
+    case 1: return "critical";
+    case 2: return "high";
+    case 3: return "moderate";
+    case 4: return "low";
+    default: return null;  // 0=none, let scoring infer
+  }
+}
+
+function mapLinearEstimateToSize(est: number | undefined | null): "micro" | "small" | "medium" | "large" | "epic" | null {
+  if (est == null) return null;
+  if (est <= 1) return "micro";
+  if (est <= 2) return "small";
+  if (est <= 3) return "medium";
+  if (est <= 5) return "large";
+  return "epic";
+}
+
+async function syncLinearIssuesForUser(
+  sb: ReturnType<typeof getCachedSupabaseClient> & object,
+  discordUserId: string,
+): Promise<void> {
+  const apiKey = getToolConfigValue("linear.apiKey") as string | undefined;
+  if (!apiKey) return;  // Linear not configured, skip silently
+
+  const client = new LinearClient({ apiKey });
+  const me = await client.viewer;
+
+  const assigned = await me.assignedIssues({
+    first: 100,
+    filter: {
+      state: { type: { nin: ["completed", "canceled"] } },
+    },
+  });
+
+  await ensureUserProfile(sb, discordUserId);
+
+  for (const issue of assigned.nodes) {
+    await upsertLifeEvent(sb, {
+      discord_user_id:   discordUserId,
+      title:             `${issue.identifier}: ${issue.title}`,
+      description:       issue.description ?? null,
+      category:          "work",
+      source:            "linear",
+      external_uid:      `linear:${issue.identifier}`,
+      priority:          mapLinearPriority(issue.priority),
+      due_date:          issue.dueDate ?? null,
+      completed:         false,
+      completed_at:      null,
+      estimated_minutes: null,
+      size_label:        mapLinearEstimateToSize(issue.estimate),
+      impact_level:      mapLinearPriorityToImpact(issue.priority),
       irreversible:      null,
       affects_others:    null,
       smeq_estimate:     null,
@@ -177,8 +249,11 @@ export default defineTool({
         const lim = Math.min(Number(limit ?? 10), 50);
 
         if (sb) {
-          // Sync Google Tasks into life_events before querying
-          try { await syncGoogleTasksForUser(sb, discordUserId, toolConfig); } catch { /* non-fatal */ }
+          // Sync external sources into life_events before querying
+          await Promise.allSettled([
+            syncGoogleTasksForUser(sb, discordUserId, toolConfig),
+            syncLinearIssuesForUser(sb, discordUserId),
+          ]);
 
           const events = await getPendingLifeEvents(sb, discordUserId, category as string | undefined, lim * 3);
           const userStats = await getUserStats(sb, discordUserId);

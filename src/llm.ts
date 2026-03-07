@@ -977,26 +977,42 @@ async function runCompletionLoop(
         });
       }
 
-      // Push assistant message with tool_calls (standard OpenAI format)
-      messages.push({
-        role: "assistant",
-        content: content ?? "",
-        tool_calls: toolCalls,
-      } as ChatMessage);
+      // Pre-render assistant tool calls in Qwen template format.
+      // Bypasses broken `is sequence` test in LM Studio's Jinja engine
+      // by avoiding `tool_calls` property and `role: "tool"` messages entirely.
+      let assistantContent = content ?? "";
+      for (const tc of toolCalls) {
+        let callStr = `<tool_call>\n<function=${tc.function.name}>\n`;
+        try {
+          const parsed = JSON.parse(safeToolArgs(tc.function.arguments));
+          for (const [key, value] of Object.entries(parsed)) {
+            const valueStr = typeof value === "object" && value !== null
+              ? JSON.stringify(value)
+              : String(value);
+            callStr += `<parameter=${key}>\n${valueStr}\n</parameter>\n`;
+          }
+        } catch { /* skip args if unparseable */ }
+        callStr += `</function>\n</tool_call>`;
+        assistantContent += (assistantContent.trim() ? "\n\n" : "") + callStr;
+      }
+      messages.push({ role: "assistant", content: assistantContent } as ChatMessage);
 
-      // Push tool results as tool-role messages
+      // Pre-render tool results as user messages with <tool_response> wrapper.
+      // Matches what the Qwen template renders for role:"tool" messages.
+      // The template's backward walk (lines 72-75) skips <tool_response> user
+      // messages, so the real user query is still found correctly.
+      const toolResponseParts: string[] = [];
       for (let ti = 0; ti < toolCalls.length; ti++) {
-        const tc = toolCalls[ti];
         let resultContent = toolResults[ti].result;
         if (resultContent.startsWith("Error:")) {
           resultContent = `TOOL FAILED - ${resultContent}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
         }
-        messages.push({
-          role: "tool",
-          tool_call_id: tc.id,
-          content: resultContent,
-        } as ChatMessage);
+        toolResponseParts.push(`<tool_response>\n${resultContent}\n</tool_response>`);
       }
+      messages.push({
+        role: "user",
+        content: toolResponseParts.join("\n"),
+      } as ChatMessage);
 
       continue;
     }

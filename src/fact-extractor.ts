@@ -4,7 +4,7 @@
  */
 
 import type OpenAI from "openai";
-import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
+import { getLLMClient, getLLMModel, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, searchFacts } from "./memory.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
@@ -85,14 +85,15 @@ export async function extractFacts(
   const snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
 
   try {
-    const disableThinking = getDisableThinking();
+    // Always suppress thinking for lightweight JSON extraction calls —
+    // models like Qwen 3.5 burn all tokens on chain-of-thought otherwise
     const extractParams: Record<string, unknown> = {
       model,
       max_completion_tokens: 400,
-      ...(disableThinking ? { enable_thinking: false } : {}),
+      enable_thinking: false,
       messages: [
         { role: "system", content: EXTRACT_SYSTEM },
-        { role: "user", content: disableThinking ? `/no_think\n${snippet}` : snippet },
+        { role: "user", content: `/no_think\n${snippet}` },
       ],
     };
     const result = await client.chat.completions.create(
@@ -201,17 +202,16 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
 
   const client = getLLMClient();
   const model = getLLMModel();
-  const disableThinking = getDisableThinking();
 
   const userContent = `Facts about this user:\n${factList}`;
 
   const synthesisParams: Record<string, unknown> = {
     model,
     max_completion_tokens: 150,
-    ...(disableThinking ? { enable_thinking: false } : {}),
+    enable_thinking: false,
     messages: [
       { role: "system", content: SYNTHESIS_SYSTEM },
-      { role: "user", content: disableThinking ? `/no_think\n${userContent}` : userContent },
+      { role: "user", content: `/no_think\n${userContent}` },
     ],
   };
   const result = await client.chat.completions.create(

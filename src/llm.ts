@@ -19,10 +19,7 @@ type UserContent = string | ContentPart[];
 /** Called for each text token during streaming. */
 export type OnTokenCallback = (token: string) => void;
 
-// --- Error detection for models whose templates don't support tool calling ---
-
-// Track models whose templates have failed tool calling so we skip tools proactively
-const modelsWithBrokenToolTemplates = new Set<string>();
+// --- Error detection ---
 
 function isToolTemplateError(err: unknown): boolean {
   const msg = errorMessage(err);
@@ -280,8 +277,7 @@ function getHistory(channelId: string): ChatMessage[] {
  * Remove poisoned entries from a conversation history array (in-place).
  * Targets:
  * - Assistant messages containing the formatting-error boilerplate
- * - Messages with role "tool" (Qwen Jinja templates choke on these)
- * - Assistant messages that are purely tool_calls with no text content
+ * - Assistant messages with null/empty content (orphans from failed tool calls)
  * Returns the number of entries removed.
  */
 function sanitizeHistory(history: ChatMessage[]): number {
@@ -300,48 +296,17 @@ function sanitizeHistory(history: ChatMessage[]): number {
       continue;
     }
 
-    // Remove tool-role messages (cause Jinja template errors)
-    if (msg.role === "tool") {
+    // Remove assistant messages with null/empty content (orphaned from tool calls)
+    if (
+      msg.role === "assistant" &&
+      (msg.content === null || msg.content === undefined || msg.content === "")
+      && !msg.tool_calls
+    ) {
       history.splice(i, 1);
       removed++;
-      continue;
-    }
-
-    // Clean assistant messages with tool_calls
-    if (msg.role === "assistant" && msg.tool_calls) {
-      const content = (msg.content as string) || "";
-      if (content) {
-        delete msg.tool_calls;
-      } else {
-        history.splice(i, 1);
-        removed++;
-      }
     }
   }
   return removed;
-}
-
-/**
- * Strip tool-related messages from a messages array (in-place).
- * Removes tool-role messages and cleans assistant messages with tool_calls.
- * Also removes assistant messages with null/empty content (orphaned from tool calls).
- */
-function stripToolMessagesFrom(msgs: ChatMessage[]): void {
-  for (let idx = msgs.length - 1; idx >= 0; idx--) {
-    const msg = msgs[idx] as unknown as Record<string, unknown>;
-    if (msg.role === "tool") {
-      msgs.splice(idx, 1);
-    } else if (msg.role === "assistant" && msg.tool_calls) {
-      const content = (msg.content as string) || "";
-      if (content) {
-        delete msg.tool_calls;
-      } else {
-        msgs.splice(idx, 1);
-      }
-    } else if (msg.role === "assistant" && (msg.content === null || msg.content === undefined || msg.content === "")) {
-      msgs.splice(idx, 1);
-    }
-  }
 }
 
 function trimHistory(history: ChatMessage[], channelId?: string): void {
@@ -758,12 +723,6 @@ async function runCompletionLoop(
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
-  // If this model's template has previously failed with tools, skip tools proactively
-  const skipTools = modelsWithBrokenToolTemplates.has(resolvedModel);
-  if (skipTools && tools.length > 0) {
-    console.warn(`LLM: skipping tools for ${resolvedModel} (previously failed template)`);
-  }
-
   const baseParams: {
     model: string;
     messages: ChatMessage[];
@@ -773,27 +732,15 @@ async function runCompletionLoop(
     model: resolvedModel,
     messages,
     max_completion_tokens: config.llm.maxTokens || undefined,
-    ...(tools.length > 0 && !skipTools ? { tools } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
   };
 
-  // When tools are proactively skipped, also strip any tool-role messages
-  // from the messages array — they cause template errors even without tool defs
-  if (skipTools) {
-    stripToolMessagesFrom(messages);
-  }
-
-  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${skipTools ? 0 : tools.length})`);
+  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
-  let toolsDropped = skipTools; // set when model template forces tools to be removed
-  let contextTrimmed = false; // set when we've already trimmed for context overflow
-  let templateRetries = 0; // cap progressive trimming retries for template errors
-  const MAX_TEMPLATE_RETRIES = 3;
-
-  function stripToolMessages(): void {
-    stripToolMessagesFrom(messages);
-  }
+  let toolsDropped = false;
+  let contextTrimmed = false;
 
   /**
    * Trim oldest history messages (preserving system prompt + last user message)
@@ -829,23 +776,11 @@ async function runCompletionLoop(
         }
         if (isToolTemplateError(err)) {
           if (baseParams.tools) {
-            console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+            console.warn("LLM: model template error, retrying without tools");
             delete baseParams.tools;
-            stripToolMessages();
             toolsDropped = true;
-            modelsWithBrokenToolTemplates.add(resolvedModel);
-          } else {
-            // Tools already stripped — try cleaning messages + trimming history
-            stripToolMessages();
-          }
-          // Retry (will loop back to the top of the for-loop)
-          if (trimForContext()) {
-            console.warn("LLM: template error persists, trimmed history and retrying");
-          }
-          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
             continue;
           }
-          // Even system + user fails — give up
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
           return "(I encountered a formatting issue and couldn't process that request.)";
         } else {
@@ -895,16 +830,7 @@ async function runCompletionLoop(
           if (baseParams.tools) {
             console.warn("LLM: model template error during streaming, retrying without tools");
             delete baseParams.tools;
-            stripToolMessages();
             toolsDropped = true;
-            modelsWithBrokenToolTemplates.add(resolvedModel);
-          } else {
-            stripToolMessages();
-          }
-          if (trimForContext()) {
-            console.warn("LLM: template error persists, trimmed history and retrying");
-          }
-          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
             continue;
           }
           console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
@@ -940,18 +866,9 @@ async function runCompletionLoop(
         }
         if (isToolTemplateError(err)) {
           if (baseParams.tools) {
-            console.warn("LLM: model template incompatible with tool definitions, retrying without tools");
+            console.warn("LLM: model template error, retrying without tools");
             delete baseParams.tools;
-            stripToolMessages();
             toolsDropped = true;
-            modelsWithBrokenToolTemplates.add(resolvedModel);
-          } else {
-            stripToolMessages();
-          }
-          if (trimForContext()) {
-            console.warn("LLM: template error persists, trimmed history and retrying");
-          }
-          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
             continue;
           }
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
@@ -1013,23 +930,26 @@ async function runCompletionLoop(
         });
       }
 
-      // Use flattened plain-text format instead of tool role messages
-      // to avoid template errors with models like Qwen3 in LM Studio.
-      // Only include the assistant message when there's actual text — pushing
-      // null/empty content causes a 400 "each message must have at least one
-      // content element" error on some providers.
-      if (content) {
-        messages.push({ role: "assistant", content });
+      // Push assistant message with tool_calls (standard OpenAI format)
+      messages.push({
+        role: "assistant",
+        content: content ?? "",
+        tool_calls: toolCalls,
+      } as ChatMessage);
+
+      // Push tool results as tool-role messages
+      for (let ti = 0; ti < toolCalls.length; ti++) {
+        const tc = toolCalls[ti];
+        let resultContent = toolResults[ti].result;
+        if (resultContent.startsWith("Error:")) {
+          resultContent = `TOOL FAILED - ${resultContent}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
+        }
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: resultContent,
+        } as ChatMessage);
       }
-      const resultsText = toolResults
-        .map((t) => {
-          if (t.result.startsWith("Error:")) {
-            return `[${t.name}]: TOOL FAILED - ${t.result}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
-          }
-          return `[${t.name}]: ${t.result}`;
-        })
-        .join("\n\n");
-      messages.push({ role: "user", content: resultsText });
 
       continue;
     }

@@ -223,14 +223,19 @@ function loadConversations(): void {
     const data: { channelId: string; messages: ChatMessage[] }[] = JSON.parse(raw);
 
     let loaded = 0;
+    let totalSanitized = 0;
     for (const entry of data) {
       if (entry.channelId && Array.isArray(entry.messages) && entry.messages.length > 0) {
-        conversations.set(entry.channelId, entry.messages);
-        loaded++;
+        const cleaned = sanitizeHistory(entry.messages);
+        totalSanitized += cleaned;
+        if (entry.messages.length > 0) {
+          conversations.set(entry.channelId, entry.messages);
+          loaded++;
+        }
       }
     }
 
-    console.log(`LLM: restored ${loaded} conversation(s) from disk`);
+    console.log(`LLM: restored ${loaded} conversation(s) from disk${totalSanitized > 0 ? ` (sanitized ${totalSanitized} poisoned entries)` : ""}`);
   } catch (err) {
     console.error("LLM: failed to load conversations:", err);
   }
@@ -271,6 +276,51 @@ function getHistory(channelId: string): ChatMessage[] {
   return conversations.get(channelId)!;
 }
 
+/**
+ * Remove poisoned entries from a conversation history array (in-place).
+ * Targets:
+ * - Assistant messages containing the formatting-error boilerplate
+ * - Messages with role "tool" (Qwen Jinja templates choke on these)
+ * - Assistant messages that are purely tool_calls with no text content
+ * Returns the number of entries removed.
+ */
+function sanitizeHistory(history: ChatMessage[]): number {
+  let removed = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i] as unknown as Record<string, unknown>;
+
+    // Remove poisoned error responses
+    if (
+      msg.role === "assistant" &&
+      typeof msg.content === "string" &&
+      msg.content.startsWith("(I encountered a formatting issue")
+    ) {
+      history.splice(i, 1);
+      removed++;
+      continue;
+    }
+
+    // Remove tool-role messages (cause Jinja template errors)
+    if (msg.role === "tool") {
+      history.splice(i, 1);
+      removed++;
+      continue;
+    }
+
+    // Clean assistant messages with tool_calls
+    if (msg.role === "assistant" && msg.tool_calls) {
+      const content = (msg.content as string) || "";
+      if (content) {
+        delete msg.tool_calls;
+      } else {
+        history.splice(i, 1);
+        removed++;
+      }
+    }
+  }
+  return removed;
+}
+
 function trimHistory(history: ChatMessage[], channelId?: string): void {
   while (history.length > config.llm.maxHistory) {
     const removed = history.shift();
@@ -292,6 +342,12 @@ export async function getLLMResponse(
   userId?: string,
 ): Promise<string> {
   const history = getHistory(channelId);
+
+  // Sanitize any poisoned entries from previous sessions or crashed requests
+  const cleaned = sanitizeHistory(history);
+  if (cleaned > 0) {
+    console.log(`LLM: sanitized ${cleaned} poisoned history entries for channel ${channelId}`);
+  }
 
   history.push({ role: "user", content: userMessage as string });
   trimHistory(history, channelId);

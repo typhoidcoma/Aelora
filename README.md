@@ -24,6 +24,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
 - **Gmail** - Read, send, search, label, and trash messages
 - **Google Docs** - Read, create, append, search documents
+- **Linear** - Issue tracking integration with priority and estimate sync into the scoring system
 - **Scoring System** - Science-backed 0-100 task scoring with XP, streaks, achievements, and adaptive per-user learning (see below)
 - **Notes** - Persistent notes scoped to channels or global
 - **Date Resolution** - Natural language date parsing (chrono-node) for accurate scheduling ("next Friday", "in 2 hours")

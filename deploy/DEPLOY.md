@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- **Node.js 22+** — install via [NodeSource](https://github.com/nodesource/distributions) or [nvm](https://github.com/nvm-sh/nvm)
-- **Git** — to clone the repo
+- **Node.js 22+**  -  install via [NodeSource](https://github.com/nodesource/distributions) or [nvm](https://github.com/nvm-sh/nvm)
+- **Git**  -  to clone the repo
 - A Discord bot token and LLM API key ready
 
 ## 1. Create a system user
@@ -81,7 +81,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-### Option A: Tailscale Serve (private — Tailnet devices only)
+### Option A: Tailscale Serve (private  -  Tailnet devices only)
 
 ```bash
 sudo tailscale serve 3000
@@ -89,7 +89,7 @@ sudo tailscale serve 3000
 
 The dashboard is available at `https://<machine>.<tailnet>.ts.net` but only from devices on your Tailnet.
 
-### Option B: Tailscale Funnel (public — anyone on the internet)
+### Option B: Tailscale Funnel (public  -  anyone on the internet)
 
 First, enable Funnel in the [Tailscale admin console](https://login.tailscale.com/admin/acls). Add the `funnel` attribute to your ACL:
 
@@ -161,21 +161,21 @@ sudo journalctl -u aelora -f     # Follow logs live
 
 The bot has two layers of restart protection:
 
-1. **boot.ts** (inner) — supervises the main process. Handles reboot commands (exit code 100) and crash recovery (3s delay, gives up after 3 crashes in 60s).
-2. **systemd** (outer) — safety net. Only restarts if boot.ts itself crashes (`Restart=on-failure`, 10s delay).
+1. **boot.ts** (inner)  -  supervises the main process. Handles reboot commands (exit code 100) and crash recovery (3s delay, gives up after 3 crashes in 60s).
+2. **systemd** (outer)  -  safety net. Only restarts if boot.ts itself crashes (`Restart=on-failure`, 10s delay).
 
 When you run `/reboot` from Discord, boot.ts handles it instantly. If something goes catastrophically wrong and boot.ts gives up, systemd picks it back up after 10 seconds.
 
 ## Data directory
 
 All runtime data lives in `/opt/aelora/data/`:
-- `state.json` — shutdown context (consumed on startup)
-- `memory.json` — persistent memory facts
-- `sessions.json` — conversation analytics
-- `cron-jobs.json` — scheduled tasks
-- `notes.json` — user notes
-- `calendar-notified.json` — calendar reminder dedup
-- `memory/logs/` — daily conversation logs
-- `memory/summaries.json` — conversation summaries
+- `state.json`  -  shutdown context (consumed on startup)
+- `memory.json`  -  persistent memory facts
+- `sessions.json`  -  conversation analytics
+- `cron-jobs.json`  -  scheduled tasks
+- `notes.json`  -  user notes
+- `calendar-notified.json`  -  calendar reminder dedup
+- `memory/logs/`  -  daily conversation logs
+- `memory/summaries.json`  -  conversation summaries
 
 This directory persists across restarts and updates. Back it up periodically.

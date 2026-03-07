@@ -172,7 +172,7 @@ export default defineTool({
     ),
     // leaderboard
     category: param.enum(
-      "Life category — filter leaderboard or assign to add_event.",
+      "Life category  -  filter leaderboard or assign to add_event.",
       ["tasks", "health", "finance", "social", "work"] as const,
     ),
     limit: param.number("Max items to return for leaderboard. Default 10."),
@@ -220,7 +220,7 @@ export default defineTool({
         if (!sb) return "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.";
         const data = await getUserStats(sb, discordUserId);
         if (!data) {
-          return "No stats yet — complete your first task to start earning XP!";
+          return "No stats yet  -  complete your first task to start earning XP!";
         }
 
         const { profile, categoryStats, achievements } = data;
@@ -290,7 +290,7 @@ export default defineTool({
           };
         }
 
-        // Ephemeral — no Supabase
+        // Ephemeral  -  no Supabase
         return "Supabase is not configured. Connect Supabase to see persisted task scores.";
       }
 
@@ -307,7 +307,7 @@ export default defineTool({
 
         const lines = ACHIEVEMENTS.map((ach) => {
           const unlocked = unlockedIds.has(ach.id);
-          return `${unlocked ? "✅" : "🔒"} **${ach.name}** — ${ach.description}`;
+          return `${unlocked ? "✅" : "🔒"} **${ach.name}**  -  ${ach.description}`;
         });
 
         return {
@@ -374,7 +374,7 @@ export default defineTool({
           : "enormous/extreme effort";
 
         return {
-          text: `Effort logged (SMEQ ${smeq_actual} — ${smeqLabel}). ` +
+          text: `Effort logged (SMEQ ${smeq_actual}  -  ${smeqLabel}). ` +
                 `${cat} category baseline updated: ${Math.round(prevAvg)} → ${Math.round(newAvg)}. ` +
                 `Future ${cat} tasks without a SMEQ estimate will use ${Math.round(newAvg)} as their baseline.`,
           data: { life_event_id, category: cat, smeq_actual, prev_avg: prevAvg, new_avg: newAvg },

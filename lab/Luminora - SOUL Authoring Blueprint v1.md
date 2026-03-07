@@ -1,4 +1,4 @@
-# Luminora — SOUL Authoring Blueprint v1  
+# Luminora  -  SOUL Authoring Blueprint v1  
 _Deterministic Persona Construction Template_
 
 ---

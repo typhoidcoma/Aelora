@@ -52,7 +52,7 @@ export function getSlashCommandDefinitions() {
 
     new SlashCommandBuilder()
       .setName("new")
-      .setDescription("Start a fresh session — clears history, summary, and context"),
+      .setDescription("Start a fresh session  -  clears history, summary, and context"),
 
     new SlashCommandBuilder()
       .setName("websearch")
@@ -269,7 +269,7 @@ async function handleNew(
   clearSession(interaction.channelId);
   deleteSession(interaction.channelId);
   await interaction.reply({
-    embeds: [buildSuccessEmbed("New session started — history, summary, and context cleared.")],
+    embeds: [buildSuccessEmbed("New session started  -  history, summary, and context cleared.")],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -403,7 +403,7 @@ async function handleMood(
   const mood = loadMood();
   if (!mood) {
     await interaction.reply({
-      embeds: [buildSuccessEmbed("No mood data yet — I haven't had any conversations recently.")],
+      embeds: [buildSuccessEmbed("No mood data yet  -  I haven't had any conversations recently.")],
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -514,7 +514,7 @@ async function handleHelp(
     { name: "/ask", desc: "Ask the bot a question or give it a prompt" },
     { name: "/tools", desc: "List available tools and agents" },
     { name: "/ping", desc: "Check if the bot is responsive" },
-    { name: "/new", desc: "Start a fresh session — clears history, summary, and context" },
+    { name: "/new", desc: "Start a fresh session  -  clears history, summary, and context" },
     { name: "/websearch", desc: "Search the web using Brave Search" },
     { name: "/memory view", desc: "View your remembered facts" },
     { name: "/memory add", desc: "Remember a fact about you" },
@@ -529,7 +529,7 @@ async function handleHelp(
     { name: "/help", desc: "Show this help message" },
   ];
 
-  const list = commands.map((c) => `**${c.name}** — ${c.desc}`).join("\n");
+  const list = commands.map((c) => `**${c.name}**  -  ${c.desc}`).join("\n");
 
   const embed = new EmbedBuilder()
     .setTitle("Available Commands")

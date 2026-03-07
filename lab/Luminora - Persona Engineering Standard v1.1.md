@@ -1,4 +1,4 @@
-# Luminora — Persona Engineering Standard v1.1
+# Luminora  -  Persona Engineering Standard v1.1
 _Measurable Behavioral Metrics Layer_
 
 ---

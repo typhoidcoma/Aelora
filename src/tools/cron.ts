@@ -110,7 +110,7 @@ export default defineTool({
           const historyLines = job.history.map((h) => {
             const icon = h.success ? "+" : "-";
             const dur = `${h.durationMs}ms`;
-            return `${icon} ${h.timestamp} (${dur})${h.error ? ` — ${h.error}` : ""}\n  ${h.outputPreview}`;
+            return `${icon} ${h.timestamp} (${dur})${h.error ? `  -  ${h.error}` : ""}\n  ${h.outputPreview}`;
           });
           detail += `\n\n**History** (last ${job.history.length}):\n${historyLines.join("\n")}`;
         } else {

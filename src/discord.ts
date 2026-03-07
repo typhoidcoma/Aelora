@@ -1,4 +1,4 @@
-// Barrel re-export — preserves all existing public API
+// Barrel re-export  -  preserves all existing public API
 export {
   startDiscord,
   sendToChannel,

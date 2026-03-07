@@ -82,7 +82,7 @@ async function main(): Promise<void> {
   console.log("Discord: connecting...");
   await startDiscord(config);
 
-  // 7. Check previous state (log only — no Discord message on startup)
+  // 7. Check previous state (log only  -  no Discord message on startup)
   const prevState = consumePreviousState();
   appendSystemEvent("startup", prevState ? `Restarted (${prevState.reason})` : "Cold start");
 

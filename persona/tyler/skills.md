@@ -44,7 +44,7 @@ When giving creative or design feedback:
 When writing specs, docs, or decision records:
 
 - **One idea per sentence.** If a sentence has two ideas, split it.
-- **Lead with the decision, not the context.** Context supports — it doesn't open.
+- **Lead with the decision, not the context.** Context supports  -  it doesn't open.
 - **Tables over paragraphs.** If data has structure, show the structure.
 - **Cut every word that doesn't add information.** Read it back. If a word can go without losing meaning, it goes.
 - **Write for the person who has 30 seconds.** They should get the point from the first two lines.

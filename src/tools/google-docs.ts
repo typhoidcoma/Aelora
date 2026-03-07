@@ -228,7 +228,7 @@ export default defineTool({
             text_ += "(empty document)";
           } else if (content.length > 25000) {
             text_ += content.slice(0, 25000);
-            text_ += `\n\n(content truncated — ${content.length} characters total)`;
+            text_ += `\n\n(content truncated  -  ${content.length} characters total)`;
           } else {
             text_ += content;
           }

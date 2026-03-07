@@ -1,5 +1,5 @@
 /**
- * State persistence — saves shutdown context to disk so the next startup
+ * State persistence  -  saves shutdown context to disk so the next startup
  * knows what happened (clean shutdown, reboot, crash) and can report it.
  *
  * Also handles calendar reminder dedup persistence.
@@ -25,7 +25,7 @@ export type StateFile = {
 
 // ── Shutdown state ──────────────────────────────────────────────
 
-/** Save shutdown state to disk. Fully synchronous — safe in signal handlers. */
+/** Save shutdown state to disk. Fully synchronous  -  safe in signal handlers. */
 export function saveState(reason: ShutdownReason, error?: string): void {
   try {
     if (!existsSync("data")) mkdirSync("data", { recursive: true });
@@ -38,7 +38,7 @@ export function saveState(reason: ShutdownReason, error?: string): void {
         const existing: StateFile = JSON.parse(readFileSync(STATE_FILE, "utf-8"));
         originalTimestamp = existing.timestamp;
       } catch {
-        // Corrupted file — fall through with fresh timestamp
+        // Corrupted file  -  fall through with fresh timestamp
       }
     }
 
@@ -68,7 +68,7 @@ export function consumePreviousState(): StateFile | null {
       return prev;
     }
 
-    // No state file — check for a last-alive timestamp as fallback.
+    // No state file  -  check for a last-alive timestamp as fallback.
     // Covers force-kill scenarios (Task Manager, power loss) where no
     // signal handler ran and no state file was written.
     if (existsSync(LAST_ALIVE_FILE)) {

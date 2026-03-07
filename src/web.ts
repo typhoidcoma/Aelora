@@ -85,7 +85,7 @@ export function startWeb(state: AppState): Server | null {
 
   app.use(express.json());
 
-  // Request logging middleware — only log mutations and errors, not dashboard polling
+  // Request logging middleware  -  only log mutations and errors, not dashboard polling
   app.use((req, res, next) => {
     if (req.path === "/api/logs/stream" || !req.path.startsWith("/api")) {
       return next();
@@ -207,7 +207,7 @@ export function startWeb(state: AppState): Server | null {
 </body></html>`);
   });
 
-  // Bot status (public — also tells dashboard if auth is required)
+  // Bot status (public  -  also tells dashboard if auth is required)
   app.get("/api/status", (_req, res) => {
     res.json({
       connected: discordClient?.isReady() ?? false,
@@ -417,7 +417,7 @@ export function startWeb(state: AppState): Server | null {
     const previousPersona = config.persona.activePersona;
 
     try {
-      // Load BEFORE updating config — if loadPersona throws, config stays intact
+      // Load BEFORE updating config  -  if loadPersona throws, config stays intact
       const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, persona);
       config.persona.activePersona = persona;
       state.personaState = newState;
@@ -443,7 +443,7 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Persona file CRUD ---
 
-  // Helper: reload persona after a file change — non-blocking (logs errors, never throws)
+  // Helper: reload persona after a file change  -  non-blocking (logs errors, never throws)
   function reloadPersonaState(): boolean {
     try {
       const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
@@ -562,7 +562,7 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Chat API ---
 
-  // Chat — send message with full conversation state
+  // Chat  -  send message with full conversation state
   app.post("/api/chat", async (req, res) => {
     const { message, sessionId, userId, username } = req.body ?? {};
 
@@ -596,7 +596,7 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // Chat — streaming version
+  // Chat  -  streaming version
   app.post("/api/chat/stream", async (req, res) => {
     const { message, sessionId, userId, username } = req.body ?? {};
 
@@ -647,7 +647,7 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // Chat — start new session (clear history, summary, context, and session stats)
+  // Chat  -  start new session (clear history, summary, context, and session stats)
   app.delete("/api/chat/:sessionId", (req, res) => {
     const { sessionId } = req.params;
     clearSession(sessionId);
@@ -795,12 +795,12 @@ export function startWeb(state: AppState): Server | null {
     res.json({ success: true, deleted: count });
   });
 
-  // Memory — list all facts
+  // Memory  -  list all facts
   app.get("/api/memory", (_req, res) => {
     res.json(getAllMemory());
   });
 
-  // Memory — delete a single fact
+  // Memory  -  delete a single fact
   app.delete("/api/memory/:scope/:index", (req, res) => {
     const { scope, index } = req.params;
     const idx = parseInt(index, 10);
@@ -818,20 +818,20 @@ export function startWeb(state: AppState): Server | null {
     res.json({ success: true });
   });
 
-  // Memory — clear all facts in a scope
+  // Memory  -  clear all facts in a scope
   app.delete("/api/memory/:scope", (req, res) => {
     const { scope } = req.params;
     const count = clearScope(scope);
     res.json({ success: true, deleted: count });
   });
 
-  // Memory — daily log dates
+  // Memory  -  daily log dates
   app.get("/api/memory/logs", async (_req, res) => {
     const { listLogDates } = await import("./daily-log.js");
     res.json(listLogDates());
   });
 
-  // Memory — read a specific daily log
+  // Memory  -  read a specific daily log
   app.get("/api/memory/logs/:date", async (req, res) => {
     const { date } = req.params;
     const { readLog } = await import("./daily-log.js");
@@ -843,7 +843,7 @@ export function startWeb(state: AppState): Server | null {
     res.json({ date, content });
   });
 
-  // Memory — conversation summaries
+  // Memory  -  conversation summaries
   app.get("/api/memory/summaries", async (_req, res) => {
     const { getConversationSummaries } = await import("./llm.js");
     res.json(getConversationSummaries());
@@ -851,19 +851,19 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Notes CRUD ---
 
-  // Notes — list all (all scopes)
+  // Notes  -  list all (all scopes)
   app.get("/api/notes", (_req, res) => {
     res.json(listAllNotes());
   });
 
-  // Notes — list by scope
+  // Notes  -  list by scope
   app.get("/api/notes/:scope", (req, res) => {
     const { scope } = req.params;
     const notes = listNotesByScope(scope);
     res.json({ scope, notes, count: Object.keys(notes).length });
   });
 
-  // Notes — get single note
+  // Notes  -  get single note
   app.get("/api/notes/:scope/:title", (req, res) => {
     const { scope, title } = req.params;
     const note = getNote(scope, title);
@@ -874,7 +874,7 @@ export function startWeb(state: AppState): Server | null {
     res.json({ scope, title, ...note });
   });
 
-  // Notes — create or update
+  // Notes  -  create or update
   app.put("/api/notes/:scope/:title", (req, res) => {
     const { scope, title } = req.params;
     const { content } = req.body ?? {};
@@ -889,7 +889,7 @@ export function startWeb(state: AppState): Server | null {
     res.json({ scope, title, ...note, created: !existing });
   });
 
-  // Notes — delete
+  // Notes  -  delete
   app.delete("/api/notes/:scope/:title", (req, res) => {
     const { scope, title } = req.params;
     const deleted = deleteNote(scope, title);
@@ -1023,8 +1023,8 @@ export function startWeb(state: AppState): Server | null {
 
   // Update todo (or mark complete with { completed: true })
   // Optional body fields for scoring on completion:
-  //   discordUserId  — required to trigger scoring pipeline
-  //   smeqActual     — post-completion SMEQ self-report (0–150)
+  //   discordUserId   -  required to trigger scoring pipeline
+  //   smeqActual      -  post-completion SMEQ self-report (0–150)
   app.put("/api/todos/:uid", async (req, res) => {
     if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
     const { title, description, priority, dueDate, completed, discordUserId, smeqActual } = req.body ?? {};
@@ -1193,7 +1193,7 @@ export function startWeb(state: AppState): Server | null {
     return sb;
   }
 
-  // GET /api/scoring/stats — XP, streak, achievements, category breakdown
+  // GET /api/scoring/stats  -  XP, streak, achievements, category breakdown
   app.get("/api/scoring/stats", async (req, res) => {
     const discordUserId = requireScoringUser(req, res);
     if (!discordUserId) return;
@@ -1208,7 +1208,7 @@ export function startWeb(state: AppState): Server | null {
     res.json({ exists: true, ...data });
   });
 
-  // GET /api/scoring/leaderboard — tasks sorted by score
+  // GET /api/scoring/leaderboard  -  tasks sorted by score
   app.get("/api/scoring/leaderboard", async (req, res) => {
     const discordUserId = requireScoringUser(req, res);
     if (!discordUserId) return;
@@ -1256,7 +1256,7 @@ export function startWeb(state: AppState): Server | null {
     });
   });
 
-  // GET /api/scoring/history — recent scoring events
+  // GET /api/scoring/history  -  recent scoring events
   app.get("/api/scoring/history", async (req, res) => {
     const discordUserId = requireScoringUser(req, res);
     if (!discordUserId) return;
@@ -1291,7 +1291,7 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Life Events CRUD ---
 
-  // POST /api/life-events — create a non-Google life event (health, finance, etc.)
+  // POST /api/life-events  -  create a non-Google life event (health, finance, etc.)
   app.post("/api/life-events", async (req, res) => {
     const sb = requireSupabase(res);
     if (!sb) return;
@@ -1349,7 +1349,7 @@ export function startWeb(state: AppState): Server | null {
     res.status(201).json({ event: ev, scoreBreakdown });
   });
 
-  // PUT /api/life-events/:id — update a life event's metadata
+  // PUT /api/life-events/:id  -  update a life event's metadata
   app.put("/api/life-events/:id", async (req, res) => {
     const sb = requireSupabase(res);
     if (!sb) return;
@@ -1395,12 +1395,12 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Users ---
 
-  // Users — list all profiles
+  // Users  -  list all profiles
   app.get("/api/users", (_req, res) => {
     res.json(getAllUsers());
   });
 
-  // Users — get single profile with memory facts
+  // Users  -  get single profile with memory facts
   app.get("/api/users/:userId", (req, res) => {
     const { userId } = req.params;
     const profile = getUser(userId);
@@ -1412,7 +1412,7 @@ export function startWeb(state: AppState): Server | null {
     res.json({ ...profile, facts });
   });
 
-  // Users — delete profile
+  // Users  -  delete profile
   app.delete("/api/users/:userId", (req, res) => {
     const { userId } = req.params;
     const deleted = deleteUser(userId);

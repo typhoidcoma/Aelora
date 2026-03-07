@@ -85,7 +85,7 @@ export async function extractFacts(
   const snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
 
   try {
-    // Always suppress thinking for lightweight JSON extraction calls —
+    // Always suppress thinking for lightweight JSON extraction calls  - 
     // models like Qwen 3.5 burn all tokens on chain-of-thought otherwise
     const extractParams: Record<string, unknown> = {
       model,
@@ -283,7 +283,7 @@ function extractJson(text: string): string | null {
         if (code === 0x09) { out.push("\\t"); continue; }   // tab
         if (code === 0x0a) { out.push("\\n"); continue; }   // newline
         if (code === 0x0d) { out.push("\\r"); continue; }   // carriage return
-        // All other control chars are just dropped — they shouldn't be in facts
+        // All other control chars are just dropped  -  they shouldn't be in facts
         continue;
       }
       out.push(ch);

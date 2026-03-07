@@ -53,7 +53,7 @@ const researcher: Agent = {
       "- For 'thorough' depth: 3-5 searches with different query angles, detailed synthesis",
       "- Always cite sources with URLs",
       "- If you cannot find reliable information, say so clearly",
-      "- Be factual and objective — distinguish between well-established facts and speculation",
+      "- Be factual and objective  -  distinguish between well-established facts and speculation",
     ].join("\n"),
 
     tools: ["web_search", "notes"],

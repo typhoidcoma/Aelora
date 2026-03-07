@@ -44,7 +44,7 @@ type CalendarEvent = {
 export default defineTool({
   name: "google_calendar",
   description:
-    "Manage events on the user's Google Calendar. List upcoming events, create, update, or delete events, and list available calendars. This is separate from the local CalDAV calendar.",
+    "Manage events on the user's Google Calendar. List upcoming events, create, update, or delete events, and list available calendars.",
 
   params: {
     action: param.enum(

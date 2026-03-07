@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 
 const MEMORY_FILE = "data/memory.json";
 
-// Defaults — overridden by configureMemory() after config loads
+// Defaults  -  overridden by configureMemory() after config loads
 let maxFactsPerScope = 100;
 let maxFactLength = 1000;
 
@@ -12,7 +12,7 @@ export function configureMemory(opts: { maxFactsPerScope?: number; maxFactLength
   if (opts.maxFactLength) maxFactLength = opts.maxFactLength;
 }
 
-// Prompt injection caps — keep system prompt bounded
+// Prompt injection caps  -  keep system prompt bounded
 const MAX_GLOBAL_INJECTED = 10;
 const MAX_SCOPED_INJECTED = 15;
 
@@ -52,7 +52,7 @@ export function saveFact(scope: string, fact: string): { success: boolean; error
 
   // Check for duplicates
   if (store[scope].some((f) => f.fact === trimmed)) {
-    return { success: false, error: "Duplicate fact — already remembered" };
+    return { success: false, error: "Duplicate fact  -  already remembered" };
   }
 
   store[scope].push({ fact: trimmed, savedAt: new Date().toISOString() });

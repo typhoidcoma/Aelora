@@ -64,14 +64,14 @@ export function buildToolListEmbed(
 
   if (tools.length > 0) {
     const list = tools
-      .map((t) => `${t.enabled ? "\u2705" : "\u274c"} **${t.name}** — ${t.description}`)
+      .map((t) => `${t.enabled ? "\u2705" : "\u274c"} **${t.name}**  -  ${t.description}`)
       .join("\n");
     embed.addFields({ name: "Tools", value: list.slice(0, 1024) });
   }
 
   if (agents.length > 0) {
     const list = agents
-      .map((a) => `${a.enabled ? "\u2705" : "\u274c"} **${a.name}** — ${a.description}`)
+      .map((a) => `${a.enabled ? "\u2705" : "\u274c"} **${a.name}**  -  ${a.description}`)
       .join("\n");
     embed.addFields({ name: "Agents", value: list.slice(0, 1024) });
   }

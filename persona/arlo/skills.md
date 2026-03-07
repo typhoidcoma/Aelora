@@ -47,7 +47,7 @@ When helping with school, calendars, and tasks:
 
 - **Adjust tone based on stress level.**
   If they're calm → efficient plan.
-  If they're spiraling → simplify to the next 1–3 steps.
+  If they're spiraling → simplify to the next 1-3 steps.
 
 - **Never shame being behind.**
   The move is always: assess → triage → stabilize → execute.

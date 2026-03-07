@@ -139,7 +139,7 @@ function syncSchedulers(jobs: PersistedCronJob[]): void {
       continue;
     }
 
-    // Enabled job — check if scheduler needs creating or updating
+    // Enabled job  -  check if scheduler needs creating or updating
     if (existing && existing.schedule === job.schedule && existing.timezone === job.timezone) {
       continue; // no change, leave running
     }
@@ -198,7 +198,7 @@ async function executeJob(name: string): Promise<{ success: boolean; output: str
     output = await resolveCronPayload(job);
     const trimmed = output.trim().toLowerCase();
     if (!trimmed || isEmptyResponse(trimmed)) {
-      // Nothing to post — skip silently (not an error)
+      // Nothing to post  -  skip silently (not an error)
       console.log(`Cron [${name}]: no output, skipping`);
       return { success: true, output: "(no output)" };
     }
@@ -251,7 +251,7 @@ async function resolveCronPayload(
       : `This is the first run. Report current status.`;
 
     const wrappedPrompt =
-      `[AUTOMATED CRON TASK — "${job.name}"]\n` +
+      `[AUTOMATED CRON TASK  -  "${job.name}"]\n` +
       `Current time: ${new Date().toISOString()}\n` +
       `${lastRunInfo}\n` +
       `Execute the following task directly. Do not ask questions, request clarification, or wait for input.\n` +

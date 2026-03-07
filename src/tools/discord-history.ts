@@ -16,7 +16,7 @@ export default defineTool({
   description:
     "Fetch recent message history from Discord text channels. " +
     "Actions: 'list_channels' (see all channels with their IDs), 'fetch' (retrieve messages). " +
-    "Prefer channelName over channelId when fetching a specific channel — names are exact strings. " +
+    "Prefer channelName over channelId when fetching a specific channel  -  names are exact strings. " +
     "Omitting both channelId and channelName fetches all channels but is capped at 10 messages per channel.",
 
   params: {
@@ -26,7 +26,7 @@ export default defineTool({
       { required: true },
     ),
     channelName: param.string(
-      "Channel name to fetch from (e.g. \"general\"). Preferred over channelId — use the exact name from list_channels.",
+      "Channel name to fetch from (e.g. \"general\"). Preferred over channelId  -  use the exact name from list_channels.",
     ),
     channelId: param.string(
       "Channel ID (snowflake) to fetch from. Use channelName instead when possible to avoid precision issues.",
@@ -46,7 +46,7 @@ export default defineTool({
 
   handler: async ({ action, channelId: rawChannelId, channelName, limit, hoursBack, includeBotMessages }) => {
     if (!discordClient) return "Error: Discord client is not connected.";
-    // Coerce channelId to string — models sometimes pass Discord snowflakes as numbers,
+    // Coerce channelId to string  -  models sometimes pass Discord snowflakes as numbers,
     // which lose precision (snowflakes exceed Number.MAX_SAFE_INTEGER).
     // Prefer channelName: resolve it to an ID here so the rest of the code stays the same.
     let channelId = rawChannelId != null ? String(rawChannelId) : undefined;
@@ -63,7 +63,7 @@ export default defineTool({
 
         const lines = channels.map((ch) => {
           const category = ch.parent?.name ?? "uncategorized";
-          return `- **#${ch.name}** (${ch.id}) — ${category}`;
+          return `- **#${ch.name}** (${ch.id})  -  ${category}`;
         });
 
         return {
@@ -101,7 +101,7 @@ export default defineTool({
           };
         }
 
-        // All channels fetch — use lower per-channel limit to prevent context overflow
+        // All channels fetch  -  use lower per-channel limit to prevent context overflow
         const allChannelLimit = Math.min(msgLimit, ALL_CHANNELS_PER_CHANNEL_LIMIT);
         const channels = await getTextChannels();
         if (channels.length === 0) return "No accessible text channels found.";
@@ -126,7 +126,7 @@ export default defineTool({
         }
 
         const cappedNote = totalMessages >= ALL_CHANNELS_TOTAL_LIMIT
-          ? ` (capped at ${ALL_CHANNELS_TOTAL_LIMIT} — use channelId to fetch a specific channel for more)`
+          ? ` (capped at ${ALL_CHANNELS_TOTAL_LIMIT}  -  use channelId to fetch a specific channel for more)`
           : "";
 
         return {
@@ -222,7 +222,7 @@ async function fetchChannelMessages(
   if (!discordClient) return { channelName: "unknown", messages: [], error: "Client not connected" };
 
   try {
-    // Search guild caches first — same path as list_channels uses, avoids
+    // Search guild caches first  -  same path as list_channels uses, avoids
     // client.channels.fetch() which can fail for channels that guild.channels.fetch() returns fine.
     let textChannel: TextChannel | null = null;
     for (const guild of discordClient.guilds.cache.values()) {
@@ -233,7 +233,7 @@ async function fetchChannelMessages(
       }
     }
 
-    // Not in any guild cache — fetch from each guild's API (same as getTextChannels)
+    // Not in any guild cache  -  fetch from each guild's API (same as getTextChannels)
     if (!textChannel) {
       for (const guild of discordClient.guilds.cache.values()) {
         let ch;

@@ -351,7 +351,7 @@ export async function getLLMResponse(
   try {
     const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId);
 
-    // Don't save template-failure error responses to history — they poison
+    // Don't save template-failure error responses to history  -  they poison
     // subsequent calls on models like Qwen whose Jinja templates are fragile
     if (!result.startsWith("(I encountered a formatting issue")) {
       history.push({ role: "assistant", content: result });
@@ -435,7 +435,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
   // Sections ordered static → dynamic to maximize OpenAI prompt prefix caching.
   // The persona base prompt (above) is always the same, so it anchors the cache.
 
-  // --- Tool/agent inventory (static — only changes on tool toggle) ---
+  // --- Tool/agent inventory (static  -  only changes on tool toggle) ---
   if (!config.llm.lite) {
     const tools = getEnabledTools();
     const agents = agentRegistryCache
@@ -448,14 +448,14 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
       if (tools.length > 0) {
         lines.push("\n### Tools");
         for (const t of tools) {
-          lines.push(`- **${t.name}** — ${t.description}`);
+          lines.push(`- **${t.name}**  -  ${t.description}`);
         }
       }
 
       if (agents.length > 0) {
         lines.push("\n### Agents");
         for (const a of agents) {
-          lines.push(`- **${a.name}** — ${a.description}`);
+          lines.push(`- **${a.name}**  -  ${a.description}`);
         }
       }
 
@@ -463,10 +463,10 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     }
   }
 
-  // --- Current mood (semi-static — changes on mood shift) ---
+  // --- Current mood (semi-static  -  changes on mood shift) ---
   sections.push("\n\n" + buildMoodPromptSection());
 
-  // --- Current user (semi-static — changes on new user or name change) ---
+  // --- Current user (semi-static  -  changes on new user or name change) ---
   if (userId) {
     const profile = getUser(userId);
     if (profile) {
@@ -482,7 +482,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     }
   }
 
-  // --- Current session (semi-static — changes on new message/participant) ---
+  // --- Current session (semi-static  -  changes on new message/participant) ---
   if (channelId) {
     const session = getSession(channelId);
     if (session) {
@@ -496,18 +496,18 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     }
   }
 
-  // --- Memory (semi-static — changes on fact save) ---
+  // --- Memory (semi-static  -  changes on fact save) ---
   const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
   if (memoryBlock) sections.push("\n\n" + memoryBlock);
 
-  // --- Conversation summary (dynamic — changes after compaction) ---
+  // --- Conversation summary (dynamic  -  changes after compaction) ---
   if (channelId && summaries[channelId]) {
     sections.push(
       "\n\n## Recent Conversation Context\n" + summaries[channelId].summary,
     );
   }
 
-  // --- Current date/time (dynamic — changes every request) ---
+  // --- Current date/time (dynamic  -  changes every request) ---
   {
     const tz = config.timezone || "UTC";
     const now = new Date().toLocaleString("en-US", {
@@ -523,7 +523,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     sections.push(`\n\n## Current Date & Time\n${now} (${tz})`);
   }
 
-  // --- System state (most dynamic — uptime changes every request, goes last) ---
+  // --- System state (most dynamic  -  uptime changes every request, goes last) ---
   if (!config.llm.lite) {
     const state = getSystemState?.();
     if (state) {
@@ -647,7 +647,7 @@ function getAllDefinitions(): OpenAI.Chat.Completions.ChatCompletionTool[] {
   return getToolDefinitionsForOpenAI();
 }
 
-/** Shorten tool descriptions for lite mode — first sentence only, trim param descriptions. */
+/** Shorten tool descriptions for lite mode  -  first sentence only, trim param descriptions. */
 function slimDefinitions(
   defs: OpenAI.Chat.Completions.ChatCompletionTool[],
 ): OpenAI.Chat.Completions.ChatCompletionTool[] {
@@ -764,7 +764,7 @@ async function runCompletionLoop(
     const lastUserContent = getLastUserContent();
     if (!lastUserContent) return false;
 
-    console.warn(`LLM: persistent template error — auto-clearing history for channel ${channelId}`);
+    console.warn(`LLM: persistent template error  -  auto-clearing history for channel ${channelId}`);
     clearSession(channelId);
 
     // Rebuild messages to just [system prompt, last user message]
@@ -1017,7 +1017,7 @@ async function runCompletionLoop(
       continue;
     }
 
-    // No tool calls — final text response (safety-net strip for any leaked reasoning)
+    // No tool calls  -  final text response (safety-net strip for any leaked reasoning)
     console.log(`LLM: completed in ${i + 1} iteration(s)`);
     const final = content ? stripThinkBlocks(content) : null;
     const finalText = final?.trim() || "(no response)";
@@ -1065,7 +1065,7 @@ const DEFERRED_INTENT_RE =
   /\b(let me (?!know\b|explain\b|clarify\b|be\b|just\b|show you\b)\w+|i'?ll (check|look|pull|grab|get|fetch|find|access|query|try|retry|search|run|call|use|fix|correct|format|adjust|update)|i'?m (checking|looking|pulling|getting|fetching|finding|trying|searching|calling|fixing)|give me (a )?(sec|moment)|one (sec|moment)|just a (sec|moment))\b/i;
 
 function isUnfulfilledIntent(text: string): boolean {
-  // Only flag short responses — a long one almost certainly contains the actual answer
+  // Only flag short responses  -  a long one almost certainly contains the actual answer
   return text.length < 280 && DEFERRED_INTENT_RE.test(text);
 }
 
@@ -1100,7 +1100,7 @@ async function runCorrectionPass(
       model: config.llm.model,
       messages: correctionMessages,
       max_completion_tokens: config.llm.maxTokens || undefined,
-      // No tools — prevent further tool calls during correction
+      // No tools  -  prevent further tool calls during correction
     });
 
     const corrected = completion.choices[0]?.message?.content;

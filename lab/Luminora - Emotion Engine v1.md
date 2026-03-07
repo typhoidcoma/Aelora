@@ -1,4 +1,4 @@
-# Luminora — Emotion Engine v1
+# Luminora  -  Emotion Engine v1
 _Plutchik-Based Mood Tracking for AI Personas_
 
 ---
@@ -12,18 +12,18 @@ The emotion engine gives each persona a persistent emotional state that:
 - Is visible on the dashboard in real time (colored indicator + label)
 - Gets injected into the system prompt so the persona's responses stay emotionally consistent
 
-This is not sentiment analysis of the *user* — it tracks how the *bot* is feeling.
+This is not sentiment analysis of the *user*  -  it tracks how the *bot* is feeling.
 
 ---
 
 ## 1. Theoretical Foundation: Plutchik's Wheel of Emotions
 
-The engine is built on Robert Plutchik's psychoevolutionary theory of emotion (1980). Plutchik's wheel defines **8 primary emotions** arranged in opposing pairs, each with **3 intensity levels** — yielding **24 distinct emotional states**.
+The engine is built on Robert Plutchik's psychoevolutionary theory of emotion (1980). Plutchik's wheel defines **8 primary emotions** arranged in opposing pairs, each with **3 intensity levels**  -  yielding **24 distinct emotional states**.
 
 ### Why Plutchik?
 
 - **Structured and finite.** 8 emotions x 3 intensities = 24 states. LLMs can reliably classify into a small, well-defined set.
-- **Intensity is built in.** Instead of just "happy" or "sad", we get a spectrum — serenity → joy → ecstasy. This lets the bot express nuance.
+- **Intensity is built in.** Instead of just "happy" or "sad", we get a spectrum  -  serenity → joy → ecstasy. This lets the bot express nuance.
 - **Opposing pairs prevent drift.** Joy opposes sadness; trust opposes disgust. The model inherently avoids contradictory states.
 - **Blends are meaningful.** Adjacent emotions combine into recognizable compound feelings (joy + trust = love). We support this via the secondary emotion field.
 
@@ -72,7 +72,7 @@ Plutchik defines compound emotions as blends of adjacent primaries. The engine s
 | Aggressiveness | Anger + Anticipation | Assertive drive |
 | Optimism | Anticipation + Joy | Hopeful forward energy |
 
-These aren't hardcoded — they emerge naturally when the classifier detects a primary + secondary emotion. The system prompt tells the bot it's feeling "joy with undertones of trust", and the persona interprets that through its own voice.
+These aren't hardcoded  -  they emerge naturally when the classifier detects a primary + secondary emotion. The system prompt tells the bot it's feeling "joy with undertones of trust", and the persona interprets that through its own voice.
 
 ---
 
@@ -91,7 +91,7 @@ Each emotion has an assigned color for the dashboard indicator:
 | Anger | Red | `#c56a6a` |
 | Anticipation | Amber | `#d4a056` |
 
-The active persona card shows a colored dot + the specific emotion label (e.g., "Serenity", "Admiration + joy"). Updates push live via Server-Sent Events — no page refresh needed.
+The active persona card shows a colored dot + the specific emotion label (e.g., "Serenity", "Admiration + joy"). Updates push live via Server-Sent Events  -  no page refresh needed.
 
 ---
 
@@ -101,11 +101,11 @@ The active persona card shows a colored dot + the specific emotion label (e.g., 
 
 After each bot response in Discord or the web chat:
 
-1. **Throttle check** — skips if mood was updated less than 30 seconds ago (prevents API spam during rapid messages)
-2. **Lightweight LLM call** — sends the user's message + bot's response to the classifier with a minimal system prompt
-3. **JSON parse** — extracts `{ emotion, intensity, secondary?, note? }`
-4. **Validation** — confirms emotion and intensity are valid Plutchik values
-5. **Save + broadcast** — persists to disk and pushes to all connected dashboards
+1. **Throttle check**  -  skips if mood was updated less than 30 seconds ago (prevents API spam during rapid messages)
+2. **Lightweight LLM call**  -  sends the user's message + bot's response to the classifier with a minimal system prompt
+3. **JSON parse**  -  extracts `{ emotion, intensity, secondary?, note? }`
+4. **Validation**  -  confirms emotion and intensity are valid Plutchik values
+5. **Save + broadcast**  -  persists to disk and pushes to all connected dashboards
 
 The classifier prompt explicitly names all 8 emotions and 3 intensities. It asks for a brief note (max 100 chars) explaining the classification.
 
@@ -126,20 +126,20 @@ The bot uses this when it *wants* to shift mood, not just when it *happens* to.
 The current mood is injected into every LLM request via `buildMoodPromptSection()`:
 
 **When mood is set:**
-> You are currently feeling **serenity** with undertones of **trust** — calm helpful exchange.
+> You are currently feeling **serenity** with undertones of **trust**  -  calm helpful exchange.
 
 **When no mood is set yet:**
-> No mood set yet — it will be detected automatically from your responses.
+> No mood set yet  -  it will be detected automatically from your responses.
 
-This ensures the persona's emotional state influences its responses naturally. The persona doesn't *announce* its mood — it *embodies* it. A persona in "serenity" responds with calm warmth; one in "annoyance" responds with an edge.
+This ensures the persona's emotional state influences its responses naturally. The persona doesn't *announce* its mood  -  it *embodies* it. A persona in "serenity" responds with calm warmth; one in "annoyance" responds with an edge.
 
 ---
 
 ## 7. Persistence
 
 - **File:** `data/current-mood.json`
-- **Survives restarts** — the bot resumes with its last emotional state
-- **Single global state** — one mood per bot instance (not per user or per channel)
+- **Survives restarts**  -  the bot resumes with its last emotional state
+- **Single global state**  -  one mood per bot instance (not per user or per channel)
 
 ### Stored fields
 
@@ -167,11 +167,11 @@ Requiring the bot to manually set its mood every message would be intrusive and 
 
 ### Why a 30-second cooldown?
 
-Prevents rapid-fire messages from spamming the classifier API. Mood doesn't need to shift every message — emotional states have natural persistence. The cooldown also keeps API costs low.
+Prevents rapid-fire messages from spamming the classifier API. Mood doesn't need to shift every message  -  emotional states have natural persistence. The cooldown also keeps API costs low.
 
 ### Why persist to disk instead of memory?
 
-Emotional continuity across restarts. If the bot was feeling content before a server restart, it should resume feeling content — not reset to a blank slate.
+Emotional continuity across restarts. If the bot was feeling content before a server restart, it should resume feeling content  -  not reset to a blank slate.
 
 ### Why Plutchik over simpler models?
 
@@ -207,7 +207,7 @@ Pushed to `/api/logs/stream` whenever mood changes. Payload:
 
 ### LLM Tool
 
-**`set_mood`** — Manual mood override
+**`set_mood`**  -  Manual mood override
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -222,8 +222,8 @@ Pushed to `/api/logs/stream` whenever mood changes. Payload:
 
 | File | Role |
 |------|------|
-| `src/mood.ts` | Core engine — Plutchik map, classify, save, load, resolve labels, prompt builder |
+| `src/mood.ts` | Core engine  -  Plutchik map, classify, save, load, resolve labels, prompt builder |
 | `src/tools/mood.ts` | LLM tool definition for manual `set_mood` |
 | `src/web.ts` | REST endpoint (`GET /api/mood`) |
-| `public/app.js` | Dashboard display — color mapping, live SSE updates, persona card rendering |
+| `public/app.js` | Dashboard display  -  color mapping, live SSE updates, persona card rendering |
 | `data/current-mood.json` | Persisted mood state |

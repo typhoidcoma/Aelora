@@ -1,5 +1,5 @@
 /**
- * Boot wrapper — spawns the main process and handles restarts.
+ * Boot wrapper  -  spawns the main process and handles restarts.
  *
  * Exit code 100 = reboot (immediate restart)
  * Exit code 1+  = crash  (restart after 3s delay, with loop protection)
@@ -52,7 +52,7 @@ function start(): void {
     }
 
     if (code !== 0 && code !== null) {
-      // Crash — check for rapid crash loop
+      // Crash  -  check for rapid crash loop
       const now = Date.now();
       crashTimestamps.push(now);
 
@@ -73,7 +73,7 @@ function start(): void {
       return;
     }
 
-    // Clean exit — propagate
+    // Clean exit  -  propagate
     process.exit(code ?? 0);
   });
 }

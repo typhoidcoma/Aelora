@@ -1,5 +1,5 @@
 /**
- * _google-auth.ts — Shared Google OAuth2 token management
+ * _google-auth.ts  -  Shared Google OAuth2 token management
  *
  * Underscore prefix = skipped by tool registry (helper module, not a tool).
  * Used by gmail.ts, google-calendar.ts, and google-docs.ts.
@@ -17,7 +17,7 @@ let tokenExpiresAt = 0;
 
 /**
  * Exchange a refresh token for an access token (cached with expiry).
- * Throws on failure — callers should catch and return tool error strings.
+ * Throws on failure  -  callers should catch and return tool error strings.
  */
 export async function getGoogleAccessToken(config: GoogleConfig): Promise<string> {
   if (cachedAccessToken && Date.now() < tokenExpiresAt) {

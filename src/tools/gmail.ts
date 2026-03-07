@@ -49,7 +49,7 @@ function extractBody(payload: GmailPayload): string {
     return decodeBase64url(payload.body.data);
   }
 
-  // Multipart — look for text/plain first, then text/html
+  // Multipart  -  look for text/plain first, then text/html
   if (payload.parts) {
     // Check direct parts
     const plainPart = payload.parts.find((p) => p.mimeType === "text/plain" && p.body?.data);
@@ -198,7 +198,7 @@ export default defineTool({
           for (let i = 0; i < emails.length; i++) {
             const e = emails[i];
             text += `\n${i + 1}. ${e.subject}\n`;
-            text += `   From: ${e.from} — ${formatDate(e.date)}\n`;
+            text += `   From: ${e.from}  -  ${formatDate(e.date)}\n`;
             text += `   Preview: ${e.snippet}\n`;
             text += `   ID: ${e.id}\n`;
           }
@@ -228,7 +228,7 @@ export default defineTool({
           text += `Date: ${formatDate(getHeader(headers, "Date"))}\n`;
           text += `Labels: ${msg.labelIds?.join(", ") ?? "none"}\n`;
           text += `\n--- Body ---\n${bodyText.slice(0, 4000)}`;
-          if (bodyText.length > 4000) text += "\n\n(body truncated — very long email)";
+          if (bodyText.length > 4000) text += "\n\n(body truncated  -  very long email)";
 
           return { text, data: { action: "read", message: { id: msg.id, threadId: msg.threadId, subject: getHeader(headers, "Subject"), from: getHeader(headers, "From"), to: getHeader(headers, "To"), cc: getHeader(headers, "Cc") || null, date: getHeader(headers, "Date"), labels: msg.labelIds ?? [] } } };
         }

@@ -1,5 +1,5 @@
 /**
- * _example-gmail.ts — Example tool template
+ * _example-gmail.ts  -  Example tool template
  *
  * Shows how to build an API-integrated tool using defineTool() with
  * structured output ({ text, data } returns).

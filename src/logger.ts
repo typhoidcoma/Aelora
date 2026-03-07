@@ -53,7 +53,7 @@ function writeToFile(entry: LogEntry): void {
     const line = `[${entry.ts}] [${LEVEL_TAG[entry.level]}] ${entry.message}\n`;
     appendFileSync(getLogFilePath(), line, "utf-8");
   } catch {
-    // Don't recurse into console.error — use origError
+    // Don't recurse into console.error  -  use origError
     origError("Logger: failed to write to log file");
   }
 }

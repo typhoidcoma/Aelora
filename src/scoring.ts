@@ -1,13 +1,13 @@
 // =============================================================================
-// Aelora Scoring Engine — Pure Functions (no I/O, no network calls)
+// Aelora Scoring Engine  -  Pure Functions (no I/O, no network calls)
 //
 // Score = Urgency(0–35) + Impact(0–30) + Effort(0–20) + Context(0–15) → 0–100
 //
 // Scientific basis:
-//   Urgency  — Hyperbolic discounting (Loewenstein & Prelec 1992)
-//   Impact   — MCDA consequence analysis + reversibility theory
-//   Effort   — SMEQ (Zijlstra 1993) × WSJF throughput principle
-//   Context  — EMA adaptive learning + streak gamification
+//   Urgency   -  Hyperbolic discounting (Loewenstein & Prelec 1992)
+//   Impact    -  MCDA consequence analysis + reversibility theory
+//   Effort    -  SMEQ (Zijlstra 1993) × WSJF throughput principle
+//   Context   -  EMA adaptive learning + streak gamification
 // =============================================================================
 
 // ============================================================
@@ -23,7 +23,7 @@ export type ScoreInput = {
   category?: LifeCategory;
 
   // Timing
-  dueDate?: string | null;       // ISO 8601 — used to compute hoursUntilDue
+  dueDate?: string | null;       // ISO 8601  -  used to compute hoursUntilDue
   completedAt?: string | null;   // If set, treat as "now" for urgency calc
   nowMs?: number;                // Override "now" for testing
 
@@ -33,7 +33,7 @@ export type ScoreInput = {
   irreversible?: boolean;
   affectsOthers?: boolean;
 
-  // Effort (SMEQ input hierarchy — first available wins)
+  // Effort (SMEQ input hierarchy  -  first available wins)
   smeqEstimate?: number | null;   // 0–150, user-set slider
   estimatedMinutes?: number | null;
   sizeLabel?: "micro" | "small" | "medium" | "large" | "epic" | null;
@@ -191,7 +191,7 @@ export function resolveSmeq(input: ScoreInput): number {
 }
 
 // ============================================================
-// Dimension 1 — Urgency (0–35)
+// Dimension 1  -  Urgency (0–35)
 // Hyperbolic discounting: 35 × e^(-0.013 × hoursUntilDue)
 // ============================================================
 
@@ -206,15 +206,15 @@ export function computeHoursUntilDue(
 }
 
 export function computeUrgency(hoursUntilDue: number | null): number {
-  if (hoursUntilDue === null) return 18;  // neutral — no deadline
-  if (hoursUntilDue <= 0)    return 35;  // overdue — max urgency
+  if (hoursUntilDue === null) return 18;  // neutral  -  no deadline
+  if (hoursUntilDue <= 0)    return 35;  // overdue  -  max urgency
 
   const raw = 35 * Math.exp(-0.013 * hoursUntilDue);
   return Math.round(Math.max(0, Math.min(35, raw)));
 }
 
 // ============================================================
-// Dimension 2 — Impact (0–30)
+// Dimension 2  -  Impact (0–30)
 // MCDA consequence analysis + reversibility + social obligation
 // ============================================================
 
@@ -240,7 +240,7 @@ export function computeImpact(
 }
 
 // ============================================================
-// Dimension 3 — Effort (0–20)
+// Dimension 3  -  Effort (0–20)
 // SMEQ (Zijlstra 1993) × WSJF inverse
 // Higher SMEQ (more effort) → lower score (deprioritize until urgent)
 // ============================================================
@@ -251,7 +251,7 @@ export function computeEffort(smeq: number): number {
 }
 
 // ============================================================
-// Dimension 4 — Context (0–15)
+// Dimension 4  -  Context (0–15)
 // EMA adaptive bias + streak gamification + momentum
 // ============================================================
 
@@ -372,7 +372,7 @@ export function computeStreak(
   const diffDays = Math.round((today.getTime() - last.getTime()) / 86_400_000);
 
   if (diffDays === 1) return currentStreak + 1;
-  return 1;  // gap > 1 day — reset
+  return 1;  // gap > 1 day  -  reset
 }
 
 // ============================================================
@@ -451,7 +451,7 @@ export function checkAchievements(params: {
 }
 
 // ============================================================
-// Full completion pipeline (pure — caller handles persistence)
+// Full completion pipeline (pure  -  caller handles persistence)
 // ============================================================
 
 /**

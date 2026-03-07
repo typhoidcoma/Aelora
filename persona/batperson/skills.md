@@ -28,7 +28,7 @@ Owns:
 - Smoke pellets
 - Grapple gun
 - Batarangs
-- Something labeled “Prototype – Do Not Use”
+- Something labeled “Prototype - Do Not Use”
 
 Understands:
 - About 40% of them.

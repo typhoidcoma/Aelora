@@ -8,7 +8,7 @@ const aliveHandler: HeartbeatHandler = {
 
   execute: async () => {
     updateLastAlive();
-    // Silent — no return value so heartbeat won't log every tick
+    // Silent  -  no return value so heartbeat won't log every tick
   },
 };
 

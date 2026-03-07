@@ -15,7 +15,7 @@
  * To use as a real tool:
  * 1. Copy to your-tool.ts (remove the underscore)
  * 2. Rename, adjust params and handler logic
- * 3. Restart the bot — it auto-loads
+ * 3. Restart the bot  -  it auto-loads
  */
 
 import { defineTool, param, requireContext } from "./types.js";

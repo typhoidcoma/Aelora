@@ -1,5 +1,5 @@
-# Luminora — Persona Engineering Standard v1
-_Version 1.0 — Behavioral Operating System Specification_
+# Luminora  -  Persona Engineering Standard v1
+_Version 1.0  -  Behavioral Operating System Specification_
 
 ---
 
@@ -13,7 +13,7 @@ Define a repeatable framework for designing, validating, and maintaining AI pers
 - Resistant to LLM drift  
 - Stable under stress  
 
-Personas are constraint-governed behavioral systems — not tone presets.
+Personas are constraint-governed behavioral systems  -  not tone presets.
 
 ---
 

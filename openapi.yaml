@@ -54,9 +54,9 @@ tags:
   - name: Notes
     description: Persistent note storage with scope-based organization
   - name: Calendar
-    description: CalDAV calendar event queries (read-only)
+    description: Google Calendar event management
   - name: Todos
-    description: Task management via CalDAV VTODO
+    description: Task management via Google Tasks
   - name: Users
     description: User profile tracking across channels
   - name: Tools
@@ -329,7 +329,7 @@ components:
           description: Event end in ISO 8601
         url:
           type: string
-          description: CalDAV object URL
+          description: Google Calendar event URL
         etag:
           type: string
 
@@ -358,11 +358,11 @@ components:
 
     TodoItem:
       type: object
-      description: A task stored as a CalDAV VTODO
+      description: A task from Google Tasks
       properties:
         uid:
           type: string
-          description: CalDAV UID (use for complete/update/delete)
+          description: Google Tasks ID (use for complete/update/delete)
         title:
           type: string
         description:
@@ -379,7 +379,7 @@ components:
           nullable: true
         url:
           type: string
-          description: CalDAV object URL
+          description: Google Calendar event URL
         etag:
           type: string
           description: ETag for conflict detection
@@ -1447,7 +1447,7 @@ paths:
     get:
       tags: [Calendar]
       summary: List upcoming events
-      description: Returns upcoming calendar events from the configured CalDAV server. Read-only.
+      description: Returns upcoming events from the Google Calendar API.
       parameters:
         - name: maxResults
           in: query
@@ -1484,7 +1484,7 @@ paths:
                   maxResults:
                     type: integer
         "502":
-          description: CalDAV connection failure
+          description: Google Calendar API error
           content:
             application/json:
               schema:
@@ -1493,7 +1493,7 @@ paths:
                   error:
                     type: string
         "503":
-          description: CalDAV not configured
+          description: Google Calendar not configured
           content:
             application/json:
               schema:
@@ -1502,12 +1502,12 @@ paths:
                   error:
                     type: string
 
-  # ── Todos (CalDAV VTODO) ────────────────────────────────
+  # ── Todos (Google Tasks) ────────────────────────────────
   /api/todos:
     get:
       tags: [Todos]
       summary: List all todos
-      description: Returns todos from the CalDAV server. Filter by status.
+      description: Returns todos from Google Tasks. Filter by status.
       parameters:
         - name: status
           in: query
@@ -1530,13 +1530,13 @@ paths:
                   count:
                     type: integer
         "502":
-          description: CalDAV connection error
+          description: Google API connection error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: CalDAV not configured
+          description: Google Calendar not configured
           content:
             application/json:
               schema:
@@ -1576,7 +1576,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "502":
-          description: CalDAV connection error
+          description: Google API connection error
           content:
             application/json:
               schema:
@@ -1590,7 +1590,7 @@ paths:
         - name: uid
           in: path
           required: true
-          description: CalDAV UID of the todo
+          description: Google Tasks ID of the todo
           schema:
             type: string
       responses:
@@ -1613,7 +1613,7 @@ paths:
         - name: uid
           in: path
           required: true
-          description: CalDAV UID of the todo
+          description: Google Tasks ID of the todo
           schema:
             type: string
       requestBody:
@@ -1655,7 +1655,7 @@ paths:
         - name: uid
           in: path
           required: true
-          description: CalDAV UID of the todo
+          description: Google Tasks ID of the todo
           schema:
             type: string
       responses:

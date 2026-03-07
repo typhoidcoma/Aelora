@@ -1,5 +1,5 @@
 -- =============================================================================
--- Aelora Scoring System — Database Schema
+-- Aelora Scoring System  -  Database Schema
 -- Run this in the Supabase SQL editor to create the scoring tables.
 -- =============================================================================
 

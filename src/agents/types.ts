@@ -3,7 +3,7 @@ import type { ToolParametersSchema } from "../tools/types.js";
 export type AgentResult = string;
 
 export type AgentDefinition = {
-  /** Unique name — used as the function name in OpenAI tool calls. */
+  /** Unique name  -  used as the function name in OpenAI tool calls. */
   name: string;
 
   /** Tells the main agent when to invoke this agent. */

@@ -95,7 +95,7 @@ const calendarReminder: HeartbeatHandler = {
 
         const mins = Math.round(minutesUntil);
         const lines: string[] = [
-          `**Calendar Reminder** — in ${mins} minute${mins === 1 ? "" : "s"}`,
+          `**Calendar Reminder**  -  in ${mins} minute${mins === 1 ? "" : "s"}`,
           `**${event.summary ?? "Untitled event"}**`,
           `Time: ${formatEventTime(event)}`,
         ];

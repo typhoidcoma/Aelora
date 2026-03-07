@@ -22,7 +22,7 @@ const IMAGE_MIME_TYPES = new Set([
 const MAX_TEXT_FILE_SIZE = 100_000; // 100 KB
 const MAX_IMAGE_SIZE = 20_000_000; // 20 MB
 
-// Models known NOT to support vision — everything else is assumed vision-capable.
+// Models known NOT to support vision  -  everything else is assumed vision-capable.
 const TEXT_ONLY_MODEL_PATTERNS = [
   "gpt-3.5", "gpt-4-0314", "gpt-4-0613", // legacy OpenAI text-only
 ];
@@ -104,12 +104,12 @@ export async function processAttachments(
       }
     } else {
       textParts.push(
-        `[Attached file: "${attachment.name}" (${mime || "unknown type"}, ${(attachment.size / 1024).toFixed(1)} KB) — cannot be processed]`,
+        `[Attached file: "${attachment.name}" (${mime || "unknown type"}, ${(attachment.size / 1024).toFixed(1)} KB)  -  cannot be processed]`,
       );
     }
   }
 
-  // No images — return as a simple string (backward compatible)
+  // No images  -  return as a simple string (backward compatible)
   if (imageParts.length === 0) {
     return textParts.join("\n\n");
   }

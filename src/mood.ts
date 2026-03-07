@@ -86,7 +86,7 @@ export function resolveLabel(mood: MoodState): string {
 export function buildMoodPromptSection(): string {
   const mood = loadMood();
   if (!mood) {
-    return "## Current Mood\nNo mood set yet — it will be detected automatically from your responses.";
+    return "## Current Mood\nNo mood set yet  -  it will be detected automatically from your responses.";
   }
 
   const label = resolveLabel(mood);
@@ -96,7 +96,7 @@ export function buildMoodPromptSection(): string {
     line += ` with undertones of **${secondaryLabel}**`;
   }
   if (mood.note) {
-    line += ` — ${mood.note}`;
+    line += `  -  ${mood.note}`;
   }
   line += ".";
   return line;

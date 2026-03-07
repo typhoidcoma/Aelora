@@ -13,7 +13,7 @@ const REBOOT_CODE = 100;
 
 /** Gracefully shut down all subsystems and exit with the reboot code. */
 export function reboot(): void {
-  console.log("Reboot requested — shutting down...");
+  console.log("Reboot requested  -  shutting down...");
   saveConversations();
   saveState("reboot");
   stopHeartbeat();

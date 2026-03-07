@@ -59,7 +59,7 @@ export async function startDiscord(config: Config): Promise<Client> {
   client.on(Events.ChannelCreate, (channel) => {
     const guildName = "guild" in channel && channel.guild ? channel.guild.name : "unknown";
     const channelName = "name" in channel ? channel.name : channel.id;
-    console.log(`Discord: new channel created — #${channelName} (${channel.id}) in ${guildName}`);
+    console.log(`Discord: new channel created  -  #${channelName} (${channel.id}) in ${guildName}`);
   });
 
   const ready = new Promise<void>((resolve) => {
@@ -97,7 +97,7 @@ export async function startDiscord(config: Config): Promise<Client> {
               console.log(`Discord: cleared ${globalCount} stale global command(s)`);
             }
           } else {
-            console.warn(`Discord: guild ${config.discord.guildId} not found in cache — commands not registered`);
+            console.warn(`Discord: guild ${config.discord.guildId} not found in cache  -  commands not registered`);
           }
         } else {
           // Fetch existing commands to preserve Discord-managed ones (e.g. Activity Entry Point)
@@ -152,7 +152,7 @@ export async function startDiscord(config: Config): Promise<Client> {
         await handleSlashCommand(interaction, config.llm.model);
       }
     } catch (err: unknown) {
-      // Interaction expired (10062) or already acknowledged (40060) — not a crash
+      // Interaction expired (10062) or already acknowledged (40060)  -  not a crash
       const code = (err as { code?: number }).code;
       if (code === 10062 || code === 40060) {
         console.warn(`Discord: interaction expired or already acked (code ${code})`);
@@ -213,7 +213,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
 
     const userContent = await processAttachments(message, content, config.llm.model);
 
-    // Streaming state — no placeholder reply; typing indicator covers the wait
+    // Streaming state  -  no placeholder reply; typing indicator covers the wait
     let buffer = "";
     let lastEditTime = 0;
     let activeOffset = 0;
@@ -231,7 +231,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       lastEditTime = now;
 
       if (!activeMsg) {
-        // First content — send as a reply to the user's message
+        // First content  -  send as a reply to the user's message
         const p = message.reply(pending + " \u25CF").then((msg) => {
           activeMsg = msg;
           replyMsg = msg;
@@ -322,7 +322,7 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
         await (activeMsg as Message).edit(chunks[0]);
       }
     } else {
-      // No streaming content was sent yet — send final reply directly
+      // No streaming content was sent yet  -  send final reply directly
       if (chunks.length === 1) {
         replyMsg = await message.reply(chunks[0]);
         activeMsg = replyMsg;

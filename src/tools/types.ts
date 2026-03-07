@@ -1,5 +1,5 @@
 // ============================================================
-// Core tool types (unchanged — backward compatible)
+// Core tool types (unchanged  -  backward compatible)
 // ============================================================
 
 export type ToolParametersSchema = {
@@ -196,7 +196,7 @@ export type DefineToolOptions<P extends Record<string, ParamSchema>> = {
  *
  * Auto-generates JSON Schema from `params`, validates args before calling
  * handler, resolves tool config from settings.yaml. Returns a standard
- * `Tool` object — fully compatible with the existing tool registry.
+ * `Tool` object  -  fully compatible with the existing tool registry.
  */
 export function defineTool<P extends Record<string, ParamSchema>>(
   options: DefineToolOptions<P>,

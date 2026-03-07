@@ -15,7 +15,7 @@ export interface ToolRecord {
 }
 
 // ---------------------------------------------------------------------------
-// Claim patterns — map tool names to regex patterns that indicate a claim
+// Claim patterns  -  map tool names to regex patterns that indicate a claim
 // ---------------------------------------------------------------------------
 
 interface ClaimPattern {

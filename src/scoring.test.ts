@@ -1,5 +1,5 @@
 // =============================================================================
-// Aelora Scoring Engine — Unit Tests
+// Aelora Scoring Engine  -  Unit Tests
 // Run with: npx tsx src/scoring.test.ts
 // =============================================================================
 
@@ -260,7 +260,7 @@ assert(bdScore.total >= 60 && bdScore.total <= 75, `Birthday score in 60–75 ra
 
 // Example 2: "Mow the lawn" (medium, no deadline, physically 120 min but cognitively easy → SMEQ≈25)
 // Note: estimatedMinutes measures physical time, not cognitive effort.
-// Mowing is physically long but cognitively trivial — SMEQ must be set directly.
+// Mowing is physically long but cognitively trivial  -  SMEQ must be set directly.
 const lawn: ScoreInput = {
   title: "Mow the lawn",
   priority: "medium",

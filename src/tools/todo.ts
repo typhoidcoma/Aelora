@@ -48,7 +48,7 @@ function taskToTodoItem(task: GoogleTask): TodoItem {
     title: task.title,
     description: task.notes,
     completed: task.status === "completed",
-    priority: "medium",  // Google Tasks has no priority — overlaid from Supabase later
+    priority: "medium",  // Google Tasks has no priority  -  overlaid from Supabase later
     dueDate: task.due ? task.due.slice(0, 10) : undefined,  // extract YYYY-MM-DD
     updatedAt: task.updated,
   };
@@ -193,7 +193,7 @@ export async function updateTodoItem(
   if (updates.dueDate) patch.due = `${updates.dueDate}T00:00:00.000Z`;
 
   if (Object.keys(patch).length === 0) {
-    // Only priority changed — priority is Supabase-only, fetch current task for response
+    // Only priority changed  -  priority is Supabase-only, fetch current task for response
     return getTodoByUid(config, uid, taskListId);
   }
 

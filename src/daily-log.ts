@@ -34,7 +34,7 @@ export function appendLog(entry: LogEntry): void {
   const file = dateToFilename(todayDate());
 
   const block = [
-    `## ${nowTime()} — #${entry.channelName} (${entry.username})`,
+    `## ${nowTime()}  -  #${entry.channelName} (${entry.username})`,
     "",
     entry.summary,
     "",
@@ -104,7 +104,7 @@ export function appendSystemEvent(event: string, detail?: string): void {
   const file = dateToFilename(todayDate());
 
   const block = [
-    `## ${nowTime()} — [SYSTEM] ${event}`,
+    `## ${nowTime()}  -  [SYSTEM] ${event}`,
     "",
     ...(detail ? [detail, ""] : []),
     "---",

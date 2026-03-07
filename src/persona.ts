@@ -375,7 +375,7 @@ export function createPersona(
 
   writeFileSync(join(pDir, "soul.md"), soulContent, "utf-8");
 
-  // Bootstrap is inherited from _shared/ — no per-persona bootstrap needed
+  // Bootstrap is inherited from _shared/  -  no per-persona bootstrap needed
 
   // Create skills.md
   const skillsContent =
@@ -421,7 +421,7 @@ export function deletePersona(
 
   if (existsSync(pDir)) {
     console.warn(`Persona: directory "${personaName}" still exists after deletion`);
-    return { success: false, error: "Directory still exists after deletion — it may be locked by another process" };
+    return { success: false, error: "Directory still exists after deletion  -  it may be locked by another process" };
   }
 
   console.log(`Persona: deleted persona "${personaName}"`);

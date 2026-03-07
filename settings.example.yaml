@@ -1,5 +1,5 @@
 # =============================================================================
-# Aelora 🦋 — settings.yaml
+# Aelora 🦋  -  settings.yaml
 # Copy this file to settings.yaml and fill in your values.
 # =============================================================================
 
@@ -16,8 +16,8 @@ discord:
   token: "YOUR_DISCORD_BOT_TOKEN"
 
   # How the bot responds in guild (server) channels:
-  #   "mention" — only replies when @mentioned (recommended)
-  #   "all"     — replies to every message in allowed channels
+  #   "mention"  -  only replies when @mentioned (recommended)
+  #   "all"      -  replies to every message in allowed channels
   guildMode: "mention"
 
   # Restrict to specific channel IDs (empty = all channels).
@@ -95,7 +95,7 @@ tools: {}
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
-  # Google Workspace — required for todo, gmail, google_calendar, google_docs, google_tasks tools.
+  # Google Workspace  -  required for todo, gmail, google_calendar, google_docs, google_tasks tools.
   # Uses OAuth2 refresh token flow. See README.md "Google Workspace Setup" for full instructions.
   # You need a Google Cloud project with Gmail, Calendar, Docs, Tasks, and Drive APIs enabled,
   # plus an OAuth2 client ID and a refresh token generated via the Google OAuth Playground.
@@ -103,6 +103,11 @@ tools: {}
   #   clientId: "YOUR_GOOGLE_CLIENT_ID"
   #   clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
   #   refreshToken: "YOUR_REFRESH_TOKEN"
+
+  # Linear - required for the linear tool (issue tracking + scoring integration).
+  # Create a personal API key at https://linear.app/settings/api
+  # linear:
+  #   apiKey: "YOUR_LINEAR_API_KEY"
 
 # --- Supabase ---
 # Required for the scoring/gamification system. Create a free project at supabase.com

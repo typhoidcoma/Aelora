@@ -61,7 +61,7 @@ export default defineTool({
           return { text: lines.join("\n"), data: { action: "list", scope, count: facts.length, facts: facts.map((f, i) => ({ index: i, fact: f.fact })) } };
         }
 
-        // No scope — show all available
+        // No scope  -  show all available
         const globalFacts = getFacts("global");
         if (globalFacts.length > 0) {
           lines.push(`**Global facts** (${globalFacts.length}):`);
@@ -153,7 +153,7 @@ export default defineTool({
           return { text: `No log for ${targetDate ?? "today"}. Available dates: ${available.join(", ")}`, data: { action: "log", date: targetDate ?? null, available } };
         }
         // Cap output to avoid overwhelming the LLM context
-        const capped = content.length > 3000 ? content.slice(-3000) + "\n_(truncated — oldest entries omitted)_" : content;
+        const capped = content.length > 3000 ? content.slice(-3000) + "\n_(truncated  -  oldest entries omitted)_" : content;
         return { text: `**Daily log for ${targetDate ?? "today"}:**\n\n${capped}`, data: { action: "log", date: targetDate ?? null } };
       }
 

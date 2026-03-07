@@ -3,7 +3,7 @@ import { parse } from "yaml";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Zod schemas — serve as both runtime validator AND TypeScript type source
+// Zod schemas  -  serve as both runtime validator AND TypeScript type source
 // ---------------------------------------------------------------------------
 
 const discordSchema = z.object({

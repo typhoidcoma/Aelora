@@ -1,4 +1,4 @@
-# Luminora — Google Workspace Integration v1
+# Luminora  -  Google Workspace Integration v1
 _Gmail, Google Calendar, Google Docs & Google Tasks for AI Personas_
 
 ---
@@ -12,7 +12,7 @@ Give Aelora bots access to a Google Workspace account so they can:
 - Search, read, create, and edit Google Docs
 - List, add, complete, update, and delete Google Tasks
 
-All four tools share a single set of OAuth2 credentials and a cached access token. The bot makes direct REST API calls to Google — no SDK dependencies.
+All four tools share a single set of OAuth2 credentials and a cached access token. The bot makes direct REST API calls to Google  -  no SDK dependencies.
 
 ---
 
@@ -53,7 +53,7 @@ The user talks to the bot via Discord or the web dashboard. The LLM decides to c
 ### Obtaining Credentials
 
 **Client ID & Secret:**
-1. Go to [Google Cloud Console — Credentials](https://console.cloud.google.com/apis/credentials)
+1. Go to [Google Cloud Console  -  Credentials](https://console.cloud.google.com/apis/credentials)
 2. Click **+ CREATE CREDENTIALS** → **OAuth client ID**
 3. Application type: **Web application**
 4. Add authorized redirect URI: `https://developers.google.com/oauthplayground`
@@ -64,7 +64,7 @@ The user talks to the bot via Discord or the web dashboard. The LLM decides to c
 2. Click the **gear icon** (top right)
 3. Check **"Use your own OAuth credentials"**
 4. Paste your Client ID and Client Secret
-5. In Step 1, type these scopes in the **"Input your own scopes"** box (don't use the checkboxes — they add restrictive sub-scopes):
+5. In Step 1, type these scopes in the **"Input your own scopes"** box (don't use the checkboxes  -  they add restrictive sub-scopes):
    - `https://mail.google.com/`
    - `https://www.googleapis.com/auth/calendar`
    - `https://www.googleapis.com/auth/documents`
@@ -103,9 +103,9 @@ All four tools (`gmail`, `google_calendar`, `google_docs`, `google_tasks`) share
 
 ---
 
-## 4. Shared Auth Module — `_google-auth.ts`
+## 4. Shared Auth Module  -  `_google-auth.ts`
 
-Underscore prefix means the tool registry skips it — it's a helper, not a tool.
+Underscore prefix means the tool registry skips it  -  it's a helper, not a tool.
 
 ### Token Lifecycle
 
@@ -126,7 +126,7 @@ Underscore prefix means the tool registry skips it — it's a helper, not a tool
 
 ---
 
-## 5. Gmail Tool — `gmail`
+## 5. Gmail Tool  -  `gmail`
 
 **File:** `src/tools/gmail.ts`
 
@@ -135,17 +135,17 @@ Underscore prefix means the tool registry skips it — it's a helper, not a tool
 | Action | Required Params | Description |
 |--------|----------------|-------------|
 | `search` | `query` | Search emails using Gmail query syntax (`from:boss`, `is:unread`, `newer_than:7d`) |
-| `read` | `messageId` | Read full email — headers, labels, decoded body text |
+| `read` | `messageId` | Read full email  -  headers, labels, decoded body text |
 | `send` | `to`, `subject`, `body` | Send a new email |
 | `reply` | `messageId`, `body` | Reply to an email (preserves thread via `In-Reply-To` header) |
 | `forward` | `messageId`, `to` | Forward an email with original content and attribution |
-| `labels` | — | List all Gmail labels with message counts |
+| `labels` |  -  | List all Gmail labels with message counts |
 | `draft` | `to`, `subject`, `body` | Create a draft without sending |
 
 ### Optional Params
 
-- `cc` — CC recipients (comma-separated)
-- `maxResults` — Max search results (1-20, default 5)
+- `cc`  -  CC recipients (comma-separated)
+- `maxResults`  -  Max search results (1-20, default 5)
 
 ### Gmail Query Syntax Examples
 
@@ -167,29 +167,29 @@ label:important                     # Labeled important
 
 ---
 
-## 6. Google Calendar Tool — `google_calendar`
+## 6. Google Calendar Tool  -  `google_calendar`
 
 **File:** `src/tools/google-calendar.ts`
 
-This is **separate from the CalDAV calendar** (Radicale). It operates on Google Calendar via the REST API.
+Operates on Google Calendar via the REST API.
 
 ### Actions
 
 | Action | Required Params | Description |
 |--------|----------------|-------------|
-| `list` | — | List upcoming events (default: next 14 days, up to 10) |
+| `list` |  -  | List upcoming events (default: next 14 days, up to 10) |
 | `create` | `summary`, `startDateTime`, `endDateTime` | Create a new event |
-| `update` | `eventId` | Update event fields (PATCH — only changed fields sent) |
+| `update` | `eventId` | Update event fields (PATCH  -  only changed fields sent) |
 | `delete` | `eventId` | Delete an event |
-| `calendars` | — | List all accessible calendars with IDs |
+| `calendars` |  -  | List all accessible calendars with IDs |
 
 ### Optional Params
 
-- `description` — Event description
-- `location` — Event location
-- `calendarId` — Which calendar (default: `primary`)
-- `maxResults` — Max events for list (1-50, default 10)
-- `daysAhead` — Days ahead for list (1-365, default 14)
+- `description`  -  Event description
+- `location`  -  Event location
+- `calendarId`  -  Which calendar (default: `primary`)
+- `maxResults`  -  Max events for list (1-50, default 10)
+- `daysAhead`  -  Days ahead for list (1-365, default 14)
 
 ### Timezone Handling
 
@@ -197,7 +197,7 @@ Uses the system timezone (`process.env.TZ` from `settings.yaml`). Event start/en
 
 ---
 
-## 7. Google Docs Tool — `google_docs`
+## 7. Google Docs Tool  -  `google_docs`
 
 **File:** `src/tools/google-docs.ts`
 
@@ -214,9 +214,9 @@ Requires `documents` and `drive.readonly` scopes (Drive is used for searching do
 
 ### Optional Params
 
-- `text` — Initial content for create, or text to insert for edit
-- `insertAt` — `"end"` (default) or `"beginning"`
-- `maxResults` — Max docs for search (1-20, default 5)
+- `text`  -  Initial content for create, or text to insert for edit
+- `insertAt`  -  `"end"` (default) or `"beginning"`
+- `maxResults`  -  Max docs for search (1-20, default 5)
 
 ### Technical Details
 
@@ -228,7 +228,7 @@ Requires `documents` and `drive.readonly` scopes (Drive is used for searching do
 
 ---
 
-## 8. Google Tasks Tool — `google_tasks`
+## 8. Google Tasks Tool  -  `google_tasks`
 
 **File:** `src/tools/google-tasks.ts`
 
@@ -238,20 +238,20 @@ Manages tasks on Google Tasks. Tasks sync with Gmail and Google Calendar.
 
 | Action | Required Params | Description |
 |--------|----------------|-------------|
-| `list` | — | List tasks in a task list (default: primary, up to 100) |
+| `list` |  -  | List tasks in a task list (default: primary, up to 100) |
 | `add` | `title` | Add a new task with optional notes and due date |
 | `complete` | `taskId` | Mark a task as completed |
 | `update` | `taskId` | Update task fields (title, notes, dueDate) |
 | `delete` | `taskId` | Delete a task |
-| `lists` | — | List all task lists with IDs |
+| `lists` |  -  | List all task lists with IDs |
 
 ### Optional Params
 
-- `notes` — Task notes/description
-- `dueDate` — Due date in `YYYY-MM-DD` format (Tasks API only supports dates, not times)
-- `taskListId` — Task list ID (default: `@default` which is the primary list)
-- `showCompleted` — Include completed tasks in list results (default: false)
-- `maxResults` — Max tasks for list (1-100, default 20)
+- `notes`  -  Task notes/description
+- `dueDate`  -  Due date in `YYYY-MM-DD` format (Tasks API only supports dates, not times)
+- `taskListId`  -  Task list ID (default: `@default` which is the primary list)
+- `showCompleted`  -  Include completed tasks in list results (default: false)
+- `maxResults`  -  Max tasks for list (1-100, default 20)
 
 ### Technical Details
 
@@ -272,7 +272,7 @@ Manages tasks on Google Tasks. Tasks sync with Gmail and Google Calendar.
 | `https://www.googleapis.com/auth/drive.readonly` | Google Docs (search) | Read-only Drive access (find docs by name) |
 | `https://www.googleapis.com/auth/tasks` | Google Tasks | Full task access (read, create, complete, delete) |
 
-**Important:** Use `https://mail.google.com/` for Gmail — NOT the individual sub-scopes (`gmail.readonly`, `gmail.metadata`, etc.). The sub-scopes restrict search functionality.
+**Important:** Use `https://mail.google.com/` for Gmail  -  NOT the individual sub-scopes (`gmail.readonly`, `gmail.metadata`, etc.). The sub-scopes restrict search functionality.
 
 ---
 
@@ -280,10 +280,10 @@ Manages tasks on Google Tasks. Tasks sync with Gmail and Google Calendar.
 
 All four tools follow the same error pattern:
 
-1. **Config missing** — `defineTool()` auto-checks required config keys and returns helpful error
-2. **Auth failure** — `resetGoogleToken()` clears cached token, next call re-authenticates
-3. **API error** — HTTP status + Google error message returned to LLM
-4. **Network failure** — Caught by try/catch, token cache cleared, error message returned
+1. **Config missing**  -  `defineTool()` auto-checks required config keys and returns helpful error
+2. **Auth failure**  -  `resetGoogleToken()` clears cached token, next call re-authenticates
+3. **API error**  -  HTTP status + Google error message returned to LLM
+4. **Network failure**  -  Caught by try/catch, token cache cleared, error message returned
 
 The LLM receives error messages as tool results and can explain them to the user or suggest fixes.
 

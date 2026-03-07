@@ -4,7 +4,7 @@
  */
 
 import type OpenAI from "openai";
-import { getLLMClient, getLLMModel, stripThinkBlocks } from "./llm.js";
+import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, searchFacts } from "./memory.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
@@ -90,10 +90,10 @@ export async function extractFacts(
     const extractParams: Record<string, unknown> = {
       model,
       max_completion_tokens: 400,
-      enable_thinking: false,
+      ...(getDisableThinking() ? { enable_thinking: false } : {}),
       messages: [
         { role: "system", content: EXTRACT_SYSTEM },
-        { role: "user", content: `/no_think\n${snippet}` },
+        { role: "user", content: getDisableThinking() ? `/no_think\n${snippet}` : snippet },
       ],
     };
     const result = await client.chat.completions.create(
@@ -208,10 +208,10 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
   const synthesisParams: Record<string, unknown> = {
     model,
     max_completion_tokens: 150,
-    enable_thinking: false,
+    ...(getDisableThinking() ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: SYNTHESIS_SYSTEM },
-      { role: "user", content: `/no_think\n${userContent}` },
+      { role: "user", content: getDisableThinking() ? `/no_think\n${userContent}` : userContent },
     ],
   };
   const result = await client.chat.completions.create(

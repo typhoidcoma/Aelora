@@ -21,6 +21,9 @@ export type OnTokenCallback = (token: string) => void;
 
 // --- Error detection for models whose templates don't support tool calling ---
 
+// Track models whose templates have failed tool calling so we skip tools proactively
+const modelsWithBrokenToolTemplates = new Set<string>();
+
 function isToolTemplateError(err: unknown): boolean {
   const msg = errorMessage(err);
   return /jinja template|no user query found/i.test(msg);
@@ -304,8 +307,15 @@ export async function getLLMResponse(
   try {
     const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId);
 
-    history.push({ role: "assistant", content: result });
-    trimHistory(history, channelId);
+    // Don't save template-failure error responses to history — they poison
+    // subsequent calls on models like Qwen whose Jinja templates are fragile
+    if (!result.startsWith("(I encountered a formatting issue")) {
+      history.push({ role: "assistant", content: result });
+      trimHistory(history, channelId);
+    } else {
+      // Remove the user message that triggered the failure too
+      history.pop();
+    }
 
     return result;
   } catch (err) {
@@ -667,23 +677,31 @@ async function runCompletionLoop(
   onToken?: OnTokenCallback,
   userId?: string,
 ): Promise<string> {
+  const resolvedModel = model ?? config.llm.model;
+
+  // If this model's template has previously failed with tools, skip tools proactively
+  const skipTools = modelsWithBrokenToolTemplates.has(resolvedModel);
+  if (skipTools && tools.length > 0) {
+    console.warn(`LLM: skipping tools for ${resolvedModel} (previously failed template)`);
+  }
+
   const baseParams: {
     model: string;
     messages: ChatMessage[];
     max_completion_tokens: number | undefined;
     tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
   } = {
-    model: model ?? config.llm.model,
+    model: resolvedModel,
     messages,
     max_completion_tokens: config.llm.maxTokens || undefined,
-    ...(tools.length > 0 ? { tools } : {}),
+    ...(tools.length > 0 && !skipTools ? { tools } : {}),
   };
 
-  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
+  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${skipTools ? 0 : tools.length})`);
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
-  let toolsDropped = false; // set when model template forces tools to be removed
+  let toolsDropped = skipTools; // set when model template forces tools to be removed
   let contextTrimmed = false; // set when we've already trimmed for context overflow
 
   /**
@@ -746,6 +764,7 @@ async function runCompletionLoop(
             delete baseParams.tools;
             stripToolMessages();
             toolsDropped = true;
+            modelsWithBrokenToolTemplates.add(resolvedModel);
             try {
               stream = await client.chat.completions.create({ ...baseParams, stream: true });
             } catch (retryErr) {
@@ -809,6 +828,7 @@ async function runCompletionLoop(
             delete baseParams.tools;
             stripToolMessages();
             toolsDropped = true;
+            modelsWithBrokenToolTemplates.add(resolvedModel);
             continue;
           }
           console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
@@ -848,6 +868,7 @@ async function runCompletionLoop(
             delete baseParams.tools;
             stripToolMessages();
             toolsDropped = true;
+            modelsWithBrokenToolTemplates.add(resolvedModel);
             try {
               completion = await client.chat.completions.create(baseParams);
             } catch (retryErr) {

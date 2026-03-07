@@ -741,6 +741,50 @@ async function runCompletionLoop(
   let intentNudgeFired = false;
   let toolsDropped = false;
   let contextTrimmed = false;
+  let historyCleared = false;
+
+  /** Extract the last user message content from the messages array. */
+  function getLastUserContent(): UserContent | null {
+    for (let j = messages.length - 1; j >= 0; j--) {
+      if (messages[j].role === "user") {
+        return (messages[j] as { content: UserContent }).content;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Auto-recover from persistent template errors by clearing history.
+   * Returns true if recovery was initiated (caller should `continue`),
+   * false if recovery isn't possible (caller should return error).
+   */
+  function autoRecoverHistory(): boolean {
+    if (!channelId || historyCleared) return false;
+
+    const lastUserContent = getLastUserContent();
+    if (!lastUserContent) return false;
+
+    console.warn(`LLM: persistent template error — auto-clearing history for channel ${channelId}`);
+    clearSession(channelId);
+
+    // Rebuild messages to just [system prompt, last user message]
+    messages.length = 0;
+    messages.push(
+      { role: "system", content: buildSystemPrompt(userId, channelId) },
+      { role: "user", content: lastUserContent as string },
+    );
+
+    // Re-add tools since the issue was history, not tools
+    if (tools.length > 0) {
+      baseParams.tools = tools;
+      toolsDropped = false;
+    }
+    baseParams.messages = messages;
+    historyCleared = true;
+
+    console.log(`LLM: retrying with clean slate (messages=${messages.length}, tools=${tools.length})`);
+    return true;
+  }
 
   /**
    * Trim oldest history messages (preserving system prompt + last user message)
@@ -781,6 +825,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
+          if (autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
           return "(I encountered a formatting issue and couldn't process that request.)";
         } else {
@@ -833,6 +878,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
+          if (autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
           return "(I encountered a formatting issue and couldn't process that request.)";
         }
@@ -871,6 +917,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
+          if (autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
           return "(I encountered a formatting issue and couldn't process that request.)";
         } else {

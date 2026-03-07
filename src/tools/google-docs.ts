@@ -47,20 +47,20 @@ type DocsDocument = {
 export default defineTool({
   name: "google_docs",
   description:
-    "Work with Google Docs. Search for documents, read their content, create new docs, and edit existing ones.",
+    "Work with Google Docs. List recent docs, search by name, read content, create new docs, and edit existing ones.",
 
   params: {
     action: param.enum(
       "The action to perform.",
-      ["search", "read", "create", "edit"] as const,
+      ["list", "search", "read", "create", "edit"] as const,
       { required: true },
     ),
-    query: param.string("Search query to find docs by name. Required for search."),
+    query: param.string("Search query to find docs by name. Required for search, optional for list (filters results)."),
     documentId: param.string("Google Doc ID. Required for read and edit."),
     title: param.string("Document title. Required for create."),
     text: param.string("Text content to insert or append. Required for edit."),
     insertAt: param.enum("Where to insert text (default: end).", ["end", "beginning"] as const),
-    maxResults: param.number("Max docs for search (1-20, default 5).", { minimum: 1, maximum: 20 }),
+    maxResults: param.number("Max docs to return (1-20, default 10).", { minimum: 1, maximum: 20 }),
   },
 
   config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
@@ -70,6 +70,77 @@ export default defineTool({
 
     try {
       switch (action) {
+        // ── List ──────────────────────────────────────────────
+        case "list": {
+          const max = maxResults ?? 10;
+
+          let driveQuery = "mimeType='application/vnd.google-apps.document'";
+          if (query) {
+            driveQuery += ` and name contains '${query.replace(/'/g, "\\'")}'`;
+          }
+
+          const params = new URLSearchParams({
+            q: driveQuery,
+            pageSize: String(max),
+            fields: "files(id,name,modifiedTime,webViewLink,owners)",
+            orderBy: "modifiedTime desc",
+          });
+
+          const res = await googleFetch(`${DRIVE_BASE}?${params}`, config);
+          if (!res.ok) return `Error: list failed (${res.status}).`;
+
+          const data = (await res.json()) as {
+            files: {
+              id: string;
+              name: string;
+              modifiedTime: string;
+              webViewLink: string;
+              owners?: { displayName: string }[];
+            }[];
+          };
+
+          if (!data.files?.length) {
+            return {
+              text: query ? `No Google Docs found matching "${query}".` : "No Google Docs found.",
+              data: { action: "list", query: query ?? null, count: 0, documents: [] },
+            };
+          }
+
+          let text_ = query
+            ? `Found ${data.files.length} doc(s) matching "${query}":\n`
+            : `${data.files.length} most recent Google Doc(s):\n`;
+
+          for (let i = 0; i < data.files.length; i++) {
+            const f = data.files[i];
+            const modified = new Date(f.modifiedTime).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            });
+            const owner = f.owners?.[0]?.displayName ?? "";
+            text_ += `\n${i + 1}. ${f.name}\n`;
+            text_ += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
+            text_ += `   ID: ${f.id}\n`;
+            text_ += `   Link: ${f.webViewLink}\n`;
+          }
+
+          return {
+            text: text_,
+            data: {
+              action: "list",
+              query: query ?? null,
+              count: data.files.length,
+              documents: data.files.map(f => ({
+                id: f.id,
+                name: f.name,
+                modifiedTime: f.modifiedTime,
+                link: f.webViewLink,
+                owner: f.owners?.[0]?.displayName ?? null,
+              })),
+            },
+          };
+        }
+
         // ── Search ────────────────────────────────────────────
         case "search": {
           if (!query) return "Error: query is required for search.";

@@ -321,6 +321,29 @@ function sanitizeHistory(history: ChatMessage[]): number {
   return removed;
 }
 
+/**
+ * Strip tool-related messages from a messages array (in-place).
+ * Removes tool-role messages and cleans assistant messages with tool_calls.
+ * Also removes assistant messages with null/empty content (orphaned from tool calls).
+ */
+function stripToolMessagesFrom(msgs: ChatMessage[]): void {
+  for (let idx = msgs.length - 1; idx >= 0; idx--) {
+    const msg = msgs[idx] as unknown as Record<string, unknown>;
+    if (msg.role === "tool") {
+      msgs.splice(idx, 1);
+    } else if (msg.role === "assistant" && msg.tool_calls) {
+      const content = (msg.content as string) || "";
+      if (content) {
+        delete msg.tool_calls;
+      } else {
+        msgs.splice(idx, 1);
+      }
+    } else if (msg.role === "assistant" && (msg.content === null || msg.content === undefined || msg.content === "")) {
+      msgs.splice(idx, 1);
+    }
+  }
+}
+
 function trimHistory(history: ChatMessage[], channelId?: string): void {
   while (history.length > config.llm.maxHistory) {
     const removed = history.shift();
@@ -753,33 +776,23 @@ async function runCompletionLoop(
     ...(tools.length > 0 && !skipTools ? { tools } : {}),
   };
 
+  // When tools are proactively skipped, also strip any tool-role messages
+  // from the messages array — they cause template errors even without tool defs
+  if (skipTools) {
+    stripToolMessagesFrom(messages);
+  }
+
   console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${skipTools ? 0 : tools.length})`);
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
   let toolsDropped = skipTools; // set when model template forces tools to be removed
   let contextTrimmed = false; // set when we've already trimmed for context overflow
+  let templateRetries = 0; // cap progressive trimming retries for template errors
+  const MAX_TEMPLATE_RETRIES = 3;
 
-  /**
-   * Strip tool-related messages from history so models whose Jinja templates
-   * don't understand tool/assistant(tool_calls) roles can still process the
-   * conversation. Keeps system, user, and plain assistant messages.
-   */
   function stripToolMessages(): void {
-    for (let idx = messages.length - 1; idx >= 0; idx--) {
-      const msg = messages[idx] as unknown as Record<string, unknown>;
-      if (msg.role === "tool") {
-        messages.splice(idx, 1);
-      } else if (msg.role === "assistant" && msg.tool_calls) {
-        // Convert to plain assistant message, keeping any text content
-        const content = (msg.content as string) || "";
-        if (content) {
-          delete msg.tool_calls;
-        } else {
-          messages.splice(idx, 1);
-        }
-      }
-    }
+    stripToolMessagesFrom(messages);
   }
 
   /**
@@ -821,20 +834,20 @@ async function runCompletionLoop(
             stripToolMessages();
             toolsDropped = true;
             modelsWithBrokenToolTemplates.add(resolvedModel);
-            try {
-              stream = await client.chat.completions.create({ ...baseParams, stream: true });
-            } catch (retryErr) {
-              if (!contextTrimmed && isContextSizeError(retryErr) && trimForContext()) {
-                contextTrimmed = true;
-                continue;
-              }
-              console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
-              return "(I encountered a formatting issue and couldn't process that request.)";
-            }
           } else {
-            console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
-            return "(I encountered a formatting issue and couldn't process that request.)";
+            // Tools already stripped — try cleaning messages + trimming history
+            stripToolMessages();
           }
+          // Retry (will loop back to the top of the for-loop)
+          if (trimForContext()) {
+            console.warn("LLM: template error persists, trimmed history and retrying");
+          }
+          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
+            continue;
+          }
+          // Even system + user fails — give up
+          console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
+          return "(I encountered a formatting issue and couldn't process that request.)";
         } else {
           throw err;
         }
@@ -885,6 +898,13 @@ async function runCompletionLoop(
             stripToolMessages();
             toolsDropped = true;
             modelsWithBrokenToolTemplates.add(resolvedModel);
+          } else {
+            stripToolMessages();
+          }
+          if (trimForContext()) {
+            console.warn("LLM: template error persists, trimmed history and retrying");
+          }
+          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
             continue;
           }
           console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
@@ -925,20 +945,17 @@ async function runCompletionLoop(
             stripToolMessages();
             toolsDropped = true;
             modelsWithBrokenToolTemplates.add(resolvedModel);
-            try {
-              completion = await client.chat.completions.create(baseParams);
-            } catch (retryErr) {
-              if (!contextTrimmed && isContextSizeError(retryErr) && trimForContext()) {
-                contextTrimmed = true;
-                continue;
-              }
-              console.warn("LLM: model template rejected message format:", (retryErr as Error).message ?? retryErr);
-              return "(I encountered a formatting issue and couldn't process that request.)";
-            }
           } else {
-            console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
-            return "(I encountered a formatting issue and couldn't process that request.)";
+            stripToolMessages();
           }
+          if (trimForContext()) {
+            console.warn("LLM: template error persists, trimmed history and retrying");
+          }
+          if (messages.length > 2 && ++templateRetries <= MAX_TEMPLATE_RETRIES) {
+            continue;
+          }
+          console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
+          return "(I encountered a formatting issue and couldn't process that request.)";
         } else {
           throw err;
         }

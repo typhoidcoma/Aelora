@@ -135,7 +135,11 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
     moodParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
   );
 
-  const rawContent = result.choices[0]?.message?.content?.trim();
+  let rawContent = result.choices[0]?.message?.content?.trim();
+  if (!rawContent) return;
+
+  // Strip <think>...</think> blocks that some models emit when thinking is enabled
+  rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
   if (!rawContent) return;
 
   // Extract JSON object from response, ignoring any surrounding reasoning/text

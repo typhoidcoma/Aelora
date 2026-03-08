@@ -17,7 +17,8 @@ import { addWSClient } from "./logger.js";
 type ClientMessage =
   | { type: "init"; sessionId: string; userId?: string; username?: string }
   | { type: "message"; content: string }
-  | { type: "clear" };
+  | { type: "clear" }
+  | { type: "presence"; status: string };
 
 type ServerMessage =
   | { type: "ready"; sessionId: string }
@@ -186,6 +187,20 @@ export function startWebSocket(server: Server, config: Config): void {
           } finally {
             state.busy = false;
           }
+          break;
+        }
+
+        // ---- Presence: track user status ----
+        case "presence": {
+          if (!state.sessionId) {
+            send(ws, { type: "error", error: "Send init first." });
+            return;
+          }
+          const status = msg.status ?? "online";
+          if (state.userId && state.username) {
+            updateUser(state.userId, state.username, state.sessionId);
+          }
+          console.log(`WS: presence session=${state.sessionId} user=${state.username ?? "anonymous"} status=${status}`);
           break;
         }
 

@@ -588,9 +588,11 @@ export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
         : "Messages to summarize:\n";
 
       const compactStart = Date.now();
+      const compactUserContent = contextNote + formatted;
       const completion = await client.chat.completions.create({
         model: config.llm.model,
         max_completion_tokens: 800,
+        ...(getDisableThinking() ? { enable_thinking: false } : {}),
         messages: [
           {
             role: "system",
@@ -604,11 +606,12 @@ export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
               "- Emotional tone and relationship context\n\n" +
               "Dense paragraph form. No bullet lists. No preamble. Keep under 2000 characters.",
           },
-          { role: "user", content: contextNote + formatted },
+          { role: "user", content: getDisableThinking() ? `/no_think\n${compactUserContent}` : compactUserContent },
         ],
       });
 
-      const summary = completion.choices[0]?.message?.content?.trim();
+      const rawSummary = completion.choices[0]?.message?.content?.trim();
+      const summary = rawSummary ? stripThinkBlocks(rawSummary).trim() : "";
       if (summary) {
         summaries[channelId] = {
           summary: summary.slice(0, MAX_SUMMARY_LENGTH),

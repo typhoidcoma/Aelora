@@ -591,7 +591,7 @@ export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
       const compactUserContent = contextNote + formatted;
       const completion = await client.chat.completions.create({
         model: config.llm.model,
-        max_completion_tokens: 800,
+        max_completion_tokens: 4096,
         ...(getDisableThinking() ? { enable_thinking: false } : {}),
         messages: [
           {

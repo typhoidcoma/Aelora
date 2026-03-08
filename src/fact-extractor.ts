@@ -24,7 +24,7 @@ const SYNTHESIS_DELTA = 3;      // re-synthesize after this many new facts
 // ── Extraction prompt ────────────────────────────────────
 
 const EXTRACT_SYSTEM =
-  "Extract important facts from this conversation snippet. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.\n\n" +
+  "You are a JSON-only fact extractor. Output ONLY a single JSON object. No text before or after. No analysis. No explanation. No markdown. No reasoning. Just the JSON object.\n\n" +
   "Extract facts that would be useful to remember for future conversations:\n" +
   "- User preferences, opinions, or tastes\n" +
   "- Personal details (name, location, job, projects, pets, etc.)\n" +
@@ -89,7 +89,7 @@ export async function extractFacts(
     // models like Qwen 3.5 burn all tokens on chain-of-thought otherwise
     const extractParams: Record<string, unknown> = {
       model,
-      max_completion_tokens: 400,
+      max_completion_tokens: 4096,
       ...(getDisableThinking() ? { enable_thinking: false } : {}),
       messages: [
         { role: "system", content: EXTRACT_SYSTEM },
@@ -210,7 +210,7 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
 
   const synthesisParams: Record<string, unknown> = {
     model,
-    max_completion_tokens: 150,
+    max_completion_tokens: 4096,
     ...(getDisableThinking() ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: SYNTHESIS_SYSTEM },

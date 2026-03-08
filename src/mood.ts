@@ -127,7 +127,7 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const userContent = getDisableThinking() ? `/no_think\n${moodSnippet}` : moodSnippet;
   const moodParams: Record<string, unknown> = {
     model,
-    max_completion_tokens: 300,
+    max_completion_tokens: 4096,
     ...(getDisableThinking() ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },

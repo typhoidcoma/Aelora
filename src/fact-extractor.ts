@@ -100,8 +100,11 @@ export async function extractFacts(
       extractParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
     );
 
-    const rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
+    let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return;
+
+    // Strip markdown code fences that some models wrap JSON in
+    rawContent = rawContent.replace(/^```(?:json)?\s*\n?/gm, "").replace(/\n?```\s*$/gm, "").trim();
 
     // Extract the first balanced JSON object from response
     const jsonStr = extractJson(rawContent);

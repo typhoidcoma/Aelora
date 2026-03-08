@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { broadcastEvent } from "./logger.js";
 import type OpenAI from "openai";
-import { getLLMClient, getLLMModel, getDisableThinking } from "./llm.js";
+import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 
 // Plutchik's 8 primary emotions with intensity levels (low → mid → high)
 export const PLUTCHIK_EMOTIONS = {
@@ -41,9 +41,11 @@ export function onMoodChange(cb: (emoji: string, label: string) => void): void {
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
-const CLASSIFY_SYSTEM = `Classify the bot's emotional tone. Reply with ONLY raw JSON, no explanation, no reasoning, no markdown.
-{"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
-Example: {"emotion":"joy","intensity":"mid","secondary":"trust","note":"warm helpful exchange"}`;
+const CLASSIFY_SYSTEM = `You are a JSON-only classifier. Output ONLY a single JSON object. No text before or after. No analysis. No explanation. No markdown. No reasoning. Just the JSON object.
+
+Format: {"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
+
+Classify the bot's emotional tone from the conversation snippet the user provides.`;
 
 export function saveMood(mood: MoodState): void {
   mkdirSync("data", { recursive: true });
@@ -122,24 +124,25 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const model = getLLMModel();
 
   const moodSnippet = `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}`;
+  const userContent = getDisableThinking() ? `/no_think\n${moodSnippet}` : moodSnippet;
   const moodParams: Record<string, unknown> = {
     model,
     max_completion_tokens: 300,
     ...(getDisableThinking() ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },
-      { role: "user", content: moodSnippet },
+      { role: "user", content: userContent },
     ],
   };
   const result = await client.chat.completions.create(
     moodParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
   );
 
-  let rawContent = result.choices[0]?.message?.content?.trim();
+  let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
   if (!rawContent) return;
 
-  // Strip <think>...</think> blocks that some models emit when thinking is enabled
-  rawContent = rawContent.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Strip markdown code fences that some models wrap JSON in
+  rawContent = rawContent.replace(/^```(?:json)?\s*\n?/gm, "").replace(/\n?```\s*$/gm, "").trim();
   if (!rawContent) return;
 
   // Extract JSON object from response, ignoring any surrounding reasoning/text

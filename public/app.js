@@ -344,52 +344,77 @@ function hideSessionDetail() {
 // --- Memory ---
 
 let memoryFactMap = {};
+let memoryData = {};
 
 async function fetchMemory() {
   try {
     const res = await apiFetch("/api/memory");
-    const data = await res.json();
-    const container = document.getElementById("memory-content");
-    const scopes = Object.keys(data);
-
-    if (scopes.length === 0) {
-      container.innerHTML = '<span class="muted">No memories stored yet</span>';
-      return;
-    }
-
-    memoryFactMap = {};
-    container.innerHTML = scopes
-      .map((scope) => {
-        const facts = data[scope];
-        const label = scope.startsWith("user:") ? `User ${scope.slice(5)}` : scope.startsWith("channel:") ? `Channel ${scope.slice(8)}` : scope;
-        const factRows = facts
-          .map(
-            (f, i) => {
-              const key = `${scope}::${i}`;
-              memoryFactMap[key] = { scope, fact: f.fact, savedAt: f.savedAt };
-              return `<div class="memory-fact">
-                <span class="memory-fact-text">${esc(f.fact)}</span>
-                <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
-                <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>
-              </div>`;
-            },
-          )
-          .join("");
-
-        return `
-          <div class="memory-scope">
-            <div class="memory-scope-header">
-              <code>${esc(label)}</code>
-              <span class="muted">${facts.length} fact(s)</span>
-              <button class="btn btn-danger btn-xs" onclick="clearMemoryScope('${esc(scope)}')">Clear</button>
-            </div>
-            ${factRows}
-          </div>`;
-      })
-      .join("");
+    memoryData = await res.json();
+    updateMemoryScopeFilter();
+    renderMemoryFiltered();
   } catch {
     /* ignore */
   }
+}
+
+function updateMemoryScopeFilter() {
+  const select = document.getElementById("memory-scope-filter");
+  const prev = select.value;
+  const scopes = Object.keys(memoryData).sort();
+  const options = ['<option value="__all__">All scopes</option>'];
+  for (const scope of scopes) {
+    const label = scope.startsWith("user:") ? `User ${scope.slice(5)}` : scope.startsWith("channel:") ? `Channel ${scope.slice(8)}` : scope;
+    options.push(`<option value="${esc(scope)}">${esc(label)} (${memoryData[scope].length})</option>`);
+  }
+  select.innerHTML = options.join("");
+  if (scopes.includes(prev) || prev === "__all__") select.value = prev;
+}
+
+function renderMemoryFiltered() {
+  const filter = document.getElementById("memory-scope-filter").value;
+  const container = document.getElementById("memory-content");
+  const countEl = document.getElementById("memory-total-count");
+  const scopes = filter === "__all__" ? Object.keys(memoryData) : [filter];
+  const visibleScopes = scopes.filter((s) => memoryData[s]);
+
+  const totalFacts = visibleScopes.reduce((n, s) => n + memoryData[s].length, 0);
+  countEl.textContent = `${totalFacts} fact(s)`;
+
+  if (visibleScopes.length === 0) {
+    container.innerHTML = '<span class="muted">No memories stored yet</span>';
+    return;
+  }
+
+  memoryFactMap = {};
+  container.innerHTML = visibleScopes
+    .map((scope) => {
+      const facts = memoryData[scope];
+      const label = scope.startsWith("user:") ? `User ${scope.slice(5)}` : scope.startsWith("channel:") ? `Channel ${scope.slice(8)}` : scope;
+      const factRows = facts
+        .map(
+          (f, i) => {
+            const key = `${scope}::${i}`;
+            memoryFactMap[key] = { scope, fact: f.fact, savedAt: f.savedAt };
+            return `<div class="memory-fact">
+              <span class="memory-fact-text">${esc(f.fact)}</span>
+              <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
+              <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>
+            </div>`;
+          },
+        )
+        .join("");
+
+      return `
+        <div class="memory-scope">
+          <div class="memory-scope-header">
+            <code>${esc(label)}</code>
+            <span class="muted">${facts.length} fact(s)</span>
+            <button class="btn btn-danger btn-xs" onclick="clearMemoryScope('${esc(scope)}')">Clear</button>
+          </div>
+          ${factRows}
+        </div>`;
+    })
+    .join("");
 }
 
 async function deleteMemoryFact(key) {

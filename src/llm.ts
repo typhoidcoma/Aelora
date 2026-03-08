@@ -42,18 +42,15 @@ function errorMessage(err: unknown): string {
 
 /** Strip reasoning/thinking content from LLM output (handles multiple model formats). */
 export function stripThinkBlocks(text: string): string {
+  // Safety net: strip <think>/<reasoning> tags if they leak through.
+  // Normally LM Studio handles this via the Jinja template and its thinking toggle.
   return text
-    // <think>…</think> tags (Qwen, DeepSeek)
     .replace(/<think>[\s\S]*?<\/think>\s*/g, "")
     .replace(/<think>[\s\S]*$/g, "")
-    // <reasoning>…</reasoning> tags (some models)
     .replace(/<reasoning>[\s\S]*?<\/reasoning>\s*/g, "")
     .replace(/<reasoning>[\s\S]*$/g, "")
-    // Orphaned closing tags (model splits thinking across content boundaries)
     .replace(/^\s*<\/think>\s*/g, "")
     .replace(/^\s*<\/reasoning>\s*/g, "")
-    // Grok-style plain-text "Thinking Process:" blocks at the start
-    .replace(/^Thinking Process:[\s\S]*?\n\n/i, "")
     .trim();
 }
 
@@ -254,6 +251,7 @@ export function initLLM(cfg: Config): void {
 /** Expose the initialized OpenAI client for lightweight direct calls (e.g. mood classification). */
 export function getLLMClient(): OpenAI { return client; }
 export function getLLMModel(): string { return config.llm.model; }
+export function getAuxiliaryModel(): string { return config.llm.auxiliaryModel || config.llm.model; }
 export function getDisableThinking(): boolean { return config.llm.disableThinking; }
 
 /** Full session reset: clears history, summary, and compaction queue for a channel. */
@@ -590,7 +588,7 @@ export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
       const compactStart = Date.now();
       const compactUserContent = contextNote + formatted;
       const completion = await client.chat.completions.create({
-        model: config.llm.model,
+        model: config.llm.auxiliaryModel || config.llm.model,
         max_completion_tokens: 4096,
         ...(getDisableThinking() ? { enable_thinking: false } : {}),
         messages: [

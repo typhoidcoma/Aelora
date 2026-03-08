@@ -31,6 +31,7 @@ const llmSchema = z.object({
   baseURL: z.string().default(""),
   apiKey: z.string().default(""),
   model: z.string().default(""),
+  auxiliaryModel: z.string().default(""),
   systemPrompt: z.string().default("You are a helpful assistant."),
   maxTokens: z.number().int().positive().default(4096),
   maxHistory: z.number().int().positive().default(50),

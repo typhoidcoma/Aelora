@@ -183,6 +183,13 @@
           <h2>Memory</h2>
         </div>
         <div class="section-body" data-section="memory">
+          <div class="card" style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <label style="font-size:0.85em;">Filter:</label>
+            <select id="memory-scope-filter" onchange="renderMemoryFiltered()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font-size:0.85em;">
+              <option value="__all__">All scopes</option>
+            </select>
+            <span id="memory-total-count" class="muted" style="font-size:0.8em;"></span>
+          </div>
           <div id="memory-content" class="card"><span class="muted">Loading...</span></div>
         </div>
       </section>

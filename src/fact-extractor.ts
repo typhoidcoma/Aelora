@@ -4,7 +4,7 @@
  */
 
 import type OpenAI from "openai";
-import { getLLMClient, getLLMModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
+import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, searchFacts } from "./memory.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
@@ -80,7 +80,7 @@ export async function extractFacts(
   lastExtraction.set(channelId, now);
 
   const client = getLLMClient();
-  const model = getLLMModel();
+  const model = getAuxiliaryModel();
 
   const snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
 
@@ -204,7 +204,7 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
   const factList = facts.map((f) => `- ${f.fact}`).join("\n");
 
   const client = getLLMClient();
-  const model = getLLMModel();
+  const model = getAuxiliaryModel();
 
   const userContent = `Facts about this user:\n${factList}`;
 

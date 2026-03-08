@@ -7,6 +7,7 @@ import { recordMessage } from "./sessions.js";
 import { classifyMood } from "./mood.js";
 import { appendLog } from "./daily-log.js";
 import { updateUser } from "./users.js";
+import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { addWSClient } from "./logger.js";
 
 // ============================================================
@@ -154,6 +155,7 @@ export function startWebSocket(server: Server, config: Config): void {
             });
             updateUser(state.userId, state.username, state.sessionId);
           }
+          trackMessage(state.sessionId);
 
           try {
             const reply = await getLLMResponse(
@@ -173,6 +175,10 @@ export function startWebSocket(server: Server, config: Config): void {
               summary: `**User:** ${msg.content.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}`,
             });
             classifyMood(reply, msg.content).catch((err) => console.warn("Mood classify failed:", err));
+            if (config.memory.autoExtract !== false) {
+              extractFacts(msg.content, reply, state.sessionId!, state.userId ?? undefined)
+                .catch((err) => console.warn("Fact extraction failed:", err));
+            }
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
             console.error("WS handler error:", errMsg);

@@ -35,6 +35,7 @@ import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMess
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel, classifyMood } from "./mood.js";
+import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
 import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem, getGoogleConfig } from "./tools/todo.js";
@@ -84,6 +85,18 @@ export function startWeb(state: AppState): Server | null {
   const publicDir = path.join(__dirname, "..", "public");
 
   app.use(express.json());
+
+  // CORS - allow cross-origin requests to /api from any origin
+  app.use("/api", (req, res, next) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
 
   // Request logging middleware  -  only log mutations and errors, not dashboard polling
   app.use((req, res, next) => {
@@ -580,6 +593,7 @@ export function startWeb(state: AppState): Server | null {
       recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
       updateUser(userId, username, sessionId);
     }
+    trackMessage(sessionId);
 
     try {
       const reply = await getLLMResponse(sessionId, message, undefined, userId ?? undefined);
@@ -587,6 +601,10 @@ export function startWeb(state: AppState): Server | null {
       // Side effects (async, best-effort)
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
       classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
+      if (config.memory.autoExtract !== false) {
+        extractFacts(message, reply, sessionId, userId ?? undefined)
+          .catch((err) => console.warn("Fact extraction failed:", err));
+      }
 
       res.json({ reply, sessionId });
     } catch (err) {
@@ -613,6 +631,7 @@ export function startWeb(state: AppState): Server | null {
       recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
       updateUser(userId, username, sessionId);
     }
+    trackMessage(sessionId);
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -636,6 +655,10 @@ export function startWeb(state: AppState): Server | null {
 
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
       classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
+      if (config.memory.autoExtract !== false) {
+        extractFacts(message, reply, sessionId, userId ?? undefined)
+          .catch((err) => console.warn("Fact extraction failed:", err));
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
       console.error("Web chat/stream error:", errMsg);

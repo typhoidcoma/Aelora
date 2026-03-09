@@ -41,6 +41,7 @@ import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from 
 import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem, getGoogleConfig } from "./tools/todo.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
+import { LinearClient } from "@linear/sdk";
 import {
   tryGetSupabaseClient,
   ensureUserProfile,
@@ -1573,14 +1574,12 @@ export function startWeb(state: AppState): Server | null {
     return linear?.apiKey || null;
   }
 
-  function requireLinear(res: express.Response): import("@linear/sdk").LinearClient | null {
+  function requireLinear(res: express.Response): LinearClient | null {
     const apiKey = getLinearApiKey();
     if (!apiKey) {
       res.status(503).json({ error: "Linear not configured. Add linear.apiKey to settings.yaml under tools:" });
       return null;
     }
-    // Dynamic import avoided - use the SDK directly
-    const { LinearClient } = require("@linear/sdk") as typeof import("@linear/sdk");
     return new LinearClient({ apiKey });
   }
 

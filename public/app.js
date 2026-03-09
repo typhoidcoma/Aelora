@@ -1,5 +1,13 @@
 // Aelora Dashboard
 
+// --- Base path detection (for reverse proxy / Tailscale Funnel) ---
+// If the dashboard is served at /aelora/dashboard, basePath = "/aelora"
+const BASE_PATH = (() => {
+  const path = window.location.pathname;
+  const idx = path.indexOf("/dashboard");
+  return idx > 0 ? path.slice(0, idx) : "";
+})();
+
 // --- State ---
 let uptimeSeconds = 0;
 let uptimeInterval = null;
@@ -93,7 +101,7 @@ async function apiFetch(url, options = {}) {
   if (key) {
     options.headers = { ...options.headers, Authorization: `Bearer ${key}` };
   }
-  const res = await window.fetch(url, options);
+  const res = await window.fetch(BASE_PATH + url, options);
   if (res.status === 401) {
     promptForApiKey();
     throw new Error("Unauthorized");
@@ -103,14 +111,15 @@ async function apiFetch(url, options = {}) {
 
 function apiEventSource(url) {
   const key = getApiKey();
-  const separator = url.includes("?") ? "&" : "?";
-  const finalUrl = key ? `${url}${separator}token=${encodeURIComponent(key)}` : url;
+  const fullUrl = BASE_PATH + url;
+  const separator = fullUrl.includes("?") ? "&" : "?";
+  const finalUrl = key ? `${fullUrl}${separator}token=${encodeURIComponent(key)}` : fullUrl;
   return new EventSource(finalUrl);
 }
 
 async function checkAuth() {
   try {
-    const res = await window.fetch("/api/status");
+    const res = await window.fetch(BASE_PATH + "/api/status");
     const data = await res.json();
     if (data.authRequired) {
       if (!getApiKey()) {

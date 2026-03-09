@@ -63,6 +63,7 @@ const webSchema = z.object({
   enabled: z.boolean().default(true),
   port: z.number().int().min(1).max(65535).default(3000),
   apiKey: z.string().optional(),
+  basePath: z.string().default("").transform((v) => v.replace(/\/+$/, "")),  // strip trailing slash
 });
 
 const personaSchema = z.object({

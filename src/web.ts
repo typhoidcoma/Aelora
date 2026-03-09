@@ -84,6 +84,18 @@ export function startWeb(state: AppState): Server | null {
   app.set("trust proxy", 1);
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "..", "public");
+  const basePath = config.web.basePath || "";
+
+  // Strip basePath prefix so routes match without it (e.g. /aelora/api/status -> /api/status)
+  if (basePath) {
+    app.use((req, _res, next) => {
+      if (req.url.startsWith(basePath)) {
+        req.url = req.url.slice(basePath.length) || "/";
+      }
+      next();
+    });
+    console.log(`Web: base path "${basePath}" - stripping prefix from incoming requests`);
+  }
 
   app.use(express.json());
 
@@ -1995,7 +2007,7 @@ export function startWeb(state: AppState): Server | null {
 
   const server = createServer(app);
   server.listen(config.web.port, "0.0.0.0", () => {
-    console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}`);
+    console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}${basePath}/dashboard`);
   });
   return server;
 }

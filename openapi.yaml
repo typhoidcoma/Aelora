@@ -69,6 +69,10 @@ tags:
     description: Data export (full or selective JSON bundle)
   - name: Activity
     description: Discord Activity (Unity WebGL) support
+  - name: Scoring
+    description: Task scoring system, leaderboard, achievements, and life events
+  - name: Linear
+    description: Linear project management integration (issues, projects, teams)
   - name: WebSocket
     description: |
       Real-time bidirectional chat via WebSocket at `ws://host:port/ws`.
@@ -81,6 +85,7 @@ tags:
       - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` - bind session
       - `{ "type": "message", "content": "..." }` - send chat message
       - `{ "type": "clear" }` - start new session (clears history, summary, context, and session stats)
+      - `{ "type": "presence", "status": "online|idle|offline" }` - report user presence (updates activity tracking)
 
       Server → Client:
       - `{ "type": "ready", "sessionId": "..." }` - session bound
@@ -2157,3 +2162,578 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  # ── Scoring ──────────────────────────────────────────────
+
+  /api/scoring/stats:
+    get:
+      tags: [Scoring]
+      summary: Get user scoring stats
+      description: Returns XP, streak, and achievement summary for a user. Requires Supabase.
+      parameters:
+        - name: discordUserId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User scoring stats (XP, streak, achievements)
+        "400":
+          description: Missing discordUserId
+        "503":
+          description: Supabase not configured
+
+  /api/scoring/leaderboard:
+    get:
+      tags: [Scoring]
+      summary: Get task leaderboard
+      description: Returns pending tasks sorted by computed score. Scores are calculated on the fly from task metadata.
+      parameters:
+        - name: discordUserId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [tasks, health, finance, social, work]
+      responses:
+        "200":
+          description: Scored task list sorted by priority
+        "503":
+          description: Supabase not configured
+
+  /api/scoring/history:
+    get:
+      tags: [Scoring]
+      summary: Get scoring event history
+      description: Returns recent scoring events (completed tasks with points awarded).
+      parameters:
+        - name: discordUserId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Scoring event history
+        "503":
+          description: Supabase not configured
+
+  /api/scoring/achievements:
+    get:
+      tags: [Scoring]
+      summary: Get user achievements
+      description: Returns all 9 achievements with unlock status for a user.
+      parameters:
+        - name: discordUserId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Achievement list with unlock status
+        "503":
+          description: Supabase not configured
+
+  /api/life-events:
+    post:
+      tags: [Scoring]
+      summary: Create a life event
+      description: Creates a non-Google life event for scoring. Source defaults to "manual".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                discordUserId:
+                  type: string
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                  enum: [tasks, health, finance, social, work]
+                priority:
+                  type: string
+                  enum: [low, medium, high]
+                dueDate:
+                  type: string
+                  format: date
+                impactLevel:
+                  type: string
+                  enum: [trivial, low, moderate, high, critical]
+                irreversible:
+                  type: boolean
+                affectsOthers:
+                  type: boolean
+                estimatedMinutes:
+                  type: integer
+                sizeLabel:
+                  type: string
+                  enum: [micro, small, medium, large, epic]
+                smeqEstimate:
+                  type: number
+                tags:
+                  type: array
+                  items:
+                    type: string
+              required: [discordUserId, title]
+      responses:
+        "201":
+          description: Created life event with score breakdown
+        "503":
+          description: Supabase not configured
+
+  /api/life-events/{id}:
+    put:
+      tags: [Scoring]
+      summary: Update a life event
+      description: Update metadata on an existing life event (impact, effort, category, etc.).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                priority:
+                  type: string
+                dueDate:
+                  type: string
+                impactLevel:
+                  type: string
+                irreversible:
+                  type: boolean
+                affectsOthers:
+                  type: boolean
+                estimatedMinutes:
+                  type: integer
+                sizeLabel:
+                  type: string
+                smeqEstimate:
+                  type: number
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Updated life event
+        "404":
+          description: Life event not found
+        "503":
+          description: Supabase not configured
+
+  # ── Linear ──────────────────────────────────────────────
+
+  /api/linear/teams:
+    get:
+      tags: [Linear]
+      summary: List teams
+      description: Returns all Linear teams with keys and descriptions.
+      responses:
+        "200":
+          description: Team list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    key:
+                      type: string
+                    description:
+                      type: string
+        "503":
+          description: Linear not configured
+
+  /api/linear/projects:
+    get:
+      tags: [Linear]
+      summary: List projects
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 50
+      responses:
+        "200":
+          description: Project list with progress
+        "503":
+          description: Linear not configured
+    post:
+      tags: [Linear]
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                team:
+                  type: string
+                  description: Team key (e.g. "ENG")
+                description:
+                  type: string
+                content:
+                  type: string
+                status:
+                  type: string
+                  enum: [planned, started, paused, completed, canceled]
+              required: [name, team]
+      responses:
+        "201":
+          description: Created project
+        "503":
+          description: Linear not configured
+
+  /api/linear/projects/{name}:
+    patch:
+      tags: [Linear]
+      summary: Update a project
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                content:
+                  type: string
+                status:
+                  type: string
+                targetDate:
+                  type: string
+                  format: date
+      responses:
+        "200":
+          description: Updated project
+        "404":
+          description: Project not found
+        "503":
+          description: Linear not configured
+
+  /api/linear/projects/{name}/updates:
+    post:
+      tags: [Linear]
+      summary: Post project health update
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  description: Update body in markdown
+                health:
+                  type: string
+                  enum: [onTrack, atRisk, offTrack]
+              required: [body]
+      responses:
+        "201":
+          description: Posted update
+        "404":
+          description: Project not found
+        "503":
+          description: Linear not configured
+
+  /api/linear/issues:
+    get:
+      tags: [Linear]
+      summary: List issues
+      parameters:
+        - name: team
+          in: query
+          schema:
+            type: string
+          description: Filter by team key
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filter by status name
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Only issues updated after this timestamp
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 50
+      responses:
+        "200":
+          description: Issue list
+        "503":
+          description: Linear not configured
+    post:
+      tags: [Linear]
+      summary: Create an issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                team:
+                  type: string
+                  description: Team key (e.g. "ENG")
+                title:
+                  type: string
+                description:
+                  type: string
+                priority:
+                  type: integer
+                  minimum: 0
+                  maximum: 4
+                  description: "0=none, 1=urgent, 2=high, 3=medium, 4=low"
+                dueDate:
+                  type: string
+                  format: date
+                estimate:
+                  type: number
+                assigneeEmail:
+                  type: string
+                status:
+                  type: string
+                labels:
+                  type: array
+                  items:
+                    type: string
+                project:
+                  type: string
+                parentIssueId:
+                  type: string
+                  description: Issue identifier for creating a sub-issue
+              required: [team, title]
+      responses:
+        "201":
+          description: Created issue
+        "503":
+          description: Linear not configured
+
+  /api/linear/issues/me:
+    get:
+      tags: [Linear]
+      summary: My assigned issues
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 50
+      responses:
+        "200":
+          description: Issues assigned to the API key owner
+        "503":
+          description: Linear not configured
+
+  /api/linear/issues/{id}:
+    get:
+      tags: [Linear]
+      summary: Get issue detail
+      description: Returns full issue detail including description, labels, project, and recent comments.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Issue identifier (e.g. "ENG-123")
+      responses:
+        "200":
+          description: Issue detail with comments
+        "503":
+          description: Linear not configured
+    patch:
+      tags: [Linear]
+      summary: Update an issue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                priority:
+                  type: integer
+                dueDate:
+                  type: string
+                estimate:
+                  type: number
+                assigneeEmail:
+                  type: string
+                status:
+                  type: string
+                labels:
+                  type: array
+                  items:
+                    type: string
+                project:
+                  type: string
+      responses:
+        "200":
+          description: Updated issue
+        "503":
+          description: Linear not configured
+    delete:
+      tags: [Linear]
+      summary: Delete an issue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deleted issue
+        "503":
+          description: Linear not configured
+
+  /api/linear/issues/{id}/sub-issues:
+    get:
+      tags: [Linear]
+      summary: List sub-issues
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Parent issue identifier
+      responses:
+        "200":
+          description: Child issues of the parent
+        "503":
+          description: Linear not configured
+
+  /api/linear/issues/{id}/comments:
+    post:
+      tags: [Linear]
+      summary: Add comment to an issue
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body:
+                  type: string
+                  description: Comment body in markdown
+              required: [body]
+      responses:
+        "201":
+          description: Comment added
+        "503":
+          description: Linear not configured
+
+  /api/linear/search:
+    get:
+      tags: [Linear]
+      summary: Search issues
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query text
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 50
+      responses:
+        "200":
+          description: Search results
+        "400":
+          description: Missing q parameter
+        "503":
+          description: Linear not configured

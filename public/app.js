@@ -1307,7 +1307,7 @@ async function deleteNoteDash(scope, title) {
 
 // --- Todos + Scoring ---
 
-// Discord User ID — persisted in localStorage
+// Discord User ID - persisted in localStorage
 let _discordUserId = localStorage.getItem("aelora_discord_uid") || "";
 
 function getDiscordUserId() { return _discordUserId; }

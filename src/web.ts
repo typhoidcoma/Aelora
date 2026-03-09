@@ -1565,6 +1565,412 @@ export function startWeb(state: AppState): Server | null {
     console.log(`Web: Activity enabled (serving ${activityDir})`);
   }
 
+  // --- Linear ---
+
+  function getLinearApiKey(): string | null {
+    const tools = config.tools as Record<string, Record<string, unknown>> | undefined;
+    const linear = tools?.["linear"] as Record<string, string> | undefined;
+    return linear?.apiKey || null;
+  }
+
+  function requireLinear(res: express.Response): import("@linear/sdk").LinearClient | null {
+    const apiKey = getLinearApiKey();
+    if (!apiKey) {
+      res.status(503).json({ error: "Linear not configured. Add linear.apiKey to settings.yaml under tools:" });
+      return null;
+    }
+    // Dynamic import avoided - use the SDK directly
+    const { LinearClient } = require("@linear/sdk") as typeof import("@linear/sdk");
+    return new LinearClient({ apiKey });
+  }
+
+  // GET /api/linear/teams
+  app.get("/api/linear/teams", async (_req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const teams = await client.teams({ first: 50 });
+      res.json(teams.nodes.map(t => ({ id: t.id, name: t.name, key: t.key, description: t.description })));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/projects
+  app.get("/api/linear/projects", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const projects = await client.projects({ first: limit });
+      res.json(projects.nodes.map(p => ({
+        id: p.id, name: p.name, state: p.state,
+        progress: p.progress != null ? Math.round(p.progress * 100) : null,
+        description: p.description,
+      })));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/issues
+  app.get("/api/linear/issues", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const filter: Record<string, unknown> = {};
+      if (req.query.team) filter.team = { key: { eq: req.query.team } };
+      if (req.query.status) filter.state = { name: { eq: req.query.status } };
+      if (req.query.since) filter.updatedAt = { gte: new Date(req.query.since as string) };
+
+      const issues = await client.issues({
+        first: limit,
+        filter: Object.keys(filter).length > 0 ? filter : undefined,
+      });
+
+      const result = [];
+      for (const issue of issues.nodes) {
+        const state = await issue.state;
+        const assignee = await issue.assignee;
+        result.push({
+          id: issue.id, identifier: issue.identifier, title: issue.title,
+          status: state?.name ?? null, priority: issue.priority,
+          assignee: assignee ? { name: assignee.name, email: assignee.email } : null,
+          dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
+          createdAt: issue.createdAt, updatedAt: issue.updatedAt,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/issues/me
+  app.get("/api/linear/issues/me", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const me = await client.viewer;
+      const filter: Record<string, unknown> = {};
+      if (req.query.status) filter.state = { name: { eq: req.query.status } };
+      const assigned = await me.assignedIssues({
+        first: limit,
+        filter: Object.keys(filter).length > 0 ? filter : undefined,
+      });
+
+      const result = [];
+      for (const issue of assigned.nodes) {
+        const state = await issue.state;
+        result.push({
+          id: issue.id, identifier: issue.identifier, title: issue.title,
+          status: state?.name ?? null, priority: issue.priority,
+          dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/issues/:id
+  app.get("/api/linear/issues/:id", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const issue = await client.issue(req.params.id);
+      const state = await issue.state;
+      const assignee = await issue.assignee;
+      const proj = await issue.project;
+      const labels = await issue.labels();
+      const comments = await issue.comments({ first: 10 });
+
+      const commentData = [];
+      for (const c of comments.nodes) {
+        const author = await c.user;
+        commentData.push({ author: author?.name ?? "Unknown", body: c.body, createdAt: c.createdAt });
+      }
+
+      res.json({
+        id: issue.id, identifier: issue.identifier, title: issue.title,
+        description: issue.description ?? null,
+        status: state?.name ?? null, priority: issue.priority,
+        assignee: assignee ? { name: assignee.name, email: assignee.email } : null,
+        project: proj ? { name: proj.name, id: proj.id } : null,
+        labels: labels.nodes.map(l => l.name),
+        dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
+        createdAt: issue.createdAt, updatedAt: issue.updatedAt,
+        comments: commentData,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/issues/:id/sub-issues
+  app.get("/api/linear/issues/:id/sub-issues", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const parent = await client.issue(req.params.id);
+      const children = await parent.children({ first: 50 });
+
+      const result = [];
+      for (const issue of children.nodes) {
+        const state = await issue.state;
+        const assignee = await issue.assignee;
+        result.push({
+          id: issue.id, identifier: issue.identifier, title: issue.title,
+          status: state?.name ?? null, priority: issue.priority,
+          assignee: assignee?.name ?? null,
+          dueDate: issue.dueDate ?? null,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // POST /api/linear/issues
+  app.post("/api/linear/issues", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const { team, title, description, priority, dueDate, estimate, assigneeEmail, status, labels, project, parentIssueId } = req.body;
+      if (!title) return res.status(400).json({ error: "title is required" });
+      if (!team) return res.status(400).json({ error: "team is required" });
+
+      const teams = await client.teams({ filter: { key: { eq: team } } });
+      const teamNode = teams.nodes[0];
+      if (!teamNode) return res.status(404).json({ error: `Team '${team}' not found` });
+
+      const input: Record<string, unknown> = { teamId: teamNode.id, title };
+      if (description) input.description = description;
+      if (priority != null) input.priority = priority;
+      if (dueDate) input.dueDate = dueDate;
+      if (estimate != null) input.estimate = estimate;
+      if (parentIssueId) {
+        const parent = await client.issue(parentIssueId);
+        input.parentId = parent.id;
+      }
+
+      if (assigneeEmail) {
+        const users = await client.users();
+        const match = users.nodes.find(u => u.email === assigneeEmail);
+        if (!match) return res.status(404).json({ error: `No user with email '${assigneeEmail}'` });
+        input.assigneeId = match.id;
+      }
+      if (status) {
+        const states = await client.workflowStates({ filter: { team: { id: { eq: teamNode.id } }, name: { eq: status } } });
+        if (states.nodes[0]) input.stateId = states.nodes[0].id;
+      }
+      if (labels && Array.isArray(labels) && labels.length > 0) {
+        const allLabels = await client.issueLabels({ filter: { team: { id: { eq: teamNode.id } } } });
+        const nameSet = new Set(labels.map((n: string) => n.toLowerCase()));
+        const ids = allLabels.nodes.filter(l => nameSet.has(l.name.toLowerCase())).map(l => l.id);
+        if (ids.length > 0) input.labelIds = ids;
+      }
+      if (project) {
+        const projects = await client.projects({ filter: { name: { eq: project } } });
+        if (projects.nodes[0]) input.projectId = projects.nodes[0].id;
+      }
+
+      const result = await client.createIssue(input as Parameters<typeof client.createIssue>[0]);
+      const created = await result.issue;
+      if (!created) return res.status(500).json({ error: "Failed to create issue" });
+
+      res.status(201).json({ identifier: created.identifier, title: created.title, id: created.id });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // PATCH /api/linear/issues/:id
+  app.patch("/api/linear/issues/:id", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const issue = await client.issue(req.params.id);
+      const teamRef = await issue.team;
+      const { title, description, priority, dueDate, estimate, assigneeEmail, status, labels, project } = req.body;
+
+      const input: Record<string, unknown> = {};
+      if (title) input.title = title;
+      if (description) input.description = description;
+      if (priority != null) input.priority = priority;
+      if (dueDate) input.dueDate = dueDate;
+      if (estimate != null) input.estimate = estimate;
+
+      if (assigneeEmail) {
+        const users = await client.users();
+        const match = users.nodes.find(u => u.email === assigneeEmail);
+        if (!match) return res.status(404).json({ error: `No user with email '${assigneeEmail}'` });
+        input.assigneeId = match.id;
+      }
+      if (status && teamRef) {
+        const states = await client.workflowStates({ filter: { team: { id: { eq: teamRef.id } }, name: { eq: status } } });
+        if (states.nodes[0]) input.stateId = states.nodes[0].id;
+      }
+      if (labels && Array.isArray(labels) && labels.length > 0 && teamRef) {
+        const allLabels = await client.issueLabels({ filter: { team: { id: { eq: teamRef.id } } } });
+        const nameSet = new Set(labels.map((n: string) => n.toLowerCase()));
+        const ids = allLabels.nodes.filter(l => nameSet.has(l.name.toLowerCase())).map(l => l.id);
+        if (ids.length > 0) input.labelIds = ids;
+      }
+      if (project) {
+        const projects = await client.projects({ filter: { name: { eq: project } } });
+        if (projects.nodes[0]) input.projectId = projects.nodes[0].id;
+      }
+
+      if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update" });
+
+      await client.updateIssue(issue.id, input);
+      const updated = await client.issue(req.params.id);
+      const newState = await updated.state;
+
+      res.json({ identifier: updated.identifier, title: updated.title, status: newState?.name ?? null });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // DELETE /api/linear/issues/:id
+  app.delete("/api/linear/issues/:id", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const issue = await client.issue(req.params.id);
+      const identifier = issue.identifier;
+      await client.deleteIssue(issue.id);
+      res.json({ deleted: identifier });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // POST /api/linear/issues/:id/comments
+  app.post("/api/linear/issues/:id/comments", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const { body } = req.body;
+      if (!body) return res.status(400).json({ error: "body is required" });
+
+      const issue = await client.issue(req.params.id);
+      await client.createComment({ issueId: issue.id, body });
+      res.status(201).json({ identifier: issue.identifier, commented: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /api/linear/search
+  app.get("/api/linear/search", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const query = req.query.q as string;
+      if (!query) return res.status(400).json({ error: "q query parameter is required" });
+      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+
+      const results = await client.searchIssues(query, { first: limit });
+      const result = [];
+      for (const issue of results.nodes) {
+        const state = await issue.state;
+        const assignee = await issue.assignee;
+        result.push({
+          id: issue.id, identifier: issue.identifier, title: issue.title,
+          status: state?.name ?? null, priority: issue.priority,
+          assignee: assignee?.name ?? null,
+          dueDate: issue.dueDate ?? null,
+        });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // POST /api/linear/projects
+  app.post("/api/linear/projects", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const { name, team, description, content, status: projStatus } = req.body;
+      if (!name) return res.status(400).json({ error: "name is required" });
+      if (!team) return res.status(400).json({ error: "team is required" });
+
+      const teams = await client.teams({ filter: { key: { eq: team } } });
+      const teamNode = teams.nodes[0];
+      if (!teamNode) return res.status(404).json({ error: `Team '${team}' not found` });
+
+      const input: Record<string, unknown> = { name, teamIds: [teamNode.id] };
+      if (description) input.description = description;
+      if (content) input.content = content;
+      if (projStatus) input.state = projStatus;
+
+      const result = await client.createProject(input as Parameters<typeof client.createProject>[0]);
+      const created = await result.project;
+      if (!created) return res.status(500).json({ error: "Failed to create project" });
+
+      res.status(201).json({ id: created.id, name: created.name, state: created.state });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // PATCH /api/linear/projects/:name
+  app.patch("/api/linear/projects/:name", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const projects = await client.projects({ filter: { name: { eq: req.params.name } } });
+      const proj = projects.nodes[0];
+      if (!proj) return res.status(404).json({ error: `Project '${req.params.name}' not found` });
+
+      const { name, description, content, status: projStatus, targetDate } = req.body;
+      const input: Record<string, unknown> = {};
+      if (name) input.name = name;
+      if (description) input.description = description;
+      if (content) input.content = content;
+      if (projStatus) input.state = projStatus;
+      if (targetDate) input.targetDate = targetDate;
+
+      if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update" });
+
+      await client.updateProject(proj.id, input);
+      res.json({ name: name ?? req.params.name, updated: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // POST /api/linear/projects/:name/updates
+  app.post("/api/linear/projects/:name/updates", async (req, res) => {
+    const client = requireLinear(res);
+    if (!client) return;
+    try {
+      const projects = await client.projects({ filter: { name: { eq: req.params.name } } });
+      const proj = projects.nodes[0];
+      if (!proj) return res.status(404).json({ error: `Project '${req.params.name}' not found` });
+
+      const { body, health } = req.body;
+      if (!body) return res.status(400).json({ error: "body is required" });
+
+      const input: Record<string, unknown> = { projectId: proj.id, body };
+      if (health && ["onTrack", "atRisk", "offTrack"].includes(health)) input.health = health;
+
+      await client.createProjectUpdate(input as Parameters<typeof client.createProjectUpdate>[0]);
+      res.status(201).json({ project: req.params.name, health: health ?? null, posted: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // --- Data export ---
 
   app.get("/api/export", async (req, res) => {

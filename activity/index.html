@@ -136,12 +136,12 @@
 
       await new Promise((resolve, reject) => {
         loaderScript.onload = resolve;
-        loaderScript.onerror = () => reject(new Error("Failed to load Unity loader — check Build/ files"));
+        loaderScript.onerror = () => reject(new Error("Failed to load Unity loader - check Build/ files"));
         document.body.appendChild(loaderScript);
       });
 
       if (typeof createUnityInstance !== "function") {
-        throw new Error("createUnityInstance not found — check Unity build output");
+        throw new Error("createUnityInstance not found - check Unity build output");
       }
 
       const canvas = document.getElementById("unity-canvas");

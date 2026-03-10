@@ -1,8 +1,23 @@
 import { defineTool, param, getToolConfigValue } from "./types.js";
+import { PNG } from "pngjs";
 
 // ============================================================
 // Helpers
 // ============================================================
+
+/** Ensure a PNG buffer has an alpha channel (RGBA). DALL-E edits reject RGB PNGs. */
+function ensureRGBA(buf: Buffer): Buffer {
+  try {
+    const png = PNG.sync.read(buf);
+    // Already RGBA or LA - return as-is
+    if (png.alpha) return buf;
+    // Re-encode with alpha channel (pngjs always writes RGBA)
+    return PNG.sync.write(png);
+  } catch {
+    // Not a PNG or parse error - return original and let the API decide
+    return buf;
+  }
+}
 
 function getConfig() {
   const apiKey =
@@ -82,17 +97,18 @@ async function edit(
   // Download the reference image
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download reference image (${imgRes.status})`);
-  const imgBuf = Buffer.from(await imgRes.arrayBuffer());
-  const mime = imgRes.headers.get("content-type") || "image/png";
+  let imgBuf: Buffer = Buffer.from(await imgRes.arrayBuffer()) as Buffer;
+  let mime = imgRes.headers.get("content-type") || "image/png";
 
-  // Determine extension from mime
-  const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg"
-    : mime.includes("webp") ? "webp"
-    : "png";
+  // DALL-E edits require RGBA PNG - convert RGB PNGs automatically
+  if (mime.includes("png")) {
+    imgBuf = ensureRGBA(imgBuf);
+    mime = "image/png";
+  }
 
   // Build multipart form
   const form = new FormData();
-  form.append("image", new Blob([imgBuf], { type: mime }), `input.${ext}`);
+  form.append("image", new Blob([new Uint8Array(imgBuf)], { type: mime }), "input.png");
   form.append("prompt", prompt);
   form.append("n", "1");
   form.append("size", size);

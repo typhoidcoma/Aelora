@@ -695,9 +695,8 @@ async function runCompletionLoop(
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
-  // Tool call JSON (long prompts + URLs) can easily exceed a low token cap.
-  // Reasoning models (GPT-5.x, o-series) also consume hidden reasoning tokens
-  // that count against max_completion_tokens, so we need a high floor.
+  // Tool call JSON (long prompts + URLs) can exceed a low token cap.
+  // Reasoning models also consume hidden tokens, so use a generous floor.
   const TOKEN_FLOOR_WITH_TOOLS = 16384;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const baseParams: any = {
@@ -1054,8 +1053,9 @@ function isUnfulfilledIntent(text: string): boolean {
  */
 function safeToolArgs(raw: string): string {
   // Replace bare integer literals that exceed Number.MAX_SAFE_INTEGER with quoted strings.
-  // The negative-lookbehind on `"` prevents double-quoting already-quoted values.
-  return raw.replace(/(?<!["\d])(\d{16,})(?!\d)/g, '"$1"');
+  // Only match numbers in JSON value positions (after : , or [) followed by , } or ].
+  // This avoids corrupting numbers inside string values (e.g. Discord CDN URLs).
+  return raw.replace(/([:,\[]\s*)(\d{16,})(\s*[,}\]])/g, '$1"$2"$3');
 }
 
 /**

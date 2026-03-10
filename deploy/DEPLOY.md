@@ -117,6 +117,26 @@ sudo tailscale funnel --bg off
 
 The dashboard is available at `https://<machine>.<tailnet>.ts.net` with automatic HTTPS certificates.
 
+### Path prefix (reverse proxy sub-path)
+
+If your proxy forwards a sub-path (e.g. `/aelora`) to the bot, set `web.basePath` so the server strips the prefix from incoming requests and the dashboard builds correct URLs:
+
+```yaml
+web:
+  enabled: true
+  port: 3000
+  basePath: "/aelora"
+```
+
+Then configure your proxy to forward `/aelora` to `http://127.0.0.1:3000`:
+
+```bash
+# Tailscale Funnel example
+sudo tailscale funnel --bg /aelora proxy http://127.0.0.1:3000
+```
+
+The dashboard will be at `https://<machine>.<tailnet>.ts.net/aelora/dashboard`.
+
 ### Serve vs Funnel
 
 | | `tailscale serve` | `tailscale funnel` |

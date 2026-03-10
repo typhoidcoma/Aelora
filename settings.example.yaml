@@ -97,6 +97,14 @@ persona:
 # API keys and config for tools. Each tool declares what it needs.
 
 tools: {}
+  # --- Web Search ---
+  # Provider: "brave" (default) or "openai" (uses OpenAI Responses API with web_search_preview).
+  # search:
+  #   provider: "openai"
+  #   apiKey: "sk-YOUR_OPENAI_KEY"    # omit to use llm.apiKey
+  #   model: "gpt-4o-mini"            # model for search (default: gpt-4o-mini)
+
+  # Brave Search (used when search.provider is not set)
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
@@ -148,6 +156,11 @@ web:
   # When set, /api/* routes (except /api/status) require
   # an Authorization: Bearer <key> header.
   # apiKey: "your-secret-api-key"
+
+  # Base path for reverse proxy deployments (e.g. Tailscale Funnel, nginx).
+  # If your proxy forwards /aelora/* to this server, set basePath: "/aelora"
+  # so the server strips the prefix from incoming requests.
+  # basePath: "/aelora"
 
 # --- Memory ---
 # Controls per-user/channel fact storage behavior.

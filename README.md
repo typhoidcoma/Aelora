@@ -19,7 +19,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
 - **Memory** - Per-user and per-channel fact storage, auto-injected into the system prompt; auto-synthesizes personality profiles from accumulated facts
-- **Web Search** - Brave Search API integration
+- **Web Search** - Brave Search or OpenAI Responses API (configurable provider)
 - **Google Tasks** - Full task management: list, create, complete, update, delete
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
 - **Gmail** - Read, send, search, label, and trash messages
@@ -34,7 +34,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
 - **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, data cleanup
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
-- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response
+- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response, manual set/reclassify via API
 - **Data Export** - JSON bundle of all bot data via API or dashboard
 - **File Logging** - Optional daily log files with automatic rotation
 - **Config Validation** - Zod-powered schema validation with clear startup errors
@@ -92,7 +92,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 |---|---|
 | `timezone` | IANA timezone for the server (cron, logs, date formatting) |
 | `discord` | Bot token, response mode (mention/all), allowed channels, DMs, status |
-| `llm` | API endpoint, model, max tokens, conversation history length, lite mode |
+| `llm` | API endpoint, model, max tokens, conversation history length, auxiliaryModel, lite mode |
 | `persona` | Personality system toggle, directory, bot name, active persona |
 | `tools` | Per-tool config (API keys, Google OAuth credentials, etc.) |
 | `supabase` | Supabase project URL and anon key for scoring persistence |
@@ -101,7 +101,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `memory` | Max facts per scope, max fact length, TTL for auto-pruning |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
-| `web` | Dashboard toggle and port |
+| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix) |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 
 </details>
@@ -360,7 +360,7 @@ A `researcher` agent is included. It searches the web, synthesizes findings, and
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
 | `/new` | Start a fresh session (clears history and context) |
-| `/websearch [query] [count]` | Search the web via Brave Search (1-10 results) |
+| `/websearch [query] [count]` | Search the web (Brave or OpenAI, 1-10 results) |
 | `/memory view` | View your remembered facts |
 | `/memory add [fact]` | Remember a fact |
 | `/memory clear` | Clear all your remembered facts |
@@ -437,7 +437,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 - **Users** - Profile table with detail overlay, facts viewer, cascading delete
 - **Export** - JSON export of all bot data
 - **Activity Preview** - Test Unity WebGL build locally
-- **Mood** - Live emotion indicator via SSE
+- **Mood** - Live emotion indicator via SSE, manual set/reclassify
 - **Console** - Live log stream via SSE
 
 </details>
@@ -487,7 +487,7 @@ src/
 │   ├── google-tasks.ts         # Google Tasks full CRUD
 │   ├── google-docs.ts          # Google Docs read/write/search
 │   ├── _google-auth.ts         # Shared OAuth2 helpers (skipped on load)
-│   ├── brave-search.ts         # Brave Search
+│   ├── brave-search.ts         # Web search (Brave or OpenAI provider)
 │   ├── date.ts                 # Natural language date resolution (chrono-node)
 │   ├── cron.ts                 # Cron job management
 │   ├── memory.ts               # Memory save/list/forget

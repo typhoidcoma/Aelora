@@ -2009,6 +2009,74 @@ paths:
                     type: string
                     format: date-time
 
+    post:
+      tags: [System]
+      summary: Set or reclassify mood
+      description: |
+        Manually set the bot's mood or trigger a reclassification from the last conversation.
+        Send `reclassify: true` to re-run mood classification on the most recent exchange,
+        or provide mood fields to set it directly.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  description: Manual mood set
+                  required: [emotion, intensity]
+                  properties:
+                    emotion:
+                      type: string
+                      enum: [joy, trust, fear, surprise, sadness, disgust, anger, anticipation]
+                    intensity:
+                      type: string
+                      enum: [low, mid, high]
+                    secondary:
+                      type: string
+                      nullable: true
+                      description: Optional secondary emotion
+                    note:
+                      type: string
+                      nullable: true
+                      description: Brief context for mood shift
+                - type: object
+                  description: Reclassify from last conversation
+                  required: [reclassify]
+                  properties:
+                    reclassify:
+                      type: boolean
+                      enum: [true]
+      responses:
+        "200":
+          description: Updated mood state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                  emotion:
+                    type: string
+                  intensity:
+                    type: string
+                  label:
+                    type: string
+                  secondary:
+                    type: string
+                    nullable: true
+                  note:
+                    type: string
+                    nullable: true
+                  updatedAt:
+                    type: string
+                    format: date-time
+        "400":
+          description: Missing required fields or invalid values
+
   /api/logs:
     get:
       tags: [System]

@@ -77,6 +77,8 @@ export async function processAttachments(
           type: "image_url",
           image_url: { url: dataUri, detail: "auto" },
         });
+        // Surface the original URL so the LLM can pass it to tools (e.g. luminizer)
+        textParts.push(`[Image: "${attachment.name}" url=${attachment.url}]`);
       } catch (err) {
         textParts.push(
           `[Failed to download image "${attachment.name}": ${String(err)}]`,

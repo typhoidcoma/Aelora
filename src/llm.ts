@@ -922,7 +922,7 @@ async function runCompletionLoop(
           args = JSON.parse(safeToolArgs(toolCall.function.arguments));
         } catch {
           console.warn(
-            `LLM: invalid JSON in tool call args for ${toolCall.function.name}`,
+            `LLM: invalid JSON in tool call args for ${toolCall.function.name}: ${(toolCall.function.arguments || "").slice(0, 300)}`,
           );
         }
 

@@ -695,18 +695,18 @@ async function runCompletionLoop(
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
-  const baseParams: {
-    model: string;
-    messages: ChatMessage[];
-    max_completion_tokens: number | undefined;
-    tools?: OpenAI.Chat.Completions.ChatCompletionTool[];
-  } = {
+  // When tools are present, omit max_completion_tokens entirely - tool call
+  // JSON (especially long prompts + URLs) can exceed a low cap like 1024 and
+  // get truncated mid-stream, producing invalid JSON arguments.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseParams: any = {
     model: resolvedModel,
     messages,
-    // When tools are present, don't cap tokens - tool call JSON can be large
-    // and a low limit (e.g. 1024) truncates the arguments mid-stream.
-    max_completion_tokens: tools.length > 0 ? undefined : (config.llm.maxTokens || undefined),
-    ...(tools.length > 0 ? { tools } : {}),
+    ...(tools.length > 0
+      ? { tools }
+      : config.llm.maxTokens
+        ? { max_completion_tokens: config.llm.maxTokens }
+        : {}),
   };
 
   console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
@@ -786,7 +786,7 @@ async function runCompletionLoop(
       const apiStart = Date.now();
       let stream;
       try {
-        stream = await client.chat.completions.create({ ...baseParams, stream: true });
+        stream = (await client.chat.completions.create({ ...baseParams, stream: true } as any)) as any;
       } catch (err) {
         if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
           contextTrimmed = true;

@@ -181,12 +181,24 @@ export default defineTool({
           data: { mode: "restyle", model: "gpt-image-1", size: finalSize },
         };
       } else {
-        // Generate mode: dall-e-3 returns a URL directly
+        // Generate mode: dall-e-3 returns a URL — download and send as attachment
         const result = await generate(finalPrompt, finalSize, quality || "standard", cfg);
 
+        if (context.channelId) {
+          try {
+            const dl = await fetch(result.url);
+            if (dl.ok) {
+              const buf = Buffer.from(await dl.arrayBuffer());
+              await context.sendFileToChannel(context.channelId, buf, "luminizer.png");
+            }
+          } catch (err) {
+            console.warn("Luminizer: failed to download generated image for attachment:", err);
+          }
+        }
+
         return {
-          text: `Generated image: ${result.url}${result.revised_prompt ? `\n\nRevised prompt: ${result.revised_prompt}` : ""}`,
-          data: { url: result.url, revisedPrompt: result.revised_prompt, mode: "generate", model: cfg.model, size: finalSize },
+          text: `Image generated and sent as attachment.${result.revised_prompt ? ` Revised prompt: ${result.revised_prompt}` : ""}`,
+          data: { mode: "generate", model: cfg.model, size: finalSize },
         };
       }
     } catch (err) {

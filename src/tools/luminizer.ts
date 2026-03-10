@@ -92,6 +92,7 @@ async function restyle(
   form.append("n", "1");
   form.append("size", size);
   form.append("model", "gpt-image-1");
+  form.append("response_format", "url");
 
   const res = await fetch(
     `${cfg.baseURL.replace(/\/+$/, "")}/images/edits`,
@@ -108,16 +109,12 @@ async function restyle(
   }
 
   const data = (await res.json()) as {
-    data: { url?: string; b64_json?: string; revised_prompt?: string }[];
+    data: { url: string; revised_prompt?: string }[];
   };
 
-  // gpt-image-1 may return b64_json instead of url
   const image = data.data[0];
-  if (image?.url) return image;
-  if (image?.b64_json) {
-    return { url: `data:image/png;base64,${image.b64_json}`, revised_prompt: image.revised_prompt };
-  }
-  throw new Error("No image returned from the API.");
+  if (!image?.url) throw new Error("No image URL returned from the API.");
+  return image;
 }
 
 // ============================================================

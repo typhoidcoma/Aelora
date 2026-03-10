@@ -703,7 +703,9 @@ async function runCompletionLoop(
   } = {
     model: resolvedModel,
     messages,
-    max_completion_tokens: config.llm.maxTokens || undefined,
+    // When tools are present, don't cap tokens - tool call JSON can be large
+    // and a low limit (e.g. 1024) truncates the arguments mid-stream.
+    max_completion_tokens: tools.length > 0 ? undefined : (config.llm.maxTokens || undefined),
     ...(tools.length > 0 ? { tools } : {}),
   };
 
@@ -870,6 +872,9 @@ async function runCompletionLoop(
             type: "function" as const,
             function: { name: tc.name, arguments: tc.arguments },
           }));
+        for (const tc of toolCalls) {
+          console.log(`LLM: tool_call raw args for ${tc.function.name}: ${tc.function.arguments.slice(0, 500)}`);
+        }
       }
     } else {
       // --- Non-streaming path ---

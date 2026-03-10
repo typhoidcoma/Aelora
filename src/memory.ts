@@ -12,9 +12,9 @@ export function configureMemory(opts: { maxFactsPerScope?: number; maxFactLength
   if (opts.maxFactLength) maxFactLength = opts.maxFactLength;
 }
 
-// Prompt injection caps  -  keep system prompt bounded
-const MAX_GLOBAL_INJECTED = 10;
-const MAX_SCOPED_INJECTED = 15;
+// Prompt injection caps  -  keep system prompt bounded (more available via memory search tool)
+const MAX_GLOBAL_INJECTED = 5;
+const MAX_SCOPED_INJECTED = 8;
 
 type MemoryFact = {
   fact: string;

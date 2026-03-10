@@ -434,6 +434,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
   // The persona base prompt (above) is always the same, so it anchors the cache.
 
   // --- Tool/agent inventory (static  -  only changes on tool toggle) ---
+  // Condensed: name only, the LLM gets full schemas via the tools array anyway.
   if (!config.llm.lite) {
     const tools = getEnabledTools();
     const agents = agentRegistryCache
@@ -441,23 +442,16 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
       : [];
 
     if (tools.length > 0 || agents.length > 0) {
-      const lines: string[] = ["\n\n## Currently Available"];
+      const parts: string[] = ["\n\n## Currently Available"];
 
       if (tools.length > 0) {
-        lines.push("\n### Tools");
-        for (const t of tools) {
-          lines.push(`- **${t.name}**  -  ${t.description}`);
-        }
+        parts.push("Tools: " + tools.map((t) => t.name).join(", "));
       }
-
       if (agents.length > 0) {
-        lines.push("\n### Agents");
-        for (const a of agents) {
-          lines.push(`- **${a.name}**  -  ${a.description}`);
-        }
+        parts.push("Agents: " + agents.map((a) => a.name).join(", "));
       }
 
-      sections.push(lines.join("\n"));
+      sections.push(parts.join("\n"));
     }
   }
 
@@ -474,7 +468,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
       }
       userLine += ".";
       if (profile.personalitySummary) {
-        userLine += `\n\n${profile.personalitySummary}`;
+        userLine += `\n\n${profile.personalitySummary.slice(0, 500)}`;
       }
       sections.push("\n\n" + userLine);
     }
@@ -521,31 +515,8 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
     sections.push(`\n\n## Current Date & Time\n${now} (${tz})`);
   }
 
-  // --- System state (most dynamic  -  uptime changes every request, goes last) ---
-  if (!config.llm.lite) {
-    const state = getSystemState?.();
-    if (state) {
-      const lines: string[] = ["\n\n## System Status"];
-      lines.push(`- **Bot**: ${state.botName}${state.discordTag ? ` (${state.discordTag})` : ""}`);
-      lines.push(`- **Discord**: ${state.connected ? "connected" : "disconnected"}, ${state.guildCount} guild(s)`);
-      lines.push(`- **Model**: ${state.model}`);
-
-      const h = Math.floor(state.uptime / 3600);
-      const m = Math.floor((state.uptime % 3600) / 60);
-      lines.push(`- **Uptime**: ${h}h ${m}m`);
-
-      if (state.heartbeat) {
-        lines.push(`- **Heartbeat**: ${state.heartbeat.running ? "running" : "stopped"}, ${state.heartbeat.handlers} handler(s)`);
-      }
-
-      const enabledCron = state.cronJobs.filter((j) => j.enabled);
-      if (enabledCron.length > 0) {
-        lines.push(`- **Cron**: ${enabledCron.length} active job(s)`);
-      }
-
-      sections.push(lines.join("\n"));
-    }
-  }
+  // System status (uptime, heartbeat, cron) omitted to save prompt space.
+  // The bot gets tool schemas via the tools array; runtime state is rarely needed.
 
   if (sections.length === 0) return base;
   return base + sections.join("");

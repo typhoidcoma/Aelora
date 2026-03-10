@@ -161,7 +161,9 @@ export default defineTool({
       return "Error: No API key for image generation. Set luminizer.apiKey in settings.yaml under tools: or ensure AELORA_LLM_API_KEY is an OpenAI key.";
     }
 
+    console.log(`Luminizer: stylePrompt=${cfg.stylePrompt ? cfg.stylePrompt.slice(0, 80) + "..." : "(empty)"}`);
     const finalPrompt = buildPrompt(prompt!, cfg.stylePrompt);
+    console.log(`Luminizer: finalPrompt=${finalPrompt.slice(0, 200)}...`);
     const finalSize = size || "1024x1024";
 
     try {

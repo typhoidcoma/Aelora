@@ -19,6 +19,7 @@ export type ToolContext = {
   channelId: string | null;
   userId: string | null;
   sendToChannel: (channelId: string, text: string) => Promise<void>;
+  sendFileToChannel: (channelId: string, file: Buffer, filename: string) => Promise<void>;
 };
 
 /**

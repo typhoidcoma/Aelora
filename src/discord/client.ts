@@ -1,4 +1,5 @@
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -405,4 +406,23 @@ export async function sendToChannel(
   for (const chunk of chunks) {
     await channel.send(chunk);
   }
+}
+
+/**
+ * Send a file (e.g. generated image) to a Discord channel as an attachment.
+ */
+export async function sendFileToChannel(
+  channelId: string,
+  file: Buffer,
+  filename: string,
+): Promise<void> {
+  if (!discordClient) throw new Error("Discord client not connected");
+
+  const channel = await discordClient.channels.fetch(channelId);
+  if (!channel || !channel.isSendable()) {
+    throw new Error(`Channel ${channelId} is not a text channel`);
+  }
+
+  const attachment = new AttachmentBuilder(file, { name: filename });
+  await channel.send({ files: [attachment] });
 }

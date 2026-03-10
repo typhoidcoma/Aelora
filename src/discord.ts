@@ -2,6 +2,7 @@
 export {
   startDiscord,
   sendToChannel,
+  sendFileToChannel,
   discordClient,
   botUserId,
 } from "./discord/client.js";

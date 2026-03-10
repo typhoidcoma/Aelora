@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { pathToFileURL } from "node:url";
 import { normalizeToolResult, type Tool, type ToolHandler, type ToolContext, type ToolResultObject } from "./tools/types.js";
 import type OpenAI from "openai";
-import { sendToChannel } from "./discord.js";
+import { sendToChannel, sendFileToChannel } from "./discord.js";
 import { loadToggleState, saveToolToggle } from "./state.js";
 
 export type RegisteredTool = {
@@ -118,7 +118,7 @@ export async function executeTool(
     : "(no args)";
   console.log(`Tools: executing "${toolName}" (${argSummary})`);
 
-  const context: ToolContext = { channelId, userId: userId ?? null, sendToChannel };
+  const context: ToolContext = { channelId, userId: userId ?? null, sendToChannel, sendFileToChannel };
   const start = Date.now();
 
   try {

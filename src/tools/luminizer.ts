@@ -62,13 +62,17 @@ async function generate(
     throw new Error(`Image generation failed (${res.status}): ${body.slice(0, 300)}`);
   }
 
-  return (await res.json()) as {
+  const data = (await res.json()) as {
     data: { url: string; revised_prompt?: string }[];
   };
+  const image = data.data[0];
+  if (!image?.url) throw new Error("No image returned from the API.");
+  return { url: image.url, revised_prompt: image.revised_prompt };
 }
 
 // ============================================================
 // Restyle (image + prompt -> image via gpt-image-1 /images/edits)
+// Returns raw b64 PNG since gpt-image-1 doesn't support response_format=url.
 // ============================================================
 
 async function restyle(
@@ -76,13 +80,11 @@ async function restyle(
   prompt: string,
   size: string,
   cfg: ReturnType<typeof getConfig>,
-) {
-  // Download the reference image
+): Promise<{ b64: string; revised_prompt?: string }> {
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Failed to download reference image (${imgRes.status})`);
   const imgBuf = new Uint8Array(await imgRes.arrayBuffer());
 
-  // Build multipart form — gpt-image-1 accepts PNG/JPEG/WebP directly
   const form = new FormData();
   const mime = imgRes.headers.get("content-type") || "image/png";
   const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg"
@@ -92,7 +94,6 @@ async function restyle(
   form.append("n", "1");
   form.append("size", size);
   form.append("model", "gpt-image-1");
-  form.append("response_format", "url");
 
   const res = await fetch(
     `${cfg.baseURL.replace(/\/+$/, "")}/images/edits`,
@@ -109,12 +110,18 @@ async function restyle(
   }
 
   const data = (await res.json()) as {
-    data: { url: string; revised_prompt?: string }[];
+    data: { b64_json?: string; url?: string; revised_prompt?: string }[];
   };
 
   const image = data.data[0];
-  if (!image?.url) throw new Error("No image URL returned from the API.");
-  return image;
+  if (image?.b64_json) return { b64: image.b64_json, revised_prompt: image.revised_prompt };
+  if (image?.url) {
+    // Unlikely but handle gracefully: download the URL to get raw data
+    const dl = await fetch(image.url);
+    const buf = Buffer.from(await dl.arrayBuffer());
+    return { b64: buf.toString("base64"), revised_prompt: image.revised_prompt };
+  }
+  throw new Error("No image returned from the API.");
 }
 
 // ============================================================
@@ -126,7 +133,7 @@ export default defineTool({
   description:
     "Generate or restyle images. Text-to-image by default. " +
     "If imageUrl is provided, restyles that image using gpt-image-1 while preserving " +
-    "the pose, face, and composition. Returns an image URL that Discord will auto-embed.",
+    "the pose, face, and composition. The result is sent directly as a Discord attachment.",
 
   params: {
     prompt: param.string(
@@ -147,7 +154,7 @@ export default defineTool({
 
   config: [],
 
-  handler: async ({ prompt, imageUrl, size, quality }) => {
+  handler: async ({ prompt, imageUrl, size, quality }, context) => {
     const cfg = getConfig();
 
     if (!cfg.apiKey) {
@@ -158,30 +165,28 @@ export default defineTool({
     const finalSize = size || "1024x1024";
 
     try {
-      let url: string;
-      let revisedPrompt: string | undefined;
-      let mode: string;
-
       if (imageUrl) {
-        // Restyle mode: send image + prompt to gpt-image-1
+        // Restyle mode: get b64 from gpt-image-1 and send as Discord attachment
         const result = await restyle(imageUrl as string, finalPrompt, finalSize, cfg);
-        url = result.url!;
-        revisedPrompt = result.revised_prompt;
-        mode = "restyle";
-      } else {
-        // Generate mode: text-to-image
-        const data = await generate(finalPrompt, finalSize, quality || "standard", cfg);
-        const image = data.data[0];
-        if (!image?.url) return "Error: No image returned from the API.";
-        url = image.url;
-        revisedPrompt = image.revised_prompt;
-        mode = "generate";
-      }
+        const buf = Buffer.from(result.b64, "base64");
 
-      return {
-        text: `Generated image: ${url}${revisedPrompt ? `\n\nRevised prompt: ${revisedPrompt}` : ""}`,
-        data: { url, revisedPrompt, mode, model: imageUrl ? "gpt-image-1" : cfg.model, size: finalSize },
-      };
+        if (context.channelId) {
+          await context.sendFileToChannel(context.channelId, buf, "luminizer.png");
+        }
+
+        return {
+          text: "Image restyled and sent as attachment.",
+          data: { mode: "restyle", model: "gpt-image-1", size: finalSize },
+        };
+      } else {
+        // Generate mode: dall-e-3 returns a URL directly
+        const result = await generate(finalPrompt, finalSize, quality || "standard", cfg);
+
+        return {
+          text: `Generated image: ${result.url}${result.revised_prompt ? `\n\nRevised prompt: ${result.revised_prompt}` : ""}`,
+          data: { url: result.url, revisedPrompt: result.revised_prompt, mode: "generate", model: cfg.model, size: finalSize },
+        };
+      }
     } catch (err) {
       return `Error: ${err instanceof Error ? err.message : String(err)}`;
     }

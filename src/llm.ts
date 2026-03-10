@@ -695,15 +695,16 @@ async function runCompletionLoop(
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
-  // When tools are present, omit max_completion_tokens entirely - tool call
-  // JSON (especially long prompts + URLs) can exceed a low cap like 1024 and
-  // get truncated mid-stream, producing invalid JSON arguments.
+  // Tool call JSON (long prompts + URLs) can easily exceed a low token cap
+  // like 1024. When tools are present, use at least 4096 so tool arguments
+  // aren't truncated mid-stream.
+  const TOKEN_FLOOR_WITH_TOOLS = 4096;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const baseParams: any = {
     model: resolvedModel,
     messages,
     ...(tools.length > 0
-      ? { tools }
+      ? { tools, max_completion_tokens: Math.max(config.llm.maxTokens || TOKEN_FLOOR_WITH_TOOLS, TOKEN_FLOOR_WITH_TOOLS) }
       : config.llm.maxTokens
         ? { max_completion_tokens: config.llm.maxTokens }
         : {}),

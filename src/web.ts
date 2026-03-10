@@ -1483,6 +1483,54 @@ export function startWeb(state: AppState): Server | null {
     });
   });
 
+  // Set mood manually or trigger re-classification
+  app.post("/api/mood", async (req, res) => {
+    const { emotion, intensity, secondary, note, reclassify } = req.body ?? {};
+
+    // Trigger a re-classify from the last bot response
+    if (reclassify) {
+      try {
+        await classifyMood("(force reclassify)", "(force reclassify)");
+        const mood = loadMood();
+        res.json(mood ? { active: true, emotion: mood.emotion, intensity: mood.intensity, label: resolveLabel(mood) } : { active: false });
+      } catch (err) {
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+
+    // Manual mood set
+    if (!emotion) {
+      res.status(400).json({ error: "emotion is required (joy, trust, fear, surprise, sadness, disgust, anger, anticipation)" });
+      return;
+    }
+
+    const { saveMood: save, PLUTCHIK_EMOTIONS } = await import("./mood.js");
+    const validEmotions = Object.keys(PLUTCHIK_EMOTIONS);
+    if (!validEmotions.includes(emotion)) {
+      res.status(400).json({ error: `Invalid emotion. Must be one of: ${validEmotions.join(", ")}` });
+      return;
+    }
+
+    const validIntensities = ["low", "mid", "high"];
+    const int = intensity || "mid";
+    if (!validIntensities.includes(int)) {
+      res.status(400).json({ error: "intensity must be low, mid, or high" });
+      return;
+    }
+
+    save({
+      emotion,
+      intensity: int,
+      ...(secondary && validEmotions.includes(secondary) ? { secondary } : {}),
+      ...(note ? { note: note.slice(0, 200) } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const mood = loadMood();
+    res.json({ active: true, emotion: mood!.emotion, intensity: mood!.intensity, label: resolveLabel(mood!) });
+  });
+
   // Recent logs (for initial load)
   app.get("/api/logs", (_req, res) => {
     res.json(getRecentLogs());

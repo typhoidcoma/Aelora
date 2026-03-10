@@ -123,11 +123,11 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 
-  const moodSnippet = `User: ${userMessage.slice(0, 300)}\n\nBot: ${botResponse.slice(0, 500)}`;
+  const moodSnippet = `User: ${userMessage.slice(0, 150)}\n\nBot: ${botResponse.slice(0, 250)}`;
   const userContent = getDisableThinking() ? `/no_think\n${moodSnippet}` : moodSnippet;
   const moodParams: Record<string, unknown> = {
     model,
-    max_completion_tokens: 4096,
+    max_completion_tokens: 256,
     ...(getDisableThinking() ? { enable_thinking: false } : {}),
     messages: [
       { role: "system", content: CLASSIFY_SYSTEM },

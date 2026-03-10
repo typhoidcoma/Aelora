@@ -710,7 +710,7 @@ async function runCompletionLoop(
         : {}),
   };
 
-  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length})`);
+  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length}, max_tokens=${baseParams.max_completion_tokens ?? "unset"})`);
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;

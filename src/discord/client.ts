@@ -140,7 +140,15 @@ export async function startDiscord(config: Config): Promise<Client> {
     }
 
     if (config.discord.guildMode === "mention") {
-      if (!botUserId || !message.mentions.has(botUserId)) return;
+      const mentioned = botUserId && message.mentions.has(botUserId);
+      const botName = config.persona.botName.toLowerCase();
+      const namedInText = message.content.toLowerCase().includes(botName);
+      if (!mentioned && !namedInText) return;
+      // Name-triggered (not @mentioned) — flag for concise response
+      if (!mentioned && namedInText) {
+        await handleMessage(message, config, true);
+        return;
+      }
     }
 
     await handleMessage(message, config);
@@ -173,7 +181,7 @@ const STREAM_EDIT_INTERVAL = 1200;
 const TYPING_INTERVAL = 8_000;
 const OVERFLOW_THRESHOLD = 1800;
 
-async function handleMessage(message: Message, config: Config): Promise<void> {
+async function handleMessage(message: Message, config: Config, nameTriggered = false): Promise<void> {
   let content = message.content;
   if (botUserId) {
     content = content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
@@ -212,6 +220,10 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
       channel.sendTyping().catch((err) => console.warn("Discord: sendTyping failed:", err.message ?? err));
     }, TYPING_INTERVAL);
 
+    // If name-triggered (not @mentioned), hint the LLM to be brief
+    if (nameTriggered) {
+      content = `[You were not directly addressed — your name was just mentioned in conversation. Only chime in if you have something genuinely useful or fun to add. Keep it to 1-2 short sentences max. Do NOT use tools.]\n${content}`;
+    }
     const userContent = await processAttachments(message, content, config.llm.model);
 
     // Streaming state  -  no placeholder reply; typing indicator covers the wait

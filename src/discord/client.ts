@@ -274,7 +274,24 @@ async function handleMessage(message: Message, config: Config): Promise<void> {
     const llmStart = Date.now();
     const text = await getLLMResponse(message.channelId, userContent, (token) => {
       buffer += token;
-    }, message.author.id);
+    }, message.author.id, async (toolNames) => {
+      // Tools are about to run - show a clean status instead of partial streaming text
+      const label = toolNames.length === 1 ? toolNames[0] : toolNames.join(", ");
+      const statusText = `_Working on it (${label})..._`;
+      try {
+        if (activeMsg) {
+          await (activeMsg as Message).edit(statusText);
+        } else {
+          activeMsg = await message.reply(statusText);
+          replyMsg = activeMsg;
+        }
+      } catch (err) {
+        console.warn("Discord: failed to send tool status:", (err as Error).message ?? err);
+      }
+      // Reset buffer so the final LLM response starts fresh
+      buffer = "";
+      activeOffset = 0;
+    });
     console.log(`Discord: LLM response ${Date.now() - llmStart}ms (${text.length} chars)`);
 
     // Stop streaming edits and wait for any in-flight Discord API call to settle

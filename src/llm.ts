@@ -19,6 +19,9 @@ type UserContent = string | ContentPart[];
 /** Called for each text token during streaming. */
 export type OnTokenCallback = (token: string) => void;
 
+/** Called when the LLM is about to execute tool(s). Names of tools being called are passed. */
+export type OnToolCallCallback = (toolNames: string[]) => void;
+
 // --- Error detection ---
 
 function isToolTemplateError(err: unknown): boolean {
@@ -326,6 +329,7 @@ export async function getLLMResponse(
   userMessage: UserContent,
   onToken?: OnTokenCallback,
   userId?: string,
+  onToolCall?: OnToolCallCallback,
 ): Promise<string> {
   const history = getHistory(channelId);
 
@@ -347,7 +351,7 @@ export async function getLLMResponse(
   ];
 
   try {
-    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId);
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall);
 
     // Don't save template-failure error responses to history  -  they poison
     // subsequent calls on models like Qwen whose Jinja templates are fragile
@@ -692,6 +696,7 @@ async function runCompletionLoop(
   allowAgentDispatch = true,
   onToken?: OnTokenCallback,
   userId?: string,
+  onToolCall?: OnToolCallCallback,
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
@@ -918,6 +923,11 @@ async function runCompletionLoop(
 
     // If the model wants to call tools/agents
     if (toolCalls && toolCalls.length > 0) {
+      // Notify caller that tools are about to run (so UI can show a clean status)
+      if (onToolCall) {
+        onToolCall(toolCalls.map((tc) => tc.function.name));
+      }
+
       // Collect tool names and results for flattened format
       const toolResults: { name: string; result: string }[] = [];
 

@@ -22,7 +22,11 @@ function getConfig() {
 
 function buildPrompt(userPrompt: string, stylePrompt: string): string {
   if (!stylePrompt) return userPrompt;
-  return `${stylePrompt}\n\n${userPrompt}`;
+  // Style is wrapped as a mandatory constraint that overrides any conflicting user instructions.
+  return (
+    `MANDATORY STYLE (apply to ALL images regardless of other instructions):\n${stylePrompt}\n\n` +
+    `Subject/scene request:\n${userPrompt}`
+  );
 }
 
 // ============================================================

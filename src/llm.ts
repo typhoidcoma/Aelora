@@ -695,10 +695,10 @@ async function runCompletionLoop(
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
-  // Tool call JSON (long prompts + URLs) can easily exceed a low token cap
-  // like 1024. When tools are present, use at least 4096 so tool arguments
-  // aren't truncated mid-stream.
-  const TOKEN_FLOOR_WITH_TOOLS = 4096;
+  // Tool call JSON (long prompts + URLs) can easily exceed a low token cap.
+  // Reasoning models (GPT-5.x, o-series) also consume hidden reasoning tokens
+  // that count against max_completion_tokens, so we need a high floor.
+  const TOKEN_FLOOR_WITH_TOOLS = 16384;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const baseParams: any = {
     model: resolvedModel,

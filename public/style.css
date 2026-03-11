@@ -3,44 +3,135 @@
 /* --- Aelora Color System --- */
 
 :root {
-  /* Backgrounds */
-  --bg-void: #0B0F1C;
-  --bg-deep: #12192B;
-  --bg-surface: #1A2336;
-  --bg-elevated: #222D45;
-  --bg-soft: #2A3652;
+  /* =========================
+     CORE BACKGROUNDS
+  ========================= */
+  --bg-000: #0d0811;
+  --bg-050: #140d1d;
+  --bg-100: #1a1226;
+  --bg-200: #25182f;
+  --bg-300: #34202f;
 
-  /* Brand (butterfly light) */
-  --brand-gold: #F2C572;
-  --brand-gold-soft: #E8B85A;
-  --brand-gold-deep: #C9973C;
-  --brand-amber: #FFDB8A;
-  --brand-highlight: #FFF1C9;
+  /* =========================
+     SURFACE COLORS
+  ========================= */
+  --surface-100: #1a1320;
+  --surface-200: #241929;
+  --surface-300: #2f2131;
+  --surface-400: #4a3037;
 
-  /* Text */
-  --text-primary: #F4EAD9;
-  --text-secondary: #D8CDBA;
-  --text-muted: #A79E8F;
-  --text-subtle: #7C7569;
+  /* =========================
+     BORDERS / DIVIDERS
+  ========================= */
+  --border-subtle: #3a2633;
+  --border-default: #563743;
+  --border-strong: #7a4a45;
+  --border-glow: #c77553;
 
-  /* Accent */
-  --accent-indigo: #2E3A5E;
-  --accent-violet: #3C2E59;
-  --accent-deep-violet: #261E3D;
-  --accent-night-blue: #1E2945;
+  /* =========================
+     TEXT
+  ========================= */
+  --text-primary: #fff4d2;
+  --text-secondary: #f2ddb2;
+  --text-muted: #c9ab91;
+  --text-dim: #9c7a73;
+  --text-inverse: #140d1d;
 
-  /* Borders */
-  --border-soft: #2C3754;
-  --border-muted: #3A4665;
-  --border-focus: #F2C572;
+  /* =========================
+     BRAND / PRIMARY
+  ========================= */
+  --brand-300: #e39e66;
+  --brand-400: #ca7553;
+  --brand-500: #fad46d;
+  --brand-600: #fae29f;
+  --brand-700: #fcf5c5;
 
-  /* State */
-  --success: #6FAF8F;
-  --success-soft: #3F7F67;
-  --warning: #D9A441;
-  --warning-soft: #8E6A2B;
-  --error: #A05C5C;
-  --error-soft: #6C3A3A;
+  /* =========================
+     SECONDARY / ATMOSPHERIC
+  ========================= */
+  --secondary-300: #71525d;
+  --secondary-400: #5c3946;
+  --secondary-500: #513236;
+  --secondary-600: #9c5d4f;
+
+  /* =========================
+     INTERACTIVE STATES
+  ========================= */
+  --link: #fadc84;
+  --link-hover: #fff0bb;
+  --focus-ring: rgba(250, 212, 109, 0.35);
+
+  --button-primary-bg: #fad46d;
+  --button-primary-hover: #fae29f;
+  --button-primary-text: #140d1d;
+
+  --button-secondary-bg: rgba(250, 212, 109, 0.08);
+  --button-secondary-hover: rgba(250, 212, 109, 0.14);
+  --button-secondary-text: #fff4d2;
+  --button-secondary-border: #7a4a45;
+
+  /* =========================
+     STATUS COLORS
+  ========================= */
+  --success: #d8c774;
+  --warning: #e39e66;
+  --danger: #c77553;
+  --info: #b98ea0;
+
+  /* =========================
+     GLOW / EFFECTS
+  ========================= */
+  --glow-gold-faint: rgba(250, 212, 109, 0.06);
+  --glow-gold-light: rgba(250, 212, 109, 0.12);
+  --glow-gold-soft: rgba(250, 212, 109, 0.18);
+  --glow-gold-medium: rgba(250, 212, 109, 0.32);
+  --glow-peach-soft: rgba(227, 158, 102, 0.16);
+  --shadow-dark: rgba(7, 4, 10, 0.6);
+
+  /* =========================
+     STATUS UTILITY
+  ========================= */
+  --success-bg: rgba(216, 199, 116, 0.1);
+  --success-border: rgba(216, 199, 116, 0.15);
+  --success-glow: rgba(216, 199, 116, 0.4);
+  --danger-bg: rgba(199, 117, 83, 0.1);
+  --danger-bg-strong: rgba(199, 117, 83, 0.2);
+  --danger-border: rgba(199, 117, 83, 0.2);
+  --danger-border-strong: rgba(199, 117, 83, 0.35);
+  --warning-bg: rgba(227, 158, 102, 0.12);
+  --warning-border: rgba(227, 158, 102, 0.25);
+
+  /* =========================
+     GRADIENTS
+  ========================= */
+  --gradient-page:
+    radial-gradient(circle at center, #34202f 0%, #1a1226 40%, #140d1d 72%, #0d0811 100%);
+
+  --gradient-card:
+    linear-gradient(180deg, rgba(250, 212, 109, 0.05) 0%, rgba(255, 244, 210, 0.02) 100%);
+
+  --gradient-brand:
+    linear-gradient(135deg, #fcf5c5 0%, #fad46d 35%, #e39e66 68%, #ca7553 100%);
+
+  --gradient-hero-glow:
+    radial-gradient(circle, rgba(252, 245, 197, 0.95) 0%, rgba(250, 212, 109, 0.55) 28%, rgba(227, 158, 102, 0.18) 52%, rgba(13, 8, 17, 0) 72%);
+
+  /* =========================
+     SEMANTIC TOKENS
+  ========================= */
+  --page-bg: var(--bg-000);
+  --section-bg: var(--bg-050);
+  --card-bg: var(--surface-100);
+  --card-bg-hover: var(--surface-200);
+  --card-border: var(--border-subtle);
+
+  --heading-color: var(--text-primary);
+  --body-color: var(--text-secondary);
+  --muted-color: var(--text-muted);
+
+  --accent: var(--brand-500);
+  --accent-hover: var(--brand-600);
+  --accent-strong: var(--brand-400);
 }
 
 * {
@@ -52,8 +143,8 @@
 body {
   font-family: "Roboto", sans-serif;
   font-weight: 400;
-  background: var(--bg-void);
-  color: var(--text-secondary);
+  background: var(--page-bg);
+  color: var(--body-color);
   font-size: 24px;
   line-height: 1.5;
   height: 100vh;
@@ -69,22 +160,22 @@ header {
   align-items: center;
   gap: 0.75rem;
   padding: 0.6rem 1.25rem;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--section-bg);
   flex-shrink: 0;
 }
 
 h1 {
   font-size: 1rem;
   font-weight: 500;
-  color: var(--brand-gold);
+  color: var(--accent);
   letter-spacing: 0.02em;
 }
 
 h2 {
   font-size: 0.65rem;
   font-weight: 500;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -92,7 +183,7 @@ h2 {
 h3 {
   font-size: 0.6rem;
   font-weight: 500;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -109,12 +200,12 @@ h3 {
 }
 
 .header-stat .label {
-  color: var(--text-subtle);
+  color: var(--text-dim);
 }
 
 .last-updated {
   font-size: 0.65rem;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   margin-left: auto;
 }
 
@@ -133,15 +224,15 @@ h3 {
 }
 
 .badge.online {
-  background: rgba(111, 175, 143, 0.1);
+  background: var(--success-bg);
   color: var(--success);
-  border: 1px solid rgba(111, 175, 143, 0.15);
+  border: 1px solid var(--success-border);
 }
 
 .badge.offline {
-  background: rgba(160, 92, 92, 0.1);
-  color: var(--error);
-  border: 1px solid rgba(160, 92, 92, 0.15);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
 }
 
 .pulse-dot {
@@ -157,12 +248,12 @@ h3 {
 }
 
 .badge.offline .pulse-dot {
-  background: var(--error);
+  background: var(--danger);
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(111, 175, 143, 0.4); }
-  50% { opacity: 0.5; box-shadow: 0 0 0 4px rgba(111, 175, 143, 0); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--success-glow); }
+  50% { opacity: 0.5; box-shadow: 0 0 0 4px transparent; }
 }
 
 /* --- Layout --- */
@@ -186,7 +277,7 @@ aside {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-deep);
+  background: var(--section-bg);
 }
 
 /* --- Resize handle --- */
@@ -194,7 +285,7 @@ aside {
 .resize-handle {
   width: 6px;
   cursor: col-resize;
-  background: var(--border-soft);
+  background: var(--border-subtle);
   flex-shrink: 0;
   transition: background 0.15s;
   touch-action: none;
@@ -202,7 +293,7 @@ aside {
 
 .resize-handle:hover,
 .resize-handle.active {
-  background: var(--brand-gold);
+  background: var(--accent);
 }
 
 body.resizing {
@@ -214,7 +305,7 @@ body.resizing {
 
 .sidebar-panel {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .sidebar-panel h3 {
@@ -257,9 +348,9 @@ body.resizing {
   font-weight: 500;
   padding: 0.08rem 0.35rem;
   border-radius: 3px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-surface);
-  color: var(--text-subtle);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg);
+  color: var(--text-dim);
   cursor: pointer;
   transition: all 0.15s;
   text-transform: uppercase;
@@ -267,21 +358,21 @@ body.resizing {
 }
 
 .console-filter:hover {
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   color: var(--text-muted);
 }
 
 .console-filter.active {
-  background: rgba(242, 197, 114, 0.1);
-  border-color: rgba(242, 197, 114, 0.25);
-  color: var(--brand-gold);
+  background: var(--glow-gold-light);
+  border-color: var(--warning-border);
+  color: var(--accent);
 }
 
 .console-output {
   flex: 1;
   overflow-y: auto;
-  background: var(--bg-void);
-  border: 1px solid var(--border-soft);
+  background: var(--page-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   padding: 0.4rem 0.6rem;
   font-family: "Roboto Mono", monospace;
@@ -296,7 +387,7 @@ body.resizing {
 }
 
 .console-output .log-time {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   margin-right: 0.4rem;
 }
 
@@ -305,7 +396,7 @@ body.resizing {
 }
 
 .console-output .log-error {
-  color: var(--error);
+  color: var(--danger);
 }
 
 /* --- Tab Navigation --- */
@@ -315,10 +406,10 @@ body.resizing {
   gap: 0.35rem;
   padding-bottom: 0.75rem;
   margin-bottom: 0.25rem;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
   position: sticky;
   top: 0;
-  background: var(--bg-void);
+  background: var(--page-bg);
   z-index: 10;
   padding-top: 0.25rem;
 }
@@ -329,8 +420,8 @@ body.resizing {
   font-weight: 500;
   padding: 0.2rem 0.65rem;
   border-radius: 4px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s;
@@ -339,15 +430,15 @@ body.resizing {
 }
 
 .tab-btn:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border-muted);
+  background: var(--card-bg-hover);
+  border-color: var(--border-default);
   color: var(--text-secondary);
 }
 
 .tab-btn.active {
-  background: rgba(242, 197, 114, 0.12);
-  border-color: rgba(242, 197, 114, 0.3);
-  color: var(--brand-gold);
+  background: var(--glow-gold-light);
+  border-color: var(--glow-gold-medium);
+  color: var(--accent);
 }
 
 .tab-pane {
@@ -383,21 +474,21 @@ section {
   font-weight: 500;
   padding: 0.12rem 0.4rem;
   border-radius: 3px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-elevated);
-  color: var(--brand-gold);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg-hover);
+  color: var(--accent);
   cursor: pointer;
   letter-spacing: 0.02em;
   transition: border-color 0.15s;
 }
 
 .section-header select:hover {
-  border-color: var(--border-muted);
+  border-color: var(--border-default);
 }
 
 .section-header select:focus {
   outline: none;
-  border-color: rgba(242, 197, 114, 0.35);
+  border-color: var(--focus-ring);
 }
 
 .section-header select:disabled {
@@ -407,7 +498,7 @@ section {
 
 .section-header .chevron {
   font-size: 0.5rem;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   transition: transform 0.2s;
 }
 
@@ -427,8 +518,8 @@ section {
 /* --- Cards --- */
 
 .card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 5px;
   padding: 0.5rem 0.75rem;
 }
@@ -439,13 +530,13 @@ section {
 }
 
 .stat-sep {
-  color: var(--border-soft);
+  color: var(--border-subtle);
   margin: 0 0.4rem;
   font-size: 0.78rem;
 }
 
 .label {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   margin-right: 0.3rem;
 }
 
@@ -456,7 +547,7 @@ section {
   align-items: center;
   gap: 1rem;
   padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
   font-size: 0.78rem;
 }
 
@@ -473,15 +564,15 @@ section {
 
 .session-channel code {
   font-family: "Roboto Mono", monospace;
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   font-size: 0.75em;
-  color: var(--brand-gold);
+  color: var(--accent);
 }
 
 .session-count {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   font-size: 0.7rem;
 }
 
@@ -496,13 +587,13 @@ section {
 }
 
 .session-time {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   font-size: 0.7rem;
   white-space: nowrap;
 }
 
 .session-row:hover {
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   border-radius: 4px;
 }
 
@@ -511,7 +602,7 @@ section {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--shadow-dark);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -519,8 +610,8 @@ section {
 }
 
 .overlay-window {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   width: min(560px, 90vw);
@@ -539,7 +630,7 @@ section {
 
 .session-detail-header h3 {
   margin: 0;
-  color: var(--brand-gold);
+  color: var(--accent);
   text-transform: none;
   font-size: 0.85rem;
 }
@@ -567,7 +658,7 @@ section {
 
 .user-detail-header h3 {
   margin: 0;
-  color: var(--brand-gold);
+  color: var(--accent);
   text-transform: none;
   font-size: 0.85rem;
 }
@@ -593,7 +684,7 @@ section {
 
 .user-channel-tag {
   font-family: "Roboto Mono", monospace;
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
   font-size: 0.72rem;
@@ -626,18 +717,18 @@ section {
   align-items: center;
   gap: 0.5rem;
   padding: 0.25rem 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 0.25rem;
   font-size: 0.78rem;
 }
 
 .memory-scope-header code {
   font-family: "Roboto Mono", monospace;
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   font-size: 0.75em;
-  color: var(--brand-gold);
+  color: var(--accent);
 }
 
 .memory-fact {
@@ -675,7 +766,7 @@ section {
 .cron-form-grid label {
   font-size: 0.6rem;
   font-weight: 500;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -685,8 +776,8 @@ section {
 .cron-form-grid textarea {
   font-family: "Roboto", sans-serif;
   font-size: 0.78rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg-hover);
+  border: 1px solid var(--border-subtle);
   border-radius: 3px;
   color: var(--text-secondary);
   padding: 0.25rem 0.4rem;
@@ -697,7 +788,7 @@ section {
 .cron-form-grid select:focus,
 .cron-form-grid textarea:focus {
   outline: none;
-  border-color: rgba(242, 197, 114, 0.35);
+  border-color: var(--focus-ring);
 }
 
 .cron-form-grid textarea {
@@ -710,7 +801,7 @@ section {
   gap: 0.35rem;
   margin-top: 0.5rem;
   padding-top: 0.4rem;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* --- Cron Editor Modal --- */
@@ -733,13 +824,13 @@ section {
   align-items: center;
   margin-bottom: 0.75rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .cron-editor-header h3 {
   margin: 0;
   font-size: 0.95rem;
-  color: var(--brand-gold);
+  color: var(--accent);
   text-transform: none;
 }
 
@@ -764,7 +855,7 @@ section {
 .cron-editor-field label {
   font-size: 0.6rem;
   font-weight: 500;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -774,8 +865,8 @@ section {
 .cron-editor-field textarea {
   font-family: "Roboto", sans-serif;
   font-size: 0.78rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg-hover);
+  border: 1px solid var(--border-subtle);
   border-radius: 3px;
   color: var(--text-secondary);
   padding: 0.25rem 0.4rem;
@@ -786,7 +877,7 @@ section {
 .cron-editor-field select:focus,
 .cron-editor-field textarea:focus {
   outline: none;
-  border-color: rgba(242, 197, 114, 0.35);
+  border-color: var(--focus-ring);
 }
 
 .cron-editor-field textarea {
@@ -827,7 +918,7 @@ section {
   gap: 0.35rem;
   margin-top: 0.75rem;
   padding-top: 0.5rem;
-  border-top: 1px solid var(--border-soft);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .ce-schedule-row {
@@ -866,8 +957,8 @@ section {
 
 .ce-schedule-preview code {
   font-family: "Roboto Mono", monospace;
-  color: var(--text-subtle);
-  background: var(--bg-deep);
+  color: var(--text-dim);
+  background: var(--section-bg);
   padding: 0.15rem 0.4rem;
   border-radius: 2px;
   font-size: 0.65rem;
@@ -880,11 +971,11 @@ section {
 
 .ce-error {
   font-size: 0.75rem;
-  color: var(--error);
+  color: var(--danger);
   padding: 0.3rem 0.5rem;
-  background: rgba(160, 92, 92, 0.1);
+  background: var(--danger-bg);
   border-radius: 3px;
-  border: 1px solid rgba(160, 92, 92, 0.2);
+  border: 1px solid var(--danger-border);
 }
 
 .cron-history-header {
@@ -899,7 +990,7 @@ section {
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.3rem 0;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
   font-size: 0.75rem;
 }
 
@@ -908,13 +999,13 @@ section {
 }
 
 .cron-history-time {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   white-space: nowrap;
   min-width: 70px;
 }
 
 .cron-history-duration {
-  color: var(--text-subtle);
+  color: var(--text-dim);
   white-space: nowrap;
   min-width: 50px;
 }
@@ -940,8 +1031,8 @@ section {
 }
 
 .cron-status-dot.ok { background: var(--success); }
-.cron-status-dot.error { background: var(--error); }
-.cron-status-dot.idle { background: var(--text-subtle); }
+.cron-status-dot.error { background: var(--danger); }
+.cron-status-dot.idle { background: var(--text-dim); }
 
 .cron-source {
   font-size: 0.55rem;
@@ -953,13 +1044,13 @@ section {
 }
 
 .cron-source.config {
-  background: rgba(46, 58, 94, 0.5);
-  color: var(--text-subtle);
+  background: var(--secondary-400);
+  color: var(--text-dim);
 }
 
 .cron-source.runtime {
-  background: rgba(242, 197, 114, 0.1);
-  color: var(--brand-gold-deep);
+  background: var(--glow-gold-light);
+  color: var(--accent-strong);
 }
 
 /* --- Tables --- */
@@ -967,8 +1058,8 @@ section {
 table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 5px;
   overflow: hidden;
   font-size: 0.78rem;
@@ -977,7 +1068,7 @@ table {
 th, td {
   padding: 0.3rem 0.55rem;
   text-align: left;
-  border-bottom: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 tr:last-child td {
@@ -985,12 +1076,12 @@ tr:last-child td {
 }
 
 table tbody tr:hover {
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
 }
 
 th {
-  background: var(--bg-elevated);
-  color: var(--text-subtle);
+  background: var(--card-bg-hover);
+  color: var(--text-dim);
   font-size: 0.6rem;
   font-weight: 500;
   text-transform: uppercase;
@@ -999,7 +1090,7 @@ th {
 
 td code {
   font-family: "Roboto Mono", monospace;
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   font-size: 0.75em;
@@ -1018,8 +1109,8 @@ td code {
 }
 
 .ok { color: var(--success); }
-.error { color: var(--error); }
-.muted { color: var(--text-subtle); text-align: center; }
+.error { color: var(--danger); }
+.muted { color: var(--text-dim); text-align: center; }
 
 pre {
   font-family: "Roboto Mono", monospace;
@@ -1037,8 +1128,8 @@ pre {
   font-weight: 500;
   padding: 0.15rem 0.5rem;
   border-radius: 3px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg-hover);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s;
@@ -1046,8 +1137,8 @@ pre {
 }
 
 .btn:hover {
-  background: var(--bg-soft);
-  border-color: var(--border-muted);
+  background: var(--surface-300);
+  border-color: var(--border-default);
   color: var(--text-secondary);
 }
 
@@ -1057,25 +1148,25 @@ pre {
 }
 
 .btn-primary {
-  background: rgba(242, 197, 114, 0.12);
-  border-color: rgba(242, 197, 114, 0.2);
-  color: var(--brand-gold);
+  background: var(--glow-gold-light);
+  border-color: var(--glow-gold-soft);
+  color: var(--accent);
 }
 
 .btn-primary:hover {
-  background: rgba(242, 197, 114, 0.2);
-  border-color: rgba(242, 197, 114, 0.35);
+  background: var(--glow-gold-soft);
+  border-color: var(--focus-ring);
 }
 
 .btn-danger {
-  background: rgba(160, 92, 92, 0.15);
-  border-color: rgba(160, 92, 92, 0.25);
-  color: var(--error);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 .btn-danger:hover {
-  background: rgba(160, 92, 92, 0.25);
-  border-color: rgba(160, 92, 92, 0.4);
+  background: var(--danger-bg-strong);
+  border-color: var(--danger-border-strong);
 }
 
 .btn-xs {
@@ -1091,8 +1182,8 @@ pre {
   height: 1.4rem;
   font-size: 0.7rem;
   border-radius: 3px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg-hover);
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s;
@@ -1101,15 +1192,15 @@ pre {
 }
 
 .btn-icon:hover {
-  background: var(--bg-soft);
-  border-color: var(--border-muted);
+  background: var(--surface-300);
+  border-color: var(--border-default);
   color: var(--text-secondary);
 }
 
 .btn-icon-danger:hover {
-  background: rgba(160, 92, 92, 0.2);
-  border-color: rgba(160, 92, 92, 0.35);
-  color: var(--error);
+  background: var(--danger-bg-strong);
+  border-color: var(--danger-border-strong);
+  color: var(--danger);
 }
 
 .action-icons {
@@ -1129,8 +1220,8 @@ pre {
 .llm-test textarea {
   font-family: "Roboto", sans-serif;
   font-size: 0.78rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 5px;
   color: var(--text-secondary);
   padding: 0.4rem 0.6rem;
@@ -1141,7 +1232,7 @@ pre {
 
 .llm-test textarea:focus {
   outline: none;
-  border-color: rgba(242, 197, 114, 0.35);
+  border-color: var(--focus-ring);
 }
 
 .llm-test .actions {
@@ -1185,15 +1276,15 @@ pre {
 }
 
 .toast.success {
-  background: rgba(111, 175, 143, 0.1);
+  background: var(--success-bg);
   color: var(--success);
-  border: 1px solid rgba(111, 175, 143, 0.15);
+  border: 1px solid var(--success-border);
 }
 
 .toast.error {
-  background: rgba(160, 92, 92, 0.1);
-  color: var(--error);
-  border: 1px solid rgba(160, 92, 92, 0.15);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
 }
 
 @keyframes toast-in {
@@ -1217,12 +1308,12 @@ pre {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-soft);
+  background: var(--border-subtle);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-muted);
+  background: var(--border-default);
 }
 
 /* --- Persona Card Grid --- */
@@ -1234,8 +1325,8 @@ pre {
 }
 
 .persona-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 1rem;
   cursor: pointer;
@@ -1244,20 +1335,20 @@ pre {
 }
 
 .persona-card:hover {
-  border-color: var(--brand-gold);
+  border-color: var(--accent);
 }
 
 .persona-card.active {
-  border-color: var(--brand-gold);
-  box-shadow: 0 0 12px rgba(242, 197, 114, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--glow-gold-soft);
 }
 
 .persona-card-icon {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: var(--bg-void);
-  border: 2px solid var(--border-soft);
+  background: var(--page-bg);
+  border: 2px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1269,12 +1360,12 @@ pre {
 }
 
 .persona-card.active .persona-card-icon {
-  border-color: var(--brand-gold);
-  color: var(--brand-gold);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .persona-card:hover .persona-card-icon {
-  border-color: var(--brand-gold);
+  border-color: var(--accent);
 }
 
 .persona-card-name {
@@ -1317,7 +1408,7 @@ pre {
 
 .persona-card-meta {
   font-size: 0.7rem;
-  color: var(--text-subtle);
+  color: var(--text-dim);
 }
 
 .persona-card-badge {
@@ -1325,8 +1416,8 @@ pre {
   top: 0.5rem;
   right: 0.5rem;
   font-size: 0.65rem;
-  background: var(--brand-gold);
-  color: var(--bg-void);
+  background: var(--accent);
+  color: var(--text-inverse);
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
@@ -1353,12 +1444,12 @@ pre {
 
 .persona-card-new:hover {
   opacity: 1;
-  border-color: var(--brand-gold);
+  border-color: var(--accent);
 }
 
 .persona-card-plus {
   font-size: 2rem;
-  color: var(--brand-gold);
+  color: var(--accent);
   line-height: 1;
 }
 
@@ -1387,7 +1478,7 @@ pre {
 }
 
 .persona-editor-header h3 span {
-  color: var(--brand-gold);
+  color: var(--accent);
   font-family: "Roboto Mono", monospace;
 }
 
@@ -1401,9 +1492,9 @@ pre {
 .persona-editor-textarea {
   width: 100%;
   min-height: 300px;
-  background: var(--bg-elevated);
+  background: var(--card-bg-hover);
   color: var(--text-primary);
-  border: 1px solid var(--border-soft);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   padding: 0.75rem;
   font-family: "Roboto Mono", monospace;
@@ -1416,7 +1507,7 @@ pre {
 
 .persona-editor-textarea:focus {
   outline: none;
-  border-color: rgba(242, 197, 114, 0.35);
+  border-color: var(--focus-ring);
 }
 
 .persona-editor-actions {
@@ -1433,8 +1524,8 @@ pre {
   align-items: center;
   gap: 1.5rem;
   padding: 0.5rem 0.75rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-soft);
+  background: var(--card-bg-hover);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   margin-bottom: 0.6rem;
   flex-wrap: wrap;
@@ -1449,7 +1540,7 @@ pre {
 
 .scoring-stat-label {
   font-size: 0.62rem;
-  color: var(--text-subtle);
+  color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -1465,12 +1556,12 @@ pre {
   align-items: center;
   gap: 0.6rem;
   padding: 0.4rem 0.6rem;
-  background: rgba(242, 197, 114, 0.06);
-  border: 1px solid rgba(242, 197, 114, 0.2);
+  background: var(--glow-gold-faint);
+  border: 1px solid var(--glow-gold-soft);
   border-radius: 4px;
   margin-bottom: 0.6rem;
   font-size: 0.75rem;
-  color: var(--text-subtle);
+  color: var(--text-dim);
 }
 
 /* Score badge in todo table */
@@ -1486,31 +1577,31 @@ pre {
 }
 
 .score-critical {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
 }
 
 .score-high {
-  background: rgba(249, 115, 22, 0.15);
-  color: #f97316;
-  border: 1px solid rgba(249, 115, 22, 0.3);
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning-border);
 }
 
 .score-medium {
-  background: rgba(234, 179, 8, 0.15);
-  color: #eab308;
-  border: 1px solid rgba(234, 179, 8, 0.3);
+  background: var(--glow-gold-light);
+  color: var(--accent);
+  border: 1px solid var(--glow-gold-soft);
 }
 
 .score-low {
   background: rgba(107, 114, 128, 0.12);
-  color: var(--text-subtle);
-  border: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
 }
 
 .score-none {
   background: transparent;
-  color: var(--text-subtle);
-  border: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
 }

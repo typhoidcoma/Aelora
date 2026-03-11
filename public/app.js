@@ -486,8 +486,8 @@ async function clearMemoryScope(scope) {
 let currentActivePersona = null;
 
 const MOOD_COLORS = {
-  joy: "#f2c572", trust: "#8bc58b", fear: "#9b7fbf", surprise: "#5fbfbf",
-  sadness: "#6a8cb7", disgust: "#8b8b6a", anger: "#c56a6a", anticipation: "#d4a056",
+  joy: "#fad46d", trust: "#d8c774", fear: "#b98ea0", surprise: "#9c5d4f",
+  sadness: "#71525d", disgust: "#513236", anger: "#c77553", anticipation: "#e39e66",
 };
 
 async function fetchPersonas() {

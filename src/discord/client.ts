@@ -144,8 +144,11 @@ export async function startDiscord(config: Config): Promise<Client> {
       const botName = config.persona.botName.toLowerCase();
       const namedInText = message.content.toLowerCase().includes(botName);
       if (!mentioned && !namedInText) return;
-      // Name-triggered (not @mentioned) — flag for concise response
+      // Name-triggered (not @mentioned) — add a random delay so she doesn't
+      // respond instantly, then flag for concise response
       if (!mentioned && namedInText) {
+        const delayMs = 3000 + Math.random() * 5000; // 3-8 seconds
+        await new Promise((r) => setTimeout(r, delayMs));
         await handleMessage(message, config, true);
         return;
       }

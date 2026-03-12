@@ -240,11 +240,16 @@ function repairJson(json: string): string {
   s = s.replace(/,(\s*[}\]])/g, "$1");
   // Remove single-line comments (// ...) outside of strings
   s = s.replace(/(?<=[:,\[\{}\]]\s*)\/\/[^\n]*/g, "");
-  // Replace single-quoted strings with double-quoted (simple cases)
-  // Only when outside of already-double-quoted strings
-  s = s.replace(/:\s*'([^']*?)'/g, ': "$1"');
-  s = s.replace(/\[\s*'([^']*?)'/g, '["$1"');
-  s = s.replace(/,\s*'([^']*?)'/g, ', "$1"');
+  // Replace single-quoted strings with double-quoted, but ONLY if
+  // the JSON uses single quotes as delimiters (no double-quoted keys found).
+  // Otherwise these regexes match single quotes inside double-quoted strings
+  // and corrupt the JSON (e.g. "concise, 'super tight' summaries" → broken).
+  const usesDoubleQuotedKeys = /"\w+"[\s]*:/.test(s);
+  if (!usesDoubleQuotedKeys) {
+    s = s.replace(/:\s*'([^']*?)'/g, ': "$1"');
+    s = s.replace(/\[\s*'([^']*?)'/g, '["$1"');
+    s = s.replace(/,\s*'([^']*?)'/g, ', "$1"');
+  }
   return s;
 }
 

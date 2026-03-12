@@ -121,7 +121,7 @@ export default defineTool({
         const lines: string[] = [];
 
         // Search memory facts
-        const factResults = searchFacts(query as string);
+        const factResults = await searchFacts(query as string);
         if (factResults.length > 0) {
           lines.push(`**Memory facts matching "${query}"** (${factResults.length}):`);
           for (const r of factResults.slice(0, 20)) {

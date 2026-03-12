@@ -47,6 +47,14 @@ const memorySchema = z.object({
   maxFactLength: z.number().int().positive().default(1000),
   maxAgeDays: z.number().int().nonnegative().default(0),
   autoExtract: z.boolean().default(true),
+  vectorSearch: z.boolean().default(true),
+  embeddingModel: z.string().default("text-embedding-3-small"),
+  embeddingDimensions: z.number().int().positive().default(1536),
+  embeddingBaseURL: z.string().default("https://api.openai.com/v1"),
+  embeddingApiKey: z.string().default(""),
+  semanticDedupThreshold: z.number().min(0).max(1).default(0.85),
+  semanticSearchTopK: z.number().int().positive().default(10),
+  semanticSearchMinScore: z.number().min(0).max(1).default(0.3),
 });
 
 const loggerSchema = z.object({
@@ -178,6 +186,8 @@ function applyEnvOverrides(config: Config): void {
     config.tools.linear.apiKey = env.AELORA_LINEAR_API_KEY;
     applied.push("AELORA_LINEAR_API_KEY");
   }
+  if (env.AELORA_EMBEDDING_API_KEY)   { config.memory.embeddingApiKey = env.AELORA_EMBEDDING_API_KEY; applied.push("AELORA_EMBEDDING_API_KEY"); }
+  if (env.AELORA_EMBEDDING_BASE_URL)  { config.memory.embeddingBaseURL = env.AELORA_EMBEDDING_BASE_URL; applied.push("AELORA_EMBEDDING_BASE_URL"); }
   if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY) {
     config.supabase = {
       url: env.AELORA_SUPABASE_URL ?? config.supabase?.url ?? "",

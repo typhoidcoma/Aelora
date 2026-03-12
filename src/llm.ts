@@ -345,8 +345,15 @@ export async function getLLMResponse(
   const allDefs = getAllDefinitions();
   const tools = config.llm.lite ? slimDefinitions(allDefs) : allDefs;
 
+  // Extract recent user messages as conversation context for semantic memory
+  const recentUserMsgs = history
+    .filter((m) => m.role === "user" && typeof m.content === "string")
+    .slice(-3)
+    .map((m) => m.content as string)
+    .join(" ");
+
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(userId, channelId) },
+    { role: "system", content: await buildSystemPrompt(userId, channelId, recentUserMsgs || undefined) },
     ...history,
   ];
 
@@ -379,7 +386,7 @@ export async function getLLMOneShot(prompt: string, onToken?: OnTokenCallback): 
   const tools = config.llm.lite ? slimDefinitions(allDefs) : allDefs;
 
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt() },
+    { role: "system", content: await buildSystemPrompt() },
     { role: "user", content: prompt },
   ];
 
@@ -430,7 +437,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
  * Appends live system state and a live inventory of enabled tools/agents
  * so the LLM always knows the current state of its environment.
  */
-function buildSystemPrompt(userId?: string, channelId?: string): string {
+async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string): Promise<string> {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
 
@@ -493,7 +500,7 @@ function buildSystemPrompt(userId?: string, channelId?: string): string {
   }
 
   // --- Memory (semi-static  -  changes on fact save) ---
-  const memoryBlock = getMemoryForPrompt(userId ?? null, channelId ?? null);
+  const memoryBlock = await getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext);
   if (memoryBlock) sections.push("\n\n" + memoryBlock);
 
   // --- Conversation summary (dynamic  -  changes after compaction) ---
@@ -737,7 +744,7 @@ async function runCompletionLoop(
    * Returns true if recovery was initiated (caller should `continue`),
    * false if recovery isn't possible (caller should return error).
    */
-  function autoRecoverHistory(): boolean {
+  async function autoRecoverHistory(): Promise<boolean> {
     if (!channelId || historyCleared) return false;
 
     const lastUserContent = getLastUserContent();
@@ -749,7 +756,7 @@ async function runCompletionLoop(
     // Rebuild messages to just [system prompt, last user message]
     messages.length = 0;
     messages.push(
-      { role: "system", content: buildSystemPrompt(userId, channelId) },
+      { role: "system", content: await buildSystemPrompt(userId, channelId) },
       { role: "user", content: lastUserContent as string },
     );
 
@@ -804,7 +811,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
-          if (autoRecoverHistory()) continue;
+          if (await autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
           return "(I encountered a formatting issue and couldn't process that request.)";
         } else {
@@ -857,7 +864,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
-          if (autoRecoverHistory()) continue;
+          if (await autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
           return "(I encountered a formatting issue and couldn't process that request.)";
         }
@@ -899,7 +906,7 @@ async function runCompletionLoop(
             toolsDropped = true;
             continue;
           }
-          if (autoRecoverHistory()) continue;
+          if (await autoRecoverHistory()) continue;
           console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
           return "(I encountered a formatting issue and couldn't process that request.)";
         } else {

@@ -5,7 +5,8 @@
 
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
-import { saveFact, getFacts, searchFacts } from "./memory.js";
+import { saveFact, getFacts, searchFactsKeyword } from "./memory.js";
+import { isDuplicateSemantic, isReady as isVectorReady } from "./vector-store.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
@@ -135,7 +136,7 @@ export async function extractFacts(
     if (userId && Array.isArray(parsed.user_facts)) {
       for (const fact of parsed.user_facts.slice(0, 3)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
-        if (isDuplicate(fact, `user:${userId}`)) continue;
+        if (await isDuplicate(fact, `user:${userId}`)) continue;
         const r = saveFact(`user:${userId}`, fact.trim());
         if (r.success) saved++;
       }
@@ -145,7 +146,7 @@ export async function extractFacts(
     if (userId && Array.isArray(parsed.personality_facts)) {
       for (const fact of parsed.personality_facts.slice(0, 2)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
-        if (isDuplicate(fact, `user:${userId}`)) continue;
+        if (await isDuplicate(fact, `user:${userId}`)) continue;
         const r = saveFact(`user:${userId}`, fact.trim());
         if (r.success) saved++;
       }
@@ -155,7 +156,7 @@ export async function extractFacts(
     if (Array.isArray(parsed.channel_facts)) {
       for (const fact of parsed.channel_facts.slice(0, 2)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
-        if (isDuplicate(fact, `channel:${channelId}`)) continue;
+        if (await isDuplicate(fact, `channel:${channelId}`)) continue;
         const r = saveFact(`channel:${channelId}`, fact.trim());
         if (r.success) saved++;
       }
@@ -165,7 +166,7 @@ export async function extractFacts(
     if (Array.isArray(parsed.global_facts)) {
       for (const fact of parsed.global_facts.slice(0, 1)) {
         if (typeof fact !== "string" || !fact.trim()) continue;
-        if (isDuplicate(fact, "global")) continue;
+        if (await isDuplicate(fact, "global")) continue;
         const r = saveFact("global", fact.trim());
         if (r.success) saved++;
       }
@@ -312,19 +313,27 @@ function extractJson(text: string): string | null {
  * Lightweight semantic dedup using keyword overlap (Jaccard similarity).
  * Returns true if a substantially similar fact already exists in the scope.
  */
-function isDuplicate(newFact: string, scope: string): boolean {
+async function isDuplicate(newFact: string, scope: string): Promise<boolean> {
+  // Use vector-based semantic dedup when available
+  if (isVectorReady()) {
+    try {
+      return await isDuplicateSemantic(newFact, scope);
+    } catch (err) {
+      console.warn("FactExtractor: semantic dedup failed, falling back to Jaccard:", err);
+    }
+  }
+
+  // Jaccard fallback
   const newWords = significantWords(newFact);
   if (newWords.size === 0) return false;
 
-  // Search existing facts for keyword matches
   const query = [...newWords].slice(0, 3).join(" ");
-  const matches = searchFacts(query, [scope]);
+  const matches = searchFactsKeyword(query, [scope]);
 
   for (const match of matches) {
     const existingWords = significantWords(match.fact.fact);
     if (existingWords.size === 0) continue;
 
-    // Jaccard similarity: intersection / union
     let intersection = 0;
     for (const word of newWords) {
       if (existingWords.has(word)) intersection++;

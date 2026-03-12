@@ -36,7 +36,20 @@ async function main(): Promise<void> {
   process.env.TZ = config.timezone;
   setToolConfigStore(config.tools);
   configureLogger(config.logger);
-  configureMemory(config.memory);
+  await configureMemory({
+    maxFactsPerScope: config.memory.maxFactsPerScope,
+    maxFactLength: config.memory.maxFactLength,
+    vector: {
+      enabled: config.memory.vectorSearch,
+      apiKey: config.memory.embeddingApiKey || config.llm.apiKey,
+      baseURL: config.memory.embeddingBaseURL,
+      model: config.memory.embeddingModel,
+      dimensions: config.memory.embeddingDimensions,
+      dedupThreshold: config.memory.semanticDedupThreshold,
+      searchTopK: config.memory.semanticSearchTopK,
+      searchMinScore: config.memory.semanticSearchMinScore,
+    },
+  });
   configureCron({ ...config.cron, defaultTimezone: config.timezone });
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 

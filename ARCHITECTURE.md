@@ -576,6 +576,9 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 | `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
 | `scoring` | Scoring tool: stats, leaderboard, achievements, rate_effort, set_metadata, add_event (Supabase) | `google.*` |
+| `date` | Natural language date resolution via chrono-node (converts "next Friday" → ISO 8601) | none |
+| `linear` | Full Linear project management: issues CRUD, sub-issues, projects, teams, search, comments, GraphQL | `linear.apiKey` |
+| `luminizer` | Image generation via DALL-E 3 or compatible API (generate from text prompt, configurable style) | `luminizer.apiKey`, `luminizer.model`, `luminizer.baseURL`, `luminizer.stylePrompt` |
 
 ---
 
@@ -806,6 +809,21 @@ type TodoItem = {
 ```
 
 Exported functions: `listTodos`, `getTodoByUid`, `createTodo`, `completeTodo`, `updateTodoItem`, `deleteTodoItem`. All accept a `GoogleConfig` param and call `googleFetch` internally. Priority is read from Supabase `life_events.priority` by `external_uid` when available; otherwise defaults to `"medium"`.
+
+---
+
+## Linear Integration
+
+**Files:** [src/tools/linear.ts](src/tools/linear.ts)
+
+Full read/write access to Linear project management via the `@linear/sdk`. A single multi-action tool (`linear`) exposes 16 actions:
+
+**Read:** `list_issues`, `get_issue`, `search`, `my_issues`, `list_projects`, `list_teams`, `list_sub_issues`
+**Write:** `create_issue`, `create_sub_issue`, `update_issue`, `add_comment`, `delete_issue`
+**Projects:** `create_project`, `update_project`, `add_project_update`
+**Advanced:** `graphql` (raw GraphQL query for anything not covered above)
+
+Config: `linear.apiKey` in `settings.yaml`. The web dashboard exposes a full set of REST endpoints under `/api/linear/*` (15 routes) mirroring the tool actions.
 
 ---
 
@@ -1188,7 +1206,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Export (1) -60 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (6), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Export (1) -~80 endpoints total.
 
 ### Routing
 
@@ -1308,6 +1326,55 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 
 ---
 
+## Vector Memory System
+
+**Files:** [src/vector-store.ts](src/vector-store.ts), [src/migrate-vectors.ts](src/migrate-vectors.ts)
+
+Semantic search layer over the flat-file fact store (`data/memory.json`). Uses [Vectra](https://github.com/Stevenic/vectra) for local vector indexing with OpenAI-compatible embedding APIs.
+
+### How It Works
+
+1. **Indexing:** When a fact is saved via `saveFact()`, it's also embedded and upserted into the Vectra index at `data/vectors/memory/`.
+2. **Semantic dedup:** Before saving a new fact, `isDuplicateSemantic()` queries the index for high-similarity matches (configurable threshold). This replaces the Jaccard keyword fallback when the vector store is available.
+3. **Semantic search:** `semanticSearch()` returns the top-K most relevant facts across specified scopes, ranked by cosine similarity. Used by the memory tool for smarter recall.
+4. **LRU cache:** Recent embeddings are cached in-memory (100 entries) to avoid redundant API calls for repeated text.
+5. **Batch rebuild:** `rebuildIndex()` re-embeds all facts from the JSON store in batches of 100. Run automatically on first boot if the vector index is missing, or manually via `npx tsx src/migrate-vectors.ts`.
+
+### Config
+
+```yaml
+vectorSearch:
+  enabled: true
+  apiKey: "sk-..."          # OpenAI-compatible embedding API key
+  baseURL: "https://api.openai.com/v1"
+  model: "text-embedding-3-small"
+  dimensions: 1536
+  dedupThreshold: 0.92      # cosine similarity threshold for dedup
+  searchTopK: 5             # max results per query
+  searchMinScore: 0.7       # minimum similarity to return
+```
+
+---
+
+## Fact Extraction & Personality Synthesis
+
+**Files:** [src/fact-extractor.ts](src/fact-extractor.ts)
+
+Fire-and-forget system that automatically extracts noteworthy facts from conversations and builds personality profiles. Same lightweight pattern as the mood system.
+
+### Extraction Pipeline
+
+1. **Throttle check:** Per-channel cooldown (2 minutes) and minimum message count (4 messages) between extractions.
+2. **LLM extraction:** Sends the latest user+bot exchange to the auxiliary model with a JSON-only prompt. Extracts four categories: `user_facts`, `personality_facts`, `channel_facts`, `global_facts`.
+3. **Dedup:** Each candidate fact is checked against existing facts using semantic dedup (vector store) with Jaccard keyword fallback.
+4. **Save:** Deduplicated facts are saved to the appropriate scope in `data/memory.json` and indexed in the vector store. Caps per extraction: 3 user, 2 personality, 2 channel, 1 global.
+
+### Personality Synthesis
+
+After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence personality profile via LLM. Re-synthesizes every 3 new facts. The profile is stored on `UserProfile.personalitySummary` and injected into the system prompt under `## Current User`, giving the bot persistent awareness of each user's communication style, preferences, and context.
+
+---
+
 ## State & Persistence
 
 | Data | Storage | Survives restart? |
@@ -1329,6 +1396,7 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 | Scoring history | Supabase `scoring_events` table | Yes |
 | Per-category adaptive stats | Supabase `category_stats` table | Yes |
 | Achievements | Supabase `achievements` table | Yes |
+| Vector embeddings | `data/vectors/memory/` (Vectra local index) | Yes |
 | Calendar event notifications | `data/notified-events.json` (disk) | Yes |
 | Heartbeat notified events (legacy) | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |

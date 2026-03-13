@@ -18,7 +18,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Persona System** - Composable personality from layered markdown files with hot-reload
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
-- **Memory** - Per-user and per-channel fact storage, auto-injected into the system prompt; auto-synthesizes personality profiles from accumulated facts
+- **Memory** - Per-user and per-channel fact storage with semantic search via vector embeddings (Vectra + OpenAI); auto-extracts facts from conversations and synthesizes personality profiles
 - **Web Search** - Brave Search or OpenAI Responses API (configurable provider)
 - **Google Tasks** - Full task management: list, create, complete, update, delete
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
@@ -32,6 +32,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Sessions** - Conversation tracking with metadata, persisted to disk
 - **Daily Log** - Automatic daily activity logging
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
+- **Image Generation** - DALL-E 3 or compatible API via the luminizer tool (text-to-image with configurable style prompts)
 - **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, data cleanup
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response, manual set/reclassify via API
@@ -461,6 +462,8 @@ src/
 ├── cron.ts                     # Cron scheduler (file-based, atomic writes)
 ├── sessions.ts                 # Session tracking and persistence
 ├── memory.ts                   # Per-user/channel fact store
+├── vector-store.ts             # Semantic search via Vectra + OpenAI embeddings
+├── fact-extractor.ts           # Auto-extract facts from conversations + personality synthesis
 ├── daily-log.ts                # Daily activity logging
 ├── users.ts                    # User profile tracking
 ├── mood.ts                     # Emotion state (Plutchik's wheel)
@@ -493,6 +496,9 @@ src/
 │   ├── memory.ts               # Memory save/list/forget
 │   ├── mood.ts                 # Emotion override
 │   ├── notes.ts                # Persistent notes
+│   ├── linear.ts               # Linear project management (issues, projects, teams, search)
+│   ├── luminizer.ts            # Image generation (DALL-E 3 / compatible API)
+│   ├── discord-history.ts      # Discord channel message history
 │   ├── ping.ts                 # Test tool
 │   └── _example-*.ts           # Example templates (skipped on load)
 └── agents/

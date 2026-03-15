@@ -83,7 +83,7 @@ const personaSchema = z.object({
 
 const heartbeatSchema = z.object({
   enabled: z.boolean().default(true),
-  intervalMs: z.number().int().positive().default(60_000),
+  intervalMs: z.number().int().positive().default(900_000),
 });
 
 const agentsSchema = z.object({

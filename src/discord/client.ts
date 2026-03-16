@@ -225,7 +225,7 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
 
     // If name-triggered (not @mentioned), hint the LLM to be brief
     if (nameTriggered) {
-      content = `[You were not directly addressed — your name was just mentioned in conversation. Only chime in if you have something genuinely useful or fun to add. Keep it to 1-2 short sentences max. Do NOT use tools.]\n${content}`;
+      content = `[You were not directly addressed — your name was just mentioned in conversation. Only chime in if you have something genuinely useful or fun to add. Keep it to 1-2 short sentences max. Avoid unnecessary tool calls, but use tools if directly asked.]\n${content}`;
     }
     const userContent = await processAttachments(message, content, config.llm.model);
 

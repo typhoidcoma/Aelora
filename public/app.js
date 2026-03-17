@@ -39,7 +39,9 @@ function switchTab(tabName) {
 
 // Restore saved tab on load
 (function restoreTab() {
-  const saved = localStorage.getItem("dashboard-tab");
+  let saved = localStorage.getItem("dashboard-tab");
+  // Migrate old tab name
+  if (saved === "overview") saved = "persona";
   if (saved) switchTab(saved);
 })();
 
@@ -2490,6 +2492,356 @@ function loadActivityPreview() {
   frame.src = "/activity/test.html";
 }
 
+// --- Home Tab ---
+
+// Shared state for sidebar glance (populated by home fetchers)
+let _homeMood = null;
+let _homeNextEvent = null;
+let _homeNextCron = null;
+let _homeStreak = null;
+
+const ACHIEVEMENT_ICONS = {
+  first_task: "🥇", ten_tasks: "🔟", hundred_tasks: "💯",
+  streak_3: "🔥", streak_7: "⚔️", streak_30: "👑",
+  thousand_points: "💰", high_scorer: "🎯", overdue_hero: "🦸",
+};
+
+async function fetchHomeMood() {
+  try {
+    const res = await apiFetch("/api/mood");
+    const mood = await res.json();
+    const el = document.getElementById("home-mood-value");
+    if (!mood.active) {
+      el.innerHTML = '<span class="muted">Inactive</span>';
+      _homeMood = null;
+      return;
+    }
+    const color = MOOD_COLORS[mood.emotion] || "var(--text-muted)";
+    const label = mood.label.charAt(0).toUpperCase() + mood.label.slice(1);
+    el.innerHTML = `<span class="mood-dot" style="background:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px"></span> ${esc(label)}`;
+    _homeMood = { label, color };
+  } catch { /* graceful */ }
+}
+
+async function fetchHomeScoring() {
+  const uid = getDiscordUserId();
+  const el = document.getElementById("home-scoring-value");
+  if (!uid) {
+    el.innerHTML = '<span class="muted">No user ID</span>';
+    _homeStreak = null;
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`);
+    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
+    const data = await res.json();
+    if (!data.exists) { el.innerHTML = '<span class="muted">No data</span>'; return; }
+    const xp = data.profile.total_points.toLocaleString();
+    const streak = data.profile.current_streak;
+    el.innerHTML = `${xp} XP &middot; ${streak}d streak`;
+    _homeStreak = streak;
+  } catch { el.innerHTML = '<span class="muted">--</span>'; }
+}
+
+async function fetchHomePersona() {
+  try {
+    const res = await apiFetch("/api/personas");
+    const data = await res.json();
+    const el = document.getElementById("home-persona-value");
+    const active = data.personas.find(p => p.name === data.activePersona);
+    el.textContent = active?.botName || data.activePersona || "None";
+  } catch { /* graceful */ }
+}
+
+async function fetchHomeCronSummary() {
+  try {
+    const res = await apiFetch("/api/cron");
+    const jobs = await res.json();
+    const el = document.getElementById("home-cron-value");
+    const enabled = jobs.filter(j => j.enabled);
+    const errored = jobs.find(j => j.lastError);
+    if (errored) {
+      el.innerHTML = `${enabled.length} active &middot; <span class="error">1 errored</span>`;
+    } else {
+      el.textContent = `${enabled.length} active`;
+    }
+
+    // Cron activity widget
+    const actEl = document.getElementById("home-cron-activity");
+    const allHistory = [];
+    for (const j of jobs) {
+      if (!j.history) continue;
+      for (const h of j.history) {
+        allHistory.push({ name: j.name, ...h });
+      }
+    }
+    allHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const recent = allHistory.slice(0, 5);
+
+    if (recent.length === 0) {
+      actEl.innerHTML = '<span class="muted">No recent activity</span>';
+    } else {
+      actEl.innerHTML = recent.map(h => {
+        const dot = h.success
+          ? '<span class="home-item-dot" style="background:var(--success)"></span>'
+          : '<span class="home-item-dot" style="background:var(--danger)"></span>';
+        const preview = h.outputPreview ? esc(h.outputPreview.slice(0, 60)) : "";
+        return `<div class="home-list-item">${dot}<span class="home-item-title" title="${esc(h.outputPreview || "")}">${esc(h.name)}</span><span class="home-item-meta">${timeAgo(h.timestamp)}</span></div>`;
+      }).join("");
+    }
+
+    // Next cron for sidebar
+    const nextJobs = enabled.filter(j => j.nextRun).sort((a, b) => new Date(a.nextRun) - new Date(b.nextRun));
+    _homeNextCron = nextJobs.length > 0 ? { name: nextJobs[0].name, when: timeUntil(nextJobs[0].nextRun) } : null;
+  } catch { /* graceful */ }
+}
+
+async function fetchHomeCalendar() {
+  const el = document.getElementById("home-calendar");
+  try {
+    const res = await apiFetch("/api/calendar/events?maxResults=5&daysAhead=14");
+    if (res.status === 404 || res.status === 503) {
+      el.innerHTML = '<span class="muted">Calendar not configured</span>';
+      _homeNextEvent = null;
+      return;
+    }
+    if (!res.ok) { el.innerHTML = '<span class="muted">Calendar error</span>'; return; }
+    const data = await res.json();
+    const events = data.events || [];
+
+    if (events.length === 0) {
+      el.innerHTML = '<span class="muted">No upcoming events</span>';
+      _homeNextEvent = null;
+      return;
+    }
+
+    el.innerHTML = events.map(ev => {
+      const dt = ev.dtstart;
+      const isAllDay = dt && dt.length <= 10;
+      const timePart = isAllDay ? '<span class="calendar-allday-badge">All Day</span>' : timeUntil(dt);
+      const loc = ev.location ? ` &middot; ${esc(ev.location)}` : "";
+      return `<div class="home-list-item"><span class="home-item-title">${esc(ev.summary)}</span><span class="home-item-meta">${timePart}${loc}</span></div>`;
+    }).join("");
+
+    // Sidebar glance - next event
+    const next = events[0];
+    _homeNextEvent = { name: next.summary, when: next.dtstart && next.dtstart.length > 10 ? timeUntil(next.dtstart) : "All day" };
+  } catch {
+    el.innerHTML = '<span class="muted">Calendar unavailable</span>';
+    _homeNextEvent = null;
+  }
+}
+
+async function fetchHomeTodos() {
+  const el = document.getElementById("home-todos");
+  const uid = getDiscordUserId();
+
+  try {
+    let todos = [];
+    if (uid) {
+      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=5`);
+      if (res.ok) {
+        const data = await res.json();
+        todos = data.tasks || [];
+      }
+    }
+
+    if (todos.length === 0) {
+      // Fallback to plain todo list
+      const res = await apiFetch("/api/todos?status=needsAction");
+      if (res.ok) {
+        const data = await res.json();
+        todos = (data.todos || []).slice(0, 5).map(t => ({ title: t.title, score: null, due: t.due }));
+      }
+    }
+
+    if (todos.length === 0) {
+      el.innerHTML = '<span class="muted">No pending todos</span>';
+      return;
+    }
+
+    el.innerHTML = todos.map(t => {
+      const scoreBadge = t.score != null
+        ? `<span class="${getScoreTierClass(t.score)}">${t.score}</span>`
+        : "";
+      const due = t.due ? formatTodoDate(t.due) : "";
+      return `<div class="home-list-item"><span class="home-item-title">${esc(t.title)}</span>${scoreBadge}<span class="home-item-meta">${due}</span></div>`;
+    }).join("");
+  } catch {
+    el.innerHTML = '<span class="muted">Todos unavailable</span>';
+  }
+}
+
+async function fetchHomeScoringHistory() {
+  const el = document.getElementById("home-scoring-history");
+  const uid = getDiscordUserId();
+  if (!uid) {
+    el.innerHTML = '<span class="muted">Set Discord User ID to see activity</span>';
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/scoring/history?userId=${encodeURIComponent(uid)}&limit=5`);
+    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
+    const data = await res.json();
+    const events = data.events || [];
+
+    if (events.length === 0) {
+      el.innerHTML = '<span class="muted">No scoring history</span>';
+      return;
+    }
+
+    el.innerHTML = events.map(ev => {
+      const pts = `+${ev.points_awarded} pts`;
+      return `<div class="home-list-item"><span class="home-item-title">Score ${ev.score_at_completion}</span><span class="home-item-meta">${pts} &middot; ${timeAgo(ev.completed_at)}</span></div>`;
+    }).join("");
+  } catch {
+    el.innerHTML = '<span class="muted">--</span>';
+  }
+}
+
+async function fetchHomeAchievements() {
+  const el = document.getElementById("home-achievements");
+  const uid = getDiscordUserId();
+  if (!uid) {
+    // Show all locked
+    const achievements = [
+      { id: "first_task", name: "First Steps", unlocked: false },
+      { id: "ten_tasks", name: "Getting Momentum", unlocked: false },
+      { id: "hundred_tasks", name: "Century Club", unlocked: false },
+      { id: "streak_3", name: "Three-Day Streak", unlocked: false },
+      { id: "streak_7", name: "One-Week Warrior", unlocked: false },
+      { id: "streak_30", name: "Monthly Master", unlocked: false },
+      { id: "thousand_points", name: "Point Millionaire", unlocked: false },
+      { id: "high_scorer", name: "High Scorer", unlocked: false },
+      { id: "overdue_hero", name: "Overdue Hero", unlocked: false },
+    ];
+    renderAchievements(el, achievements);
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/scoring/achievements?userId=${encodeURIComponent(uid)}`);
+    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
+    const data = await res.json();
+    renderAchievements(el, data.achievements || []);
+  } catch {
+    el.innerHTML = '<span class="muted">--</span>';
+  }
+}
+
+function renderAchievements(el, achievements) {
+  el.innerHTML = achievements.map(a => {
+    const icon = ACHIEVEMENT_ICONS[a.id] || "🏆";
+    const cls = a.unlocked ? "achievement-badge unlocked" : "achievement-badge locked";
+    const tip = a.description || "";
+    return `<div class="${cls}" title="${esc(tip)}"><span class="achievement-icon">${icon}</span><span class="achievement-name">${esc(a.name)}</span></div>`;
+  }).join("");
+}
+
+function updateSidebarGlance() {
+  // Mood
+  const moodEl = document.getElementById("glance-mood");
+  const moodDot = document.getElementById("glance-mood-dot");
+  if (_homeMood) {
+    moodEl.textContent = _homeMood.label;
+    moodDot.style.color = _homeMood.color;
+  } else {
+    moodEl.textContent = "--";
+    moodDot.style.color = "var(--text-dim)";
+  }
+
+  // Next event
+  const eventEl = document.getElementById("glance-next-event");
+  if (_homeNextEvent) {
+    eventEl.textContent = `${_homeNextEvent.name} (${_homeNextEvent.when})`;
+  } else {
+    eventEl.textContent = "--";
+  }
+
+  // Next cron
+  const cronEl = document.getElementById("glance-next-cron");
+  if (_homeNextCron) {
+    cronEl.textContent = `${_homeNextCron.name} (${_homeNextCron.when})`;
+  } else {
+    cronEl.textContent = "--";
+  }
+
+  // Streak
+  const streakEl = document.getElementById("glance-streak");
+  streakEl.textContent = _homeStreak != null ? `${_homeStreak}d` : "--";
+}
+
+async function fetchHomeData() {
+  await Promise.all([
+    fetchHomeMood(),
+    fetchHomeScoring(),
+    fetchHomePersona(),
+    fetchHomeCronSummary(),
+    fetchHomeCalendar(),
+    fetchHomeTodos(),
+    fetchHomeScoringHistory(),
+    fetchHomeAchievements(),
+  ]);
+  updateSidebarGlance();
+}
+
+// --- Calendar (Automation tab) ---
+
+async function fetchCalendarEvents() {
+  const tbody = document.getElementById("calendar-body");
+  try {
+    const res = await apiFetch("/api/calendar/events?maxResults=20&daysAhead=30");
+    if (res.status === 404 || res.status === 503) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">Calendar not configured. Add Google credentials to settings.yaml.</td></tr>';
+      return;
+    }
+    if (!res.ok) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">Calendar error</td></tr>';
+      return;
+    }
+    const data = await res.json();
+    const events = data.events || [];
+
+    if (events.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">No upcoming events</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = events.map(ev => {
+      const isAllDay = ev.dtstart && ev.dtstart.length <= 10;
+      let dateCol;
+      if (isAllDay) {
+        dateCol = `${formatTodoDate(ev.dtstart)} <span class="calendar-allday-badge">All Day</span>`;
+      } else {
+        dateCol = formatDateTime(ev.dtstart);
+      }
+
+      let duration = "";
+      if (ev.dtstart && ev.dtend) {
+        const ms = new Date(ev.dtend) - new Date(ev.dtstart);
+        const mins = Math.round(ms / 60000);
+        if (mins >= 1440) {
+          duration = `${Math.round(mins / 1440)}d`;
+        } else if (mins >= 60) {
+          const h = Math.floor(mins / 60);
+          const m = mins % 60;
+          duration = m > 0 ? `${h}h ${m}m` : `${h}h`;
+        } else {
+          duration = `${mins}m`;
+        }
+      }
+
+      return `<tr>
+        <td>${dateCol}</td>
+        <td>${esc(ev.summary)}</td>
+        <td>${ev.location ? esc(ev.location) : '<span class="muted">--</span>'}</td>
+        <td>${duration || '<span class="muted">--</span>'}</td>
+      </tr>`;
+    }).join("");
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">Calendar unavailable</td></tr>';
+  }
+}
+
 // --- Polling management ---
 
 let pollIntervals = [];
@@ -2505,6 +2857,8 @@ function refreshAll() {
   fetchNotes();
   fetchTodos();
   fetchHeartbeat();
+  fetchHomeData();
+  fetchCalendarEvents();
 }
 
 function startPolling() {
@@ -2520,6 +2874,8 @@ function startPolling() {
     setInterval(fetchNotes, 10000),
     setInterval(fetchTodos, 30000),
     setInterval(fetchHeartbeat, 10000),
+    setInterval(fetchHomeData, 30000),
+    setInterval(fetchCalendarEvents, 60000),
   ];
 }
 
@@ -2553,5 +2909,7 @@ fetchUsers();
 fetchNotes();
 fetchTodos();
 fetchHeartbeat();
+fetchHomeData();
+fetchCalendarEvents();
 initConsole();
 startPolling();

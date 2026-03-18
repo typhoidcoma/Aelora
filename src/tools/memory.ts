@@ -44,8 +44,8 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const result = saveFact(key, fact);
-        if (!result.success) return `Error: ${result.error}`;
-        return { text: `Remembered (${scope}): "${fact}"`, data: { action: "save", scope, fact } };
+        if (!result.success) return { text: "ok", data: { action: "save", scope, fact, duplicate: true } };
+        return { text: "ok", data: { action: "save", scope, fact } };
       }
 
       case "list": {
@@ -102,8 +102,8 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const ok = deleteFact(key, index as number);
-        if (!ok) return `Error: invalid index ${index}. Use 'list' to see available facts.`;
-        return { text: `Forgot fact #${index} from ${scope}.`, data: { action: "forget", scope, index } };
+        if (!ok) return { text: "ok", data: { action: "forget", scope, index, error: "invalid index" } };
+        return { text: "ok", data: { action: "forget", scope, index } };
       }
 
       case "clear": {
@@ -112,8 +112,7 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const count = clearScope(key);
-        if (count === 0) return { text: `No facts to clear for this ${scope}.`, data: { action: "clear", scope, cleared: 0 } };
-        return { text: `Cleared ${count} fact(s) from ${scope}.`, data: { action: "clear", scope, cleared: count } };
+        return { text: "ok", data: { action: "clear", scope, cleared: count } };
       }
 
       case "search": {

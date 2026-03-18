@@ -511,7 +511,7 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
 
     if (kbResults.length > 0) {
       const kbLines = kbResults.map(
-        (r) => `**${r.fileName}** (excerpt):\n> ${r.chunk.slice(0, 600).replace(/\n/g, "\n> ")}`,
+        (r) => `**${r.fileName}** (excerpt):\n> ${r.chunk.replace(/\n/g, "\n> ")}`,
       );
       sections.push(
         "\n\n## Reference Material\nThe following excerpts from shared documents may be relevant:\n\n" +

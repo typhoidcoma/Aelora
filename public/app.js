@@ -1316,6 +1316,124 @@ async function deleteNoteDash(scope, title) {
   }
 }
 
+// --- Knowledge Base ---
+
+async function fetchKnowledgeBase() {
+  try {
+    const res = await apiFetch("/api/knowledge");
+    const data = await res.json();
+
+    document.getElementById("kb-file-count").textContent = data.fileCount;
+    document.getElementById("kb-chunk-count").textContent = data.totalChunks;
+    document.getElementById("kb-last-sync").textContent = data.lastSyncAt ? timeAgo(data.lastSyncAt) : "--";
+
+    const tbody = document.getElementById("kb-files-body");
+    if (!data.files || data.files.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No files indexed yet</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.files.map(f => {
+      const sizeKB = Math.round(f.charCount / 1024);
+      const typeLabel = f.mimeType.replace("application/vnd.google-apps.", "g-").replace("application/", "");
+      return `<tr>
+        <td><code>${esc(f.name)}</code></td>
+        <td><span class="muted">${esc(typeLabel)}</span></td>
+        <td>${f.chunkCount}</td>
+        <td>${sizeKB > 0 ? sizeKB + " KB" : f.charCount + " B"}</td>
+        <td><span class="muted">${timeAgo(f.indexedAt)}</span></td>
+        <td>
+          <button class="btn btn-xs" onclick="viewKBChunks('${esc(f.fileId)}', '${esc(f.name)}')">Preview</button>
+          <button class="btn btn-danger btn-xs" onclick="removeKBFile('${esc(f.fileId)}', '${esc(f.name)}')">&times;</button>
+        </td>
+      </tr>`;
+    }).join("");
+  } catch {
+    document.getElementById("kb-files-body").innerHTML = '<tr><td colspan="6" class="muted">Failed to load</td></tr>';
+  }
+}
+
+async function kbManualSync() {
+  const btn = document.getElementById("kb-sync-btn");
+  btn.disabled = true;
+  btn.textContent = "Syncing...";
+
+  try {
+    const res = await apiFetch("/api/knowledge/sync", { method: "POST" });
+    const data = await res.json();
+
+    if (data.error) {
+      showToast(data.error, "error");
+    } else {
+      const parts = [];
+      if (data.added > 0) parts.push(data.added + " added");
+      if (data.updated > 0) parts.push(data.updated + " updated");
+      if (data.removed > 0) parts.push(data.removed + " removed");
+      if (data.chunksIndexed > 0) parts.push(data.chunksIndexed + " chunks");
+      if (data.errors > 0) parts.push(data.errors + " errors");
+      showToast(parts.length > 0 ? "Sync: " + parts.join(", ") : "Sync complete, no changes");
+      fetchKnowledgeBase();
+    }
+  } catch (err) {
+    showToast("Sync failed: " + err.message, "error");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "\u21BB Sync Now";
+  }
+}
+
+async function viewKBChunks(fileId, fileName) {
+  const overlay = document.getElementById("kb-chunk-overlay");
+  const list = document.getElementById("kb-chunk-list");
+  document.getElementById("kb-chunk-title").textContent = "Chunks: " + fileName;
+  list.innerHTML = '<span class="muted">Loading...</span>';
+  overlay.style.display = "";
+
+  try {
+    const res = await apiFetch("/api/knowledge/files/" + encodeURIComponent(fileId) + "/chunks");
+    const data = await res.json();
+
+    if (!data.chunks || data.chunks.length === 0) {
+      list.innerHTML = '<span class="muted">No chunks found</span>';
+      return;
+    }
+
+    list.innerHTML = data.chunks.map((chunk, i) => {
+      const text = chunk.text || "";
+      // Strip the [FileName] header if present
+      const display = text.replace(/^\[.+?\]\n/, "");
+      return `<div class="memory-fact" style="flex-direction:column;align-items:flex-start;margin-bottom:0.25rem;">
+        <div><strong class="muted" style="font-size:0.8em;">Chunk ${i + 1}</strong></div>
+        <div style="white-space:pre-wrap;font-size:0.85em;">${esc(display.slice(0, 500))}${display.length > 500 ? "..." : ""}</div>
+      </div>`;
+    }).join("");
+  } catch (err) {
+    list.innerHTML = '<span class="muted">Error: ' + esc(err.message) + '</span>';
+  }
+}
+
+function hideKBChunks() {
+  document.getElementById("kb-chunk-overlay").style.display = "none";
+}
+
+async function removeKBFile(fileId, fileName) {
+  if (!confirm("Remove \"" + fileName + "\" from knowledge base?")) return;
+
+  try {
+    const res = await apiFetch("/api/knowledge/files/" + encodeURIComponent(fileId), { method: "DELETE" });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast("Removed " + fileName + " (" + data.chunksDeleted + " chunks)");
+      fetchKnowledgeBase();
+    } else {
+      showToast(data.error || "Remove failed", "error");
+    }
+  } catch (err) {
+    showToast("Error: " + err.message, "error");
+  }
+}
+
 // --- Todos + Scoring ---
 
 // Discord User ID - persisted in localStorage
@@ -2855,6 +2973,7 @@ function refreshAll() {
   fetchAgents();
   fetchUsers();
   fetchNotes();
+  fetchKnowledgeBase();
   fetchTodos();
   fetchHeartbeat();
   fetchHomeData();
@@ -2907,6 +3026,7 @@ fetchTools();
 fetchAgents();
 fetchUsers();
 fetchNotes();
+fetchKnowledgeBase();
 fetchTodos();
 fetchHeartbeat();
 fetchHomeData();

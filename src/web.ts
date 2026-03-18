@@ -41,6 +41,7 @@ import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from 
 import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem, getGoogleConfig } from "./tools/todo.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
+import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
 import { LinearClient } from "@linear/sdk";
 import {
   tryGetSupabaseClient,
@@ -945,6 +946,49 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     res.json({ success: true });
+  });
+
+  // --- Knowledge Base ---
+
+  app.get("/api/knowledge", (_req, res) => {
+    res.json(getKnowledgeBaseStats());
+  });
+
+  app.post("/api/knowledge/sync", async (_req, res) => {
+    try {
+      const result = await syncKnowledgeBase();
+      if (!result) {
+        res.status(503).json({ error: "Knowledge base not enabled or vector store not ready" });
+        return;
+      }
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.get("/api/knowledge/files/:fileId/chunks", async (req, res) => {
+    const { fileId } = req.params;
+    try {
+      const chunks = await getFileChunks(fileId);
+      res.json({ fileId, chunks });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  app.delete("/api/knowledge/files/:fileId", async (req, res) => {
+    const { fileId } = req.params;
+    try {
+      const result = await removeFile(fileId);
+      if (!result) {
+        res.status(404).json({ error: "File not found in knowledge base" });
+        return;
+      }
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
   });
 
   // --- Calendar (Google Calendar) ---

@@ -350,6 +350,22 @@ export async function rebuildIndex(
 }
 
 /**
+ * List all vector items matching a source value.
+ * Returns fact text and metadata for display purposes.
+ */
+export async function listItemsBySource(
+  source: string,
+): Promise<{ fact: string; savedAt: string }[]> {
+  if (!index) return [];
+
+  const items = await index.listItemsByMetadata({ source: { $eq: source } } as any);
+  return items.map((item) => ({
+    fact: (item.metadata as any).fact as string,
+    savedAt: (item.metadata as any).savedAt as string,
+  }));
+}
+
+/**
  * Remove all vector items matching a metadata filter.
  * E.g. removeItemsByFilter({ source: { $eq: "drive:FILE_ID" } })
  */

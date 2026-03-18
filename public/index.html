@@ -284,6 +284,49 @@
         </div>
       </section>
 
+      <!-- Knowledge Base -->
+      <section>
+        <div class="section-header" data-section="knowledge">
+          <span class="chevron">&#9660;</span>
+          <h2>Knowledge Base</h2>
+          <button class="btn btn-primary btn-xs" id="kb-sync-btn" onclick="kbManualSync()">&#8635; Sync Now</button>
+        </div>
+        <div class="section-body" data-section="knowledge">
+          <!-- Stats bar -->
+          <div class="card" style="margin-bottom:8px;display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap;">
+            <div><span class="muted" style="font-size:0.8em;">Files</span><br><strong id="kb-file-count">0</strong></div>
+            <div><span class="muted" style="font-size:0.8em;">Total Chunks</span><br><strong id="kb-chunk-count">0</strong></div>
+            <div><span class="muted" style="font-size:0.8em;">Last Sync</span><br><span id="kb-last-sync" class="muted">--</span></div>
+          </div>
+          <!-- File table -->
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Chunks</th>
+                <th>Size</th>
+                <th>Indexed</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="kb-files-body">
+              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+          <!-- Chunk preview overlay -->
+          <div id="kb-chunk-overlay" style="display:none;margin-top:0.5rem;">
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                <strong id="kb-chunk-title">Chunks</strong>
+                <button class="btn btn-xs" onclick="hideKBChunks()">&times; Close</button>
+              </div>
+              <div id="kb-chunk-list"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Users -->
       <section>
         <div class="section-header" data-section="users">

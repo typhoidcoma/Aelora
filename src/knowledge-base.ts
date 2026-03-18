@@ -421,17 +421,44 @@ export function getKnowledgeBaseStats(): {
   fileCount: number;
   totalChunks: number;
   lastSyncAt: string;
-  files: { name: string; chunkCount: number; charCount: number }[];
+  files: { fileId: string; name: string; mimeType: string; chunkCount: number; charCount: number; indexedAt: string }[];
 } {
   return {
     enabled: kbConfig?.enabled ?? false,
     fileCount: Object.keys(manifest.files).length,
     totalChunks: Object.values(manifest.files).reduce((sum, f) => sum + f.chunkCount, 0),
     lastSyncAt: manifest.lastSyncAt,
-    files: Object.values(manifest.files).map((f) => ({
+    files: Object.entries(manifest.files).map(([fileId, f]) => ({
+      fileId,
       name: f.name,
+      mimeType: f.mimeType,
       chunkCount: f.chunkCount,
       charCount: f.charCount,
+      indexedAt: f.indexedAt,
     })),
   };
+}
+
+// ── File management ──────────────────────────────────────
+
+export async function getFileChunks(fileId: string): Promise<{ text: string; index: number }[]> {
+  if (!vectorStore.isReady()) return [];
+
+  const items = await vectorStore.listItemsBySource(`drive:${fileId}`);
+  return items.map((item, i) => ({
+    text: item.fact,
+    index: i,
+  }));
+}
+
+export async function removeFile(fileId: string): Promise<{ name: string; chunksDeleted: number } | null> {
+  const entry = manifest.files[fileId];
+  if (!entry) return null;
+
+  const removed = await vectorStore.removeItemsByFilter({ source: { $eq: `drive:${fileId}` } });
+  delete manifest.files[fileId];
+  saveManifest();
+
+  console.log(`KnowledgeBase: manually removed ${entry.name} (${removed} chunks)`);
+  return { name: entry.name, chunksDeleted: removed };
 }

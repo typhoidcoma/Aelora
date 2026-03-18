@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import * as vectorStore from "./vector-store.js";
+import { formatError } from "./vector-store.js";
 import type { VectorStoreConfig } from "./vector-store.js";
 
 const MEMORY_FILE = "data/memory.json";
@@ -144,7 +145,7 @@ export function saveFact(
       confidence: entry.confidence,
       source: entry.source,
     }).catch((err) => {
-      console.warn("Memory: vector indexing failed:", err);
+      console.warn("Memory: vector indexing failed:", formatError(err));
     });
   }
 
@@ -177,7 +178,7 @@ export function deleteFact(scope: string, index: number): boolean {
   // Fire-and-forget vector removal
   if (vectorEnabled) {
     vectorStore.removeFact(scope, removed.fact).catch((err) => {
-      console.warn("Memory: vector removal failed:", err);
+      console.warn("Memory: vector removal failed:", formatError(err));
     });
   }
 
@@ -195,7 +196,7 @@ export function clearScope(scope: string): number {
   // Fire-and-forget vector scope removal
   if (vectorEnabled) {
     vectorStore.removeScope(scope).catch((err) => {
-      console.warn("Memory: vector scope removal failed:", err);
+      console.warn("Memory: vector scope removal failed:", formatError(err));
     });
   }
 
@@ -276,7 +277,7 @@ export async function searchFacts(
         };
       });
     } catch (err) {
-      console.warn("Memory: semantic search failed, falling back to keyword:", err);
+      console.warn("Memory: semantic search failed, falling back to keyword:", formatError(err));
     }
   }
 
@@ -394,7 +395,7 @@ export async function getMemoryForPrompt(
         }
       }
     } catch (err) {
-      console.warn("Memory: semantic prompt injection failed, falling back to recency:", err);
+      console.warn("Memory: semantic prompt injection failed, falling back to recency:", formatError(err));
     }
   }
 
@@ -479,7 +480,7 @@ export function pruneFacts(maxAgeDays: number): number {
     if (vectorEnabled) {
       for (const { scope, fact } of prunedFacts) {
         vectorStore.removeFact(scope, fact).catch((err) => {
-          console.warn("Memory: vector prune removal failed:", err);
+          console.warn("Memory: vector prune removal failed:", formatError(err));
         });
       }
     }

@@ -108,6 +108,15 @@ export function isReady(): boolean {
   return index !== null && embeddings !== null;
 }
 
+// ── Error formatting ─────────────────────────────────────
+
+/** Format any error type for logging (handles plain objects, Error, strings). */
+export function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try { return JSON.stringify(err); } catch { return String(err); }
+}
+
 // ── Embedding helper ─────────────────────────────────────
 
 async function embed(text: string): Promise<number[] | null> {
@@ -117,46 +126,56 @@ async function embed(text: string): Promise<number[] | null> {
   const cached = embeddingCache.get(text);
   if (cached) return cached;
 
-  const res = await embeddings.createEmbeddings(text);
-  if (res.status !== "success" || !res.output || res.output.length === 0) {
-    console.warn("VectorStore: embedding failed:", res.status, res.message);
+  try {
+    const res = await embeddings.createEmbeddings(text);
+    if (res.status !== "success" || !res.output || res.output.length === 0) {
+      console.warn("VectorStore: embedding failed:", res.status, res.message);
+      return null;
+    }
+
+    const vec = res.output[0];
+
+    // Cache with eviction
+    if (embeddingCache.size >= CACHE_MAX) {
+      const firstKey = embeddingCache.keys().next().value;
+      if (firstKey !== undefined) embeddingCache.delete(firstKey);
+    }
+    embeddingCache.set(text, vec);
+
+    return vec;
+  } catch (err) {
+    console.warn("VectorStore: embedding call failed:", formatError(err));
     return null;
   }
-
-  const vec = res.output[0];
-
-  // Cache with eviction
-  if (embeddingCache.size >= CACHE_MAX) {
-    const firstKey = embeddingCache.keys().next().value;
-    if (firstKey !== undefined) embeddingCache.delete(firstKey);
-  }
-  embeddingCache.set(text, vec);
-
-  return vec;
 }
 
 async function embedBatch(texts: string[]): Promise<(number[] | null)[]> {
   if (!embeddings) return texts.map(() => null);
 
-  // OpenAI supports batch embedding — send all at once
-  const res = await embeddings.createEmbeddings(texts);
-  if (res.status !== "success" || !res.output) {
-    console.warn("VectorStore: batch embedding failed:", res.status, res.message);
+  try {
+    // OpenAI supports batch embedding — send all at once
+    const res = await embeddings.createEmbeddings(texts);
+    if (res.status !== "success" || !res.output) {
+      console.warn("VectorStore: batch embedding failed:", res.status, res.message);
+      return texts.map(() => null);
+    }
+
+    // Cache results
+    for (let i = 0; i < texts.length; i++) {
+      if (res.output[i]) {
+        if (embeddingCache.size >= CACHE_MAX) {
+          const firstKey = embeddingCache.keys().next().value;
+          if (firstKey !== undefined) embeddingCache.delete(firstKey);
+        }
+        embeddingCache.set(texts[i], res.output[i]);
+      }
+    }
+
+    return res.output;
+  } catch (err) {
+    console.warn("VectorStore: batch embedding call failed:", formatError(err));
     return texts.map(() => null);
   }
-
-  // Cache results
-  for (let i = 0; i < texts.length; i++) {
-    if (res.output[i]) {
-      if (embeddingCache.size >= CACHE_MAX) {
-        const firstKey = embeddingCache.keys().next().value;
-        if (firstKey !== undefined) embeddingCache.delete(firstKey);
-      }
-      embeddingCache.set(texts[i], res.output[i]);
-    }
-  }
-
-  return res.output;
 }
 
 // ── Stable ID from scope + fact text ─────────────────────

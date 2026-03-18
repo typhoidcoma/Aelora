@@ -7,7 +7,7 @@ import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, deleteFact, searchFactsKeyword } from "./memory.js";
 import type { FactCategory, FactConfidence } from "./memory.js";
-import { isDuplicateSemantic, isReady as isVectorReady } from "./vector-store.js";
+import { isDuplicateSemantic, isReady as isVectorReady, formatError } from "./vector-store.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
@@ -407,7 +407,7 @@ async function isDuplicate(newFact: string, scope: string): Promise<boolean> {
     try {
       return await isDuplicateSemantic(newFact, scope);
     } catch (err) {
-      console.warn("FactExtractor: semantic dedup failed, falling back to Jaccard:", err);
+      console.warn("FactExtractor: semantic dedup failed, falling back to Jaccard:", formatError(err));
     }
   }
 

@@ -145,11 +145,22 @@ export async function startDiscord(config: Config): Promise<Client> {
       const namedInText = message.content.toLowerCase().includes(botName);
       if (!mentioned && !namedInText) return;
       // Name-triggered (not @mentioned) — add a random delay so she doesn't
-      // respond instantly, then flag for concise response
+      // respond instantly, fetch recent context, then let LLM decide whether to chime in
       if (!mentioned && namedInText) {
-        const delayMs = 3000 + Math.random() * 5000; // 3-8 seconds
+        const delayMs = 3000 + Math.random() * 8000; // 3-11 seconds
         await new Promise((r) => setTimeout(r, delayMs));
-        await handleMessage(message, config, true);
+
+        // Fetch recent messages for context so she can decide if chiming in makes sense
+        let recentContext = "";
+        try {
+          const recent = await message.channel.messages.fetch({ limit: 6, before: message.id });
+          const lines = [...recent.values()]
+            .reverse()
+            .map((m) => `${m.author.displayName ?? m.author.username}: ${m.content.slice(0, 200)}`);
+          if (lines.length > 0) recentContext = lines.join("\n");
+        } catch { /* no permission or error, proceed without context */ }
+
+        await handleMessage(message, config, true, recentContext);
         return;
       }
     }
@@ -184,7 +195,7 @@ const STREAM_EDIT_INTERVAL = 1200;
 const TYPING_INTERVAL = 8_000;
 const OVERFLOW_THRESHOLD = 1800;
 
-async function handleMessage(message: Message, config: Config, nameTriggered = false): Promise<void> {
+async function handleMessage(message: Message, config: Config, nameTriggered = false, recentContext = ""): Promise<void> {
   let content = message.content;
   if (botUserId) {
     content = content.replace(new RegExp(`<@!?${botUserId}>`, "g"), "").trim();
@@ -223,9 +234,10 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
       channel.sendTyping().catch((err) => console.warn("Discord: sendTyping failed:", err.message ?? err));
     }, TYPING_INTERVAL);
 
-    // If name-triggered (not @mentioned), hint the LLM to be brief
+    // If name-triggered (not @mentioned), give context and let LLM decide whether to reply
     if (nameTriggered) {
-      content = `[You were not directly addressed — your name was just mentioned in conversation. Only chime in if you have something genuinely useful or fun to add. Keep it to 1-2 short sentences max. Avoid unnecessary tool calls, but use tools if directly asked.]\n${content}`;
+      const contextBlock = recentContext ? `\n\nRecent conversation for context:\n${recentContext}\n` : "";
+      content = `[Your name was mentioned in conversation but you were NOT directly @mentioned. Read the recent context and the message below. If it makes sense for you to chime in (someone's talking about you, asking about you, or you have something genuinely useful or fun to add), respond naturally in 1-3 sentences. Use any tools you need. If there's no reason for you to respond, reply with exactly "SKIP_REPLY" and nothing else.]${contextBlock}\n${content}`;
     }
     const userContent = await processAttachments(message, content, config.llm.model);
 
@@ -317,7 +329,18 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
     if (inflightEdit) await inflightEdit;
     if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
 
+    // Name-triggered: if LLM decided not to chime in, silently bail
+    if (nameTriggered && text.trim().replace(/[^a-zA-Z_]/g, "") === "SKIP_REPLY") {
+      if (activeMsg) await (activeMsg as Message).delete().catch(() => {});
+      return;
+    }
+
     if (!text || text.trim().length === 0) {
+      if (nameTriggered) {
+        // Don't send "no response" for name-triggered messages, just stay quiet
+        if (activeMsg) await (activeMsg as Message).delete().catch(() => {});
+        return;
+      }
       if (activeMsg) {
         await (activeMsg as Message).edit("_(no response)_");
       } else {

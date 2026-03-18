@@ -90,12 +90,18 @@ export function configureKnowledgeBase(cfg: KnowledgeConfig, gCfg: GoogleConfig)
 async function listDriveFiles(): Promise<DriveFile[]> {
   if (!googleConfig || !kbConfig?.driveFolderId) return [];
 
+  return listDriveFilesRecursive(kbConfig.driveFolderId);
+}
+
+async function listDriveFilesRecursive(folderId: string): Promise<DriveFile[]> {
+  if (!googleConfig) return [];
+
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
 
   do {
     const params = new URLSearchParams({
-      q: `'${kbConfig.driveFolderId}' in parents and trashed = false`,
+      q: `'${folderId}' in parents and trashed = false`,
       fields: "nextPageToken,files(id,name,mimeType,modifiedTime,description)",
       pageSize: "100",
     });
@@ -113,7 +119,16 @@ async function listDriveFiles(): Promise<DriveFile[]> {
     pageToken = data.nextPageToken;
   } while (pageToken);
 
-  return files;
+  // Recurse into subfolders
+  const folders = files.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
+  const nonFolders = files.filter((f) => f.mimeType !== "application/vnd.google-apps.folder");
+
+  for (const folder of folders) {
+    const subFiles = await listDriveFilesRecursive(folder.id);
+    nonFolders.push(...subFiles);
+  }
+
+  return nonFolders;
 }
 
 async function exportGoogleDoc(fileId: string): Promise<string | null> {

@@ -21,6 +21,11 @@ import { extractFacts, trackMessage } from "../fact-extractor.js";
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
 
+// Name-trigger cooldown: channelId → last chime-in timestamp
+const nameChimeCooldown = new Map<string, number>();
+const NAME_CHIME_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per channel
+const NAME_CHIME_SKIP_CHANCE = 0.3; // 30% chance to stay quiet even if relevant
+
 export async function startDiscord(config: Config): Promise<Client> {
   if (config.discord.embedColor !== undefined) {
     setEmbedColor(config.discord.embedColor);
@@ -144,9 +149,16 @@ export async function startDiscord(config: Config): Promise<Client> {
       const botName = config.persona.botName.toLowerCase();
       const namedInText = message.content.toLowerCase().includes(botName);
       if (!mentioned && !namedInText) return;
-      // Name-triggered (not @mentioned) — add a random delay so she doesn't
-      // respond instantly, fetch recent context, then let LLM decide whether to chime in
+      // Name-triggered (not @mentioned) — natural chime-in behavior
       if (!mentioned && namedInText) {
+        // Cooldown: don't chime in if we already did recently in this channel
+        const lastChime = nameChimeCooldown.get(message.channelId) ?? 0;
+        if (Date.now() - lastChime < NAME_CHIME_COOLDOWN_MS) return;
+
+        // Random skip: 30% of the time, just stay quiet
+        if (Math.random() < NAME_CHIME_SKIP_CHANCE) return;
+
+        // Random delay before doing anything (no typing indicator yet)
         const delayMs = 10000 + Math.random() * 50000; // 10-60 seconds
         await new Promise((r) => setTimeout(r, delayMs));
 
@@ -160,6 +172,7 @@ export async function startDiscord(config: Config): Promise<Client> {
           if (lines.length > 0) recentContext = lines.join("\n");
         } catch { /* no permission or error, proceed without context */ }
 
+        nameChimeCooldown.set(message.channelId, Date.now());
         await handleMessage(message, config, true, recentContext);
         return;
       }
@@ -228,17 +241,20 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
   let typingTimer: ReturnType<typeof setInterval> | null = null;
 
   try {
+    // If name-triggered (not @mentioned), give context and let LLM decide whether to reply
+    if (nameTriggered) {
+      const contextBlock = recentContext ? `\n\nRecent conversation for context:\n${recentContext}\n` : "";
+      content = `[Your name was mentioned in conversation but you were NOT directly @mentioned. Read the recent context and the message below. If it makes sense for you to chime in (someone's talking about you, asking about you, or you have something genuinely useful or fun to add), respond naturally in 1-3 sentences. Use any tools you need. If there's no reason for you to respond, reply with exactly "SKIP_REPLY" and nothing else.]${contextBlock}\n${content}`;
+      // Delay typing indicator so it doesn't telegraph "bot is about to respond" instantly
+      const typingDelay = 1000 + Math.random() * 3000; // 1-4 seconds after the main delay
+      await new Promise((r) => setTimeout(r, typingDelay));
+    }
+
     // Keep typing indicator alive throughout response generation
     await channel.sendTyping();
     typingTimer = setInterval(() => {
       channel.sendTyping().catch((err) => console.warn("Discord: sendTyping failed:", err.message ?? err));
     }, TYPING_INTERVAL);
-
-    // If name-triggered (not @mentioned), give context and let LLM decide whether to reply
-    if (nameTriggered) {
-      const contextBlock = recentContext ? `\n\nRecent conversation for context:\n${recentContext}\n` : "";
-      content = `[Your name was mentioned in conversation but you were NOT directly @mentioned. Read the recent context and the message below. If it makes sense for you to chime in (someone's talking about you, asking about you, or you have something genuinely useful or fun to add), respond naturally in 1-3 sentences. Use any tools you need. If there's no reason for you to respond, reply with exactly "SKIP_REPLY" and nothing else.]${contextBlock}\n${content}`;
-    }
     const userContent = await processAttachments(message, content, config.llm.model);
 
     // Streaming state  -  no placeholder reply; typing indicator covers the wait
@@ -259,8 +275,11 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
       lastEditTime = now;
 
       if (!activeMsg) {
-        // First content  -  send as a reply to the user's message
-        const p = message.reply(pending + " \u25CF").then((msg) => {
+        // First content  -  name-triggered sends as regular message, otherwise reply
+        const sendFn = nameTriggered
+          ? channel.send(pending + " \u25CF")
+          : message.reply(pending + " \u25CF");
+        const p = sendFn.then((msg) => {
           activeMsg = msg;
           replyMsg = msg;
         }).catch((err) => { console.warn("Discord: failed to send streaming reply:", err.message ?? err); });
@@ -329,9 +348,10 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
     if (inflightEdit) await inflightEdit;
     if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
 
-    // Name-triggered: if LLM decided not to chime in, silently bail
+    // Name-triggered: if LLM decided not to chime in, silently bail and reset cooldown
     if (nameTriggered && text.trim().replace(/[^a-zA-Z_]/g, "") === "SKIP_REPLY") {
       if (activeMsg) await (activeMsg as Message).delete().catch(() => {});
+      nameChimeCooldown.delete(message.channelId); // don't eat cooldown for a skip
       return;
     }
 
@@ -339,6 +359,7 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
       if (nameTriggered) {
         // Don't send "no response" for name-triggered messages, just stay quiet
         if (activeMsg) await (activeMsg as Message).delete().catch(() => {});
+        nameChimeCooldown.delete(message.channelId);
         return;
       }
       if (activeMsg) {
@@ -379,11 +400,15 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
       }
     } else {
       // No streaming content was sent yet  -  send final reply directly
+      // Name-triggered: send as regular message, not a reply
+      const sendFirst = nameTriggered
+        ? (text: string) => channel.send(text)
+        : (text: string) => message.reply(text);
       if (chunks.length === 1) {
-        replyMsg = await message.reply(chunks[0]);
+        replyMsg = await sendFirst(chunks[0]);
         activeMsg = replyMsg;
       } else {
-        replyMsg = await message.reply(chunks[0]);
+        replyMsg = await sendFirst(chunks[0]);
         activeMsg = replyMsg;
         for (let i = 1; i < chunks.length - 1; i++) {
           await channel.send(chunks[i]);

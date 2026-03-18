@@ -1,6 +1,7 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
-import { pruneFacts } from "./memory.js";
+import { pruneFacts, getAllMemory } from "./memory.js";
 import { archiveOldSessions } from "./sessions.js";
+import { pruneOrphanVectors, isReady as vectorReady } from "./vector-store.js";
 
 // Run cleanup once per hour (track last run to skip most ticks)
 let lastCleanup = 0;
@@ -28,6 +29,16 @@ const dataCleanup: HeartbeatHandler = {
     const sessionMaxAge = memoryMaxAge > 0 ? memoryMaxAge : 30;
     const archived = archiveOldSessions(sessionMaxAge);
     if (archived > 0) results.push(`archived ${archived} session(s)`);
+
+    // Prune orphaned vectors that no longer match memory.json
+    if (vectorReady()) {
+      try {
+        const pruned = await pruneOrphanVectors(getAllMemory());
+        if (pruned > 0) results.push(`pruned ${pruned} orphaned vector(s)`);
+      } catch (err) {
+        console.warn("Cleanup: vector orphan prune failed:", err);
+      }
+    }
 
     if (results.length > 0) return results.join(", ");
   },

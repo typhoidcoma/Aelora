@@ -349,6 +349,49 @@ export async function rebuildIndex(
   return { indexed, errors };
 }
 
+/**
+ * Remove orphaned vectors that no longer have a matching fact in the memory store.
+ * Pass the full memory store as a record of scope → facts.
+ */
+export async function pruneOrphanVectors(
+  store: Record<string, { fact: string }[]>,
+): Promise<number> {
+  if (!index) return 0;
+
+  // Build a set of all valid vector IDs from the memory store
+  const validIds = new Set<string>();
+  for (const [scope, facts] of Object.entries(store)) {
+    for (const f of facts) {
+      validIds.add(factId(scope, f.fact));
+    }
+  }
+
+  // List all items in the index and find orphans
+  const allItems = await index.listItems();
+  const orphanIds: string[] = [];
+  for (const item of allItems) {
+    if (!validIds.has(item.id)) {
+      orphanIds.push(item.id);
+    }
+  }
+
+  if (orphanIds.length === 0) return 0;
+
+  // Delete orphans in a batch update
+  await index.beginUpdate();
+  for (const id of orphanIds) {
+    try {
+      await index.deleteItem(id);
+    } catch {
+      // already gone
+    }
+  }
+  await index.endUpdate();
+
+  console.log(`VectorStore: pruned ${orphanIds.length} orphaned vector(s)`);
+  return orphanIds.length;
+}
+
 export async function getIndexStats(): Promise<{ items: number } | null> {
   if (!index) return null;
   try {

@@ -10,7 +10,7 @@ These features from prior roadmap versions are now live:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Memory System** | Done | Per-user and per-channel fact storage via `memory` tool. Auto-injected into system prompt. Dashboard management. |
+| **Memory System** | Done | Per-user/channel fact storage with enriched metadata (category, confidence, source), vector semantic search (Vectra + OpenAI embeddings), auto-extraction with contradiction detection, weighted ranking (semantic 70% + recency 20% + access 10%), periodic LLM consolidation of related facts, and personality synthesis. |
 | **Web Search** | Done | Brave Search API integration via `brave-search` tool. |
 | **Researcher Agent** | Done | Multi-step web research agent with synthesis and note saving (`src/agents/researcher.ts`). |
 | **Configurable Timezone** | Done | Global IANA timezone via `settings.yaml`. Affects cron, logs, and date formatting. |

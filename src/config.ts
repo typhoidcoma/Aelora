@@ -55,6 +55,8 @@ const memorySchema = z.object({
   semanticDedupThreshold: z.number().min(0).max(1).default(0.85),
   semanticSearchTopK: z.number().int().positive().default(10),
   semanticSearchMinScore: z.number().min(0).max(1).default(0.3),
+  consolidationEnabled: z.boolean().default(true),
+  consolidationThreshold: z.number().int().positive().default(10),
 });
 
 const loggerSchema = z.object({

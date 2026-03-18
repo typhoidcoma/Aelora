@@ -9,6 +9,9 @@ type FactMetadata = {
   scope: string;
   fact: string;
   savedAt: string;
+  category?: string;
+  confidence?: string;
+  source?: string;
 };
 
 export interface SemanticSearchResult {
@@ -160,17 +163,23 @@ function factId(scope: string, fact: string): string {
 
 // ── Public API ───────────────────────────────────────────
 
-export async function indexFact(scope: string, fact: string, savedAt: string): Promise<void> {
+export async function indexFact(
+  scope: string,
+  fact: string,
+  savedAt: string,
+  extra?: { category?: string; confidence?: string; source?: string },
+): Promise<void> {
   if (!index || !embeddings) return;
 
   const vec = await embed(fact);
   if (!vec) return;
 
   const id = factId(scope, fact);
+  const metadata: FactMetadata = { scope, fact, savedAt, ...extra };
   await index.upsertItem({
     id,
     vector: vec,
-    metadata: { scope, fact, savedAt } as unknown as Record<string, MetadataTypes>,
+    metadata: metadata as unknown as Record<string, MetadataTypes>,
   });
 }
 

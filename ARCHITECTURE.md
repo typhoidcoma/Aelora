@@ -194,7 +194,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
    You are currently feeling **serenity**
 
 4. ## Memory                           ← semi-static (changes on fact save)
-   ### About this user / channel
+   ### About this user / channel       ← ranked by semantic relevance + recency + access frequency
 
 5. ## Conversation Summary             ← dynamic (changes after compaction)
 
@@ -204,7 +204,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
 
 In **lite mode** (`llm.lite: true`), the Tool/Agent Inventory and System Status sections are skipped entirely to reduce token count.
 
-The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId)` -only appears when relevant facts exist.
+The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId, conversationContext?)`. When the vector store is available and conversation context is provided, facts are selected by semantic relevance to the current conversation and ranked using a weighted blend of semantic score (70%), recency decay (20%), and access frequency boost (10%). Falls back to recency-based selection when vector search is unavailable.
 
 ### Tool Calling Loop
 
@@ -623,9 +623,9 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts), [src/heartbeat-consolidation.ts](src/heartbeat-consolidation.ts)
 
-A periodic tick system that runs registered handlers at a configurable interval (default: 60 seconds).
+A periodic tick system that runs registered handlers at a configurable interval (default: 15 minutes).
 
 ### Handler Interface
 
@@ -683,6 +683,16 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 - Runs keyword inference on first insert to fill `category`, `irreversible`, `affects_others`
 - Silently skips if Google credentials or Supabase are not configured
 - Returns a summary log string (e.g. `synced 12 task(s) for 2 user(s)`)
+
+**Fact Consolidation** (`heartbeat-consolidation.ts`):
+- Tracks new facts added per scope via a callback from `saveFact()`
+- When a scope accumulates `consolidationThreshold` (default: 10) new facts, triggers an LLM merge pass
+- Groups facts by category; only consolidates categories with 4+ facts
+- LLM merges related facts into fewer, richer statements while preserving all specific details
+- Deletes consumed facts and saves merged replacements with `source: "consolidation"`
+- Updates both the JSON store and vector index
+- Processes at most 1 scope per tick to limit API usage
+- Configurable via `memory.consolidationEnabled` and `memory.consolidationThreshold`
 
 ### Adding a Handler
 
@@ -1222,7 +1232,7 @@ When `activity.enabled` is false:
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard sections: Status, Persona (card grid + file editor), LLM Test, Sessions, Memory, Scheduled Tasks (cron), Tools, Agents, Notes (CRUD with scoped organization), Todos (Google Tasks-backed, with score badges and smart sort), Scoring (XP bar, streak, leaderboard by score tier, achievements), Users (profile table with cascading delete), Activity Preview (Unity WebGL test iframe), and Console (live log stream). An **Export Data** button in the header downloads a JSON bundle of all bot data.
+Dashboard is organized into **5 tabs**: Home, Persona, Data, Automation, and System. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Sessions, Memory, Notes, and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Todos (with score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
 
 ---
 
@@ -1328,30 +1338,52 @@ Automatic daily activity logging, persisted to disk. Uses the configured timezon
 
 ## Vector Memory System
 
-**Files:** [src/vector-store.ts](src/vector-store.ts), [src/migrate-vectors.ts](src/migrate-vectors.ts)
+**Files:** [src/vector-store.ts](src/vector-store.ts), [src/memory.ts](src/memory.ts), [src/migrate-vectors.ts](src/migrate-vectors.ts)
 
-Semantic search layer over the flat-file fact store (`data/memory.json`). Uses [Vectra](https://github.com/Stevenic/vectra) for local vector indexing with OpenAI-compatible embedding APIs.
+Semantic search layer over the enriched fact store (`data/memory.json`). Uses [Vectra](https://github.com/Stevenic/vectra) for local vector indexing with OpenAI-compatible embedding APIs.
+
+### Enriched Fact Model
+
+Each fact carries structured metadata beyond the raw text:
+
+```typescript
+type MemoryFact = {
+  fact: string;
+  savedAt: string;
+  category: "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual";
+  confidence: "stated" | "inferred";
+  source: string;           // "channel:123", "manual", "legacy", "consolidation"
+  lastAccessedAt?: string;
+  accessCount?: number;
+};
+```
+
+**Categories** classify what kind of information the fact represents (preferences, biographical details, communication style, etc.). **Confidence** tracks whether the user explicitly stated the fact or it was inferred from context. **Source** records where the fact came from. Legacy facts are auto-migrated on first load.
 
 ### How It Works
 
-1. **Indexing:** When a fact is saved via `saveFact()`, it's also embedded and upserted into the Vectra index at `data/vectors/memory/`.
+1. **Indexing:** When a fact is saved via `saveFact()`, it's also embedded and upserted into the Vectra index at `data/vectors/memory/`. Vector metadata includes `category`, `confidence`, and `source`.
 2. **Semantic dedup:** Before saving a new fact, `isDuplicateSemantic()` queries the index for high-similarity matches (configurable threshold). This replaces the Jaccard keyword fallback when the vector store is available.
 3. **Semantic search:** `semanticSearch()` returns the top-K most relevant facts across specified scopes, ranked by cosine similarity. Used by the memory tool for smarter recall.
-4. **LRU cache:** Recent embeddings are cached in-memory (100 entries) to avoid redundant API calls for repeated text.
-5. **Batch rebuild:** `rebuildIndex()` re-embeds all facts from the JSON store in batches of 100. Run automatically on first boot if the vector index is missing, or manually via `npx tsx src/migrate-vectors.ts`.
+4. **Weighted ranking:** When injecting facts into the system prompt, `rankFact()` blends semantic similarity (70%), temporal recency with exponential decay (20%), and access frequency boost (10%). This ensures frequently-accessed and recently-saved facts rank higher than stale ones.
+5. **Access tracking:** Facts injected into the system prompt have their `lastAccessedAt` and `accessCount` updated (debounced save every 10 seconds to avoid disk thrashing).
+6. **LRU cache:** Recent embeddings are cached in-memory (100 entries) to avoid redundant API calls for repeated text.
+7. **Batch rebuild:** `rebuildIndex()` re-embeds all facts from the JSON store in batches of 100. Run automatically on first boot if the vector index is missing, or manually via `npx tsx src/migrate-vectors.ts`.
 
 ### Config
 
 ```yaml
-vectorSearch:
-  enabled: true
-  apiKey: "sk-..."          # OpenAI-compatible embedding API key
-  baseURL: "https://api.openai.com/v1"
-  model: "text-embedding-3-small"
-  dimensions: 1536
-  dedupThreshold: 0.92      # cosine similarity threshold for dedup
-  searchTopK: 5             # max results per query
-  searchMinScore: 0.7       # minimum similarity to return
+memory:
+  vectorSearch: true
+  embeddingApiKey: "sk-..."          # OpenAI-compatible embedding API key
+  embeddingBaseURL: "https://api.openai.com/v1"
+  embeddingModel: "text-embedding-3-small"
+  embeddingDimensions: 1536
+  semanticDedupThreshold: 0.85      # cosine similarity threshold for dedup
+  semanticSearchTopK: 10            # max results per query
+  semanticSearchMinScore: 0.3       # minimum similarity to return
+  consolidationEnabled: true        # enable periodic fact consolidation
+  consolidationThreshold: 10        # new facts before triggering merge
 ```
 
 ---
@@ -1360,14 +1392,27 @@ vectorSearch:
 
 **Files:** [src/fact-extractor.ts](src/fact-extractor.ts)
 
-Fire-and-forget system that automatically extracts noteworthy facts from conversations and builds personality profiles. Same lightweight pattern as the mood system.
+Fire-and-forget system that automatically extracts noteworthy facts from conversations, detects contradictions with existing knowledge, and builds personality profiles. Same lightweight pattern as the mood system.
 
 ### Extraction Pipeline
 
 1. **Throttle check:** Per-channel cooldown (2 minutes) and minimum message count (4 messages) between extractions.
-2. **LLM extraction:** Sends the latest user+bot exchange to the auxiliary model with a JSON-only prompt. Extracts four categories: `user_facts`, `personality_facts`, `channel_facts`, `global_facts`.
-3. **Dedup:** Each candidate fact is checked against existing facts using semantic dedup (vector store) with Jaccard keyword fallback.
-4. **Save:** Deduplicated facts are saved to the appropriate scope in `data/memory.json` and indexed in the vector store. Caps per extraction: 3 user, 2 personality, 2 channel, 1 global.
+2. **Context injection:** Up to 15 recent user facts and 10 channel facts are appended to the extraction prompt, enabling the LLM to detect contradictions against existing knowledge.
+3. **LLM extraction:** Sends the latest user+bot exchange to the auxiliary model with a structured JSON prompt. Each fact is returned as an object with `fact`, `category` (one of 6 types), and `confidence` ("stated" or "inferred"). Also returns a `contradictions` array for mutually exclusive facts (changed preferences, moved location, etc.). Plain string arrays are accepted as a fallback for model compatibility.
+4. **Contradiction resolution:** For each detected contradiction, the old fact is found and deleted from the JSON store and vector index before the replacement is saved.
+5. **Dedup:** Each candidate fact is checked against existing facts using semantic dedup (vector store) with Jaccard keyword fallback.
+6. **Save:** Deduplicated facts are saved with full metadata (`category`, `confidence`, `source`) to the appropriate scope in `data/memory.json` and indexed in the vector store. Caps per extraction: 3 user, 2 personality, 2 channel, 1 global.
+
+### Fact Categories
+
+| Category | What it captures |
+|----------|-----------------|
+| `preference` | Likes, dislikes, opinions, tastes |
+| `biographical` | Name, location, job, age, pets, family |
+| `behavioral` | Communication style, habits, patterns, tone |
+| `relationship` | Dynamics with others, social context |
+| `technical` | Tools, languages, projects, skills |
+| `contextual` | Situational facts, current events, plans |
 
 ### Personality Synthesis
 

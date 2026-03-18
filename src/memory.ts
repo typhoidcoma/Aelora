@@ -40,9 +40,23 @@ export async function configureMemory(opts: MemoryConfig): Promise<void> {
 const MAX_GLOBAL_INJECTED = 5;
 const MAX_SCOPED_INJECTED = 8;
 
-type MemoryFact = {
+export type FactCategory = "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual";
+export type FactConfidence = "stated" | "inferred";
+
+export type MemoryFact = {
   fact: string;
   savedAt: string;
+  category: FactCategory;
+  confidence: FactConfidence;
+  source: string;            // "channel:123", "manual", "legacy", "consolidation"
+  lastAccessedAt?: string;
+  accessCount?: number;
+};
+
+export type FactMetadataInput = {
+  category?: FactCategory;
+  confidence?: FactConfidence;
+  source?: string;
 };
 
 type MemoryStore = Record<string, MemoryFact[]>;
@@ -52,7 +66,28 @@ let store: MemoryStore = {};
 function load(): void {
   try {
     if (existsSync(MEMORY_FILE)) {
-      store = JSON.parse(readFileSync(MEMORY_FILE, "utf-8"));
+      const raw = JSON.parse(readFileSync(MEMORY_FILE, "utf-8"));
+      let migrated = false;
+      for (const [scope, facts] of Object.entries(raw)) {
+        if (!Array.isArray(facts)) continue;
+        raw[scope] = (facts as any[]).map((f) => {
+          if (f.category) return f; // already migrated
+          migrated = true;
+          return {
+            fact: f.fact,
+            savedAt: f.savedAt,
+            category: "contextual" as FactCategory,
+            confidence: "inferred" as FactConfidence,
+            source: "legacy",
+            accessCount: 0,
+          };
+        });
+      }
+      store = raw;
+      if (migrated) {
+        save();
+        console.log("Memory: migrated legacy facts to enriched format");
+      }
     }
   } catch {
     store = {};
@@ -68,7 +103,11 @@ function save(): void {
   }
 }
 
-export function saveFact(scope: string, fact: string): { success: boolean; error?: string } {
+export function saveFact(
+  scope: string,
+  fact: string,
+  metadata?: FactMetadataInput,
+): { success: boolean; error?: string } {
   const trimmed = fact.trim().slice(0, maxFactLength);
   if (!trimmed) return { success: false, error: "Fact cannot be empty" };
 
@@ -80,7 +119,15 @@ export function saveFact(scope: string, fact: string): { success: boolean; error
   }
 
   const savedAt = new Date().toISOString();
-  store[scope].push({ fact: trimmed, savedAt });
+  const entry: MemoryFact = {
+    fact: trimmed,
+    savedAt,
+    category: metadata?.category ?? "contextual",
+    confidence: metadata?.confidence ?? "inferred",
+    source: metadata?.source ?? "auto",
+    accessCount: 0,
+  };
+  store[scope].push(entry);
 
   // Cap at max
   if (store[scope].length > maxFactsPerScope) {
@@ -88,16 +135,29 @@ export function saveFact(scope: string, fact: string): { success: boolean; error
   }
 
   save();
-  console.log(`Memory: saved fact to "${scope}" (${store[scope].length} total)`);
+  console.log(`Memory: saved fact to "${scope}" [${entry.category}/${entry.confidence}] (${store[scope].length} total)`);
 
   // Fire-and-forget vector indexing
   if (vectorEnabled) {
-    vectorStore.indexFact(scope, trimmed, savedAt).catch((err) => {
+    vectorStore.indexFact(scope, trimmed, savedAt, {
+      category: entry.category,
+      confidence: entry.confidence,
+      source: entry.source,
+    }).catch((err) => {
       console.warn("Memory: vector indexing failed:", err);
     });
   }
 
+  // Track for consolidation
+  if (_onFactAdded) _onFactAdded(scope);
+
   return { success: true };
+}
+
+// Consolidation callback — set by heartbeat-consolidation.ts
+let _onFactAdded: ((scope: string) => void) | null = null;
+export function setOnFactAdded(cb: (scope: string) => void): void {
+  _onFactAdded = cb;
 }
 
 export function getFacts(scope: string): MemoryFact[] {
@@ -146,6 +206,48 @@ export function getAllMemory(): MemoryStore {
   return { ...store };
 }
 
+// ── Access tracking (debounced save) ──────────────────────
+
+let _pendingAccessUpdates = false;
+let _accessFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+function trackAccess(scope: string, factText: string): void {
+  const facts = store[scope];
+  if (!facts) return;
+  const f = facts.find((f) => f.fact === factText);
+  if (!f) return;
+  f.lastAccessedAt = new Date().toISOString();
+  f.accessCount = (f.accessCount ?? 0) + 1;
+  _pendingAccessUpdates = true;
+}
+
+function flushAccessUpdates(): void {
+  if (!_pendingAccessUpdates) return;
+  _pendingAccessUpdates = false;
+  save();
+}
+
+// Flush every 10 seconds if updates are pending
+function ensureAccessFlushTimer(): void {
+  if (_accessFlushTimer) return;
+  _accessFlushTimer = setInterval(() => {
+    flushAccessUpdates();
+  }, 10_000);
+}
+
+// ── Ranking ───────────────────────────────────────────────
+
+function rankFact(semanticScore: number, fact: MemoryFact): number {
+  const now = Date.now();
+  // Recency: exponential decay over 30 days, floor at 0.3
+  const ageDays = (now - new Date(fact.savedAt).getTime()) / 86_400_000;
+  const recency = Math.max(0.3, Math.exp(-0.03 * ageDays));
+  // Access frequency: log boost, capped at 0.2
+  const accessBoost = Math.min(0.2, 0.05 * Math.log2(1 + (fact.accessCount ?? 0)));
+  // Blend: semantic 70%, recency 20%, access 10%
+  return semanticScore * 0.70 + recency * 0.20 + accessBoost * 0.10;
+}
+
 /**
  * Search facts by keyword (legacy) or semantically via vector search.
  * Returns matching facts with their scope and index.
@@ -162,10 +264,14 @@ export async function searchFacts(
       return results.map((r) => {
         const scopeFacts = store[r.scope] ?? [];
         const idx = scopeFacts.findIndex((f) => f.fact === r.fact);
+        const factObj: MemoryFact = idx >= 0 ? scopeFacts[idx] : {
+          fact: r.fact, savedAt: r.savedAt,
+          category: "contextual", confidence: "inferred", source: "unknown",
+        };
         return {
           scope: r.scope,
           index: idx >= 0 ? idx : 0,
-          fact: { fact: r.fact, savedAt: r.savedAt },
+          fact: factObj,
           score: r.score,
         };
       });
@@ -226,18 +332,35 @@ export async function getMemoryForPrompt(
       });
 
       if (results.length > 0) {
+        // Apply weighted ranking
+        const ranked = results.map((r) => {
+          const scopeFacts = store[r.scope] ?? [];
+          const factObj = scopeFacts.find((f) => f.fact === r.fact);
+          const rank = factObj ? rankFact(r.score, factObj) : r.score;
+          return { ...r, rank };
+        }).sort((a, b) => b.rank - a.rank);
+
         // Group by scope type
         const global: string[] = [];
         const user: string[] = [];
         const channel: string[] = [];
 
-        for (const r of results) {
+        for (const r of ranked) {
           if (r.scope === "global" && global.length < MAX_GLOBAL_INJECTED) {
             global.push(r.fact);
           } else if (r.scope.startsWith("user:") && user.length < MAX_SCOPED_INJECTED) {
             user.push(r.fact);
           } else if (r.scope.startsWith("channel:") && channel.length < MAX_SCOPED_INJECTED) {
             channel.push(r.fact);
+          }
+        }
+
+        // Track access for injected facts
+        ensureAccessFlushTimer();
+        for (const r of ranked) {
+          const selected = [...global, ...user, ...channel];
+          if (selected.includes(r.fact)) {
+            trackAccess(r.scope, r.fact);
           }
         }
 

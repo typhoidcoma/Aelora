@@ -2864,16 +2864,16 @@ function refreshAll() {
 function startPolling() {
   stopPolling();
   pollIntervals = [
-    setInterval(fetchStatus, 5000),
-    setInterval(fetchSessions, 10000),
-    setInterval(fetchMemory, 10000),
-    setInterval(fetchCron, 10000),
-    setInterval(fetchTools, 10000),
-    setInterval(fetchAgents, 10000),
-    setInterval(fetchUsers, 10000),
-    setInterval(fetchNotes, 10000),
+    setInterval(fetchStatus, 10000),
+    setInterval(fetchSessions, 15000),
+    setInterval(fetchMemory, 60000),
+    setInterval(fetchCron, 30000),
+    setInterval(fetchTools, 60000),
+    setInterval(fetchAgents, 60000),
+    setInterval(fetchUsers, 60000),
+    setInterval(fetchNotes, 60000),
     setInterval(fetchTodos, 30000),
-    setInterval(fetchHeartbeat, 10000),
+    setInterval(fetchHeartbeat, 60000),
     setInterval(fetchHomeData, 30000),
     setInterval(fetchCalendarEvents, 60000),
   ];

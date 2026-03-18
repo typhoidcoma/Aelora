@@ -5,7 +5,8 @@
 
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
-import { saveFact, getFacts, searchFactsKeyword } from "./memory.js";
+import { saveFact, getFacts, deleteFact, searchFactsKeyword } from "./memory.js";
+import type { FactCategory, FactConfidence } from "./memory.js";
 import { isDuplicateSemantic, isReady as isVectorReady } from "./vector-store.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 
@@ -34,11 +35,27 @@ const EXTRACT_SYSTEM =
   "- Relationship dynamics or recurring topics\n" +
   "- Communication style and tone (how they write, humor, energy level, verbosity)\n" +
   "- Emotional patterns (what energizes or frustrates them, how they engage)\n\n" +
+  "Each fact is an object with:\n" +
+  '- "fact": short self-contained statement (under 200 chars)\n' +
+  '- "category": one of "preference", "biographical", "behavioral", "relationship", "technical", "contextual"\n' +
+  '- "confidence": "stated" (user explicitly said it) or "inferred" (implied from context)\n\n' +
+  "Categories:\n" +
+  '- preference: likes, dislikes, opinions, tastes\n' +
+  '- biographical: name, location, job, age, pets, family\n' +
+  '- behavioral: communication style, habits, patterns, tone\n' +
+  '- relationship: dynamics with others, social context\n' +
+  '- technical: tools, languages, projects, skills\n' +
+  '- contextual: situational facts, current events, plans\n\n' +
   "Rules:\n" +
   "- Only extract facts that are clearly stated or strongly implied, not speculation\n" +
-  "- Each fact must be a short, self-contained statement (under 200 chars)\n" +
-  '- If no noteworthy facts exist, return empty arrays\n\n' +
-  'Response format:\n{"user_facts":["fact1","fact2"],"personality_facts":["style1"],"channel_facts":["fact3"],"global_facts":["fact4"]}';
+  "- If no noteworthy facts exist, return empty arrays\n" +
+  '- If existing facts are provided, check for CONTRADICTIONS — facts that are mutually exclusive (e.g. changed preference, moved location, switched job). Only flag true contradictions, NOT additions.\n\n' +
+  'Response format:\n' +
+  '{"user_facts":[{"fact":"...","category":"preference","confidence":"stated"}],' +
+  '"personality_facts":[{"fact":"...","category":"behavioral","confidence":"inferred"}],' +
+  '"channel_facts":[{"fact":"...","category":"contextual","confidence":"stated"}],' +
+  '"global_facts":[{"fact":"...","category":"contextual","confidence":"inferred"}],' +
+  '"contradictions":[{"new_fact":"prefers Python","replaces":"prefers JavaScript"}]}';
 
 // ── Synthesis prompt ──────────────────────────────────────
 
@@ -83,7 +100,19 @@ export async function extractFacts(
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 
-  const snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
+  let snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
+
+  // Inject existing facts for contradiction detection
+  const existingFacts: string[] = [];
+  if (userId) {
+    const userFacts = getFacts(`user:${userId}`).slice(-15);
+    for (const f of userFacts) existingFacts.push(f.fact);
+  }
+  const channelFacts = getFacts(`channel:${channelId}`).slice(-10);
+  for (const f of channelFacts) existingFacts.push(f.fact);
+  if (existingFacts.length > 0) {
+    snippet += `\n\nExisting facts (check for contradictions):\n${existingFacts.map((f) => `- ${f}`).join("\n")}`;
+  }
 
   try {
     // Always suppress thinking for lightweight JSON extraction calls  - 
@@ -114,7 +143,17 @@ export async function extractFacts(
       return;
     }
 
-    let parsed: { user_facts?: string[]; personality_facts?: string[]; channel_facts?: string[]; global_facts?: string[] };
+    type FactEntry = string | { fact: string; category?: string; confidence?: string };
+    type Contradiction = { new_fact: string; replaces: string };
+    type ParsedExtraction = {
+      user_facts?: FactEntry[];
+      personality_facts?: FactEntry[];
+      channel_facts?: FactEntry[];
+      global_facts?: FactEntry[];
+      contradictions?: Contradiction[];
+    };
+
+    let parsed: ParsedExtraction;
     try {
       parsed = JSON.parse(repairJson(jsonStr));
     } catch {
@@ -130,44 +169,88 @@ export async function extractFacts(
       }
     }
 
+    // Normalize a fact entry (string or object) into text + metadata
+    function normalizeFact(entry: FactEntry): { text: string; category: FactCategory; confidence: FactConfidence } | null {
+      if (typeof entry === "string") {
+        const t = entry.trim();
+        return t ? { text: t, category: "contextual", confidence: "inferred" } : null;
+      }
+      if (entry && typeof entry.fact === "string") {
+        const t = entry.fact.trim();
+        if (!t) return null;
+        const validCategories: FactCategory[] = ["preference", "biographical", "behavioral", "relationship", "technical", "contextual"];
+        const cat = validCategories.includes(entry.category as FactCategory) ? (entry.category as FactCategory) : "contextual";
+        const conf: FactConfidence = entry.confidence === "stated" ? "stated" : "inferred";
+        return { text: t, category: cat, confidence: conf };
+      }
+      return null;
+    }
+
+    // Process contradictions first — delete old facts that are being replaced
+    if (Array.isArray(parsed.contradictions)) {
+      for (const c of parsed.contradictions) {
+        if (!c.replaces || typeof c.replaces !== "string") continue;
+        const replacesLower = c.replaces.toLowerCase();
+        // Check all relevant scopes for the old fact
+        const scopesToCheck = ["global", `channel:${channelId}`];
+        if (userId) scopesToCheck.push(`user:${userId}`);
+        for (const scope of scopesToCheck) {
+          const facts = getFacts(scope);
+          for (let i = facts.length - 1; i >= 0; i--) {
+            if (facts[i].fact.toLowerCase().includes(replacesLower) || replacesLower.includes(facts[i].fact.toLowerCase())) {
+              console.log(`FactExtractor: contradiction — replacing "${facts[i].fact}" with "${c.new_fact}" in scope "${scope}"`);
+              deleteFact(scope, i);
+            }
+          }
+        }
+      }
+    }
+
     let saved = 0;
+    const source = `channel:${channelId}`;
 
     // Save user-scoped facts (max 3 per extraction)
     if (userId && Array.isArray(parsed.user_facts)) {
-      for (const fact of parsed.user_facts.slice(0, 3)) {
-        if (typeof fact !== "string" || !fact.trim()) continue;
-        if (await isDuplicate(fact, `user:${userId}`)) continue;
-        const r = saveFact(`user:${userId}`, fact.trim());
+      for (const entry of parsed.user_facts.slice(0, 3)) {
+        const f = normalizeFact(entry);
+        if (!f) continue;
+        if (await isDuplicate(f.text, `user:${userId}`)) continue;
+        const r = saveFact(`user:${userId}`, f.text, { category: f.category, confidence: f.confidence, source });
         if (r.success) saved++;
       }
     }
 
     // Save personality/style facts to user scope (max 2 per extraction)
     if (userId && Array.isArray(parsed.personality_facts)) {
-      for (const fact of parsed.personality_facts.slice(0, 2)) {
-        if (typeof fact !== "string" || !fact.trim()) continue;
-        if (await isDuplicate(fact, `user:${userId}`)) continue;
-        const r = saveFact(`user:${userId}`, fact.trim());
+      for (const entry of parsed.personality_facts.slice(0, 2)) {
+        const f = normalizeFact(entry);
+        if (!f) continue;
+        // Personality facts default to behavioral if model didn't specify
+        if (typeof entry !== "string" && !entry.category) f.category = "behavioral";
+        if (await isDuplicate(f.text, `user:${userId}`)) continue;
+        const r = saveFact(`user:${userId}`, f.text, { category: f.category, confidence: f.confidence, source });
         if (r.success) saved++;
       }
     }
 
     // Save channel-scoped facts (max 2 per extraction)
     if (Array.isArray(parsed.channel_facts)) {
-      for (const fact of parsed.channel_facts.slice(0, 2)) {
-        if (typeof fact !== "string" || !fact.trim()) continue;
-        if (await isDuplicate(fact, `channel:${channelId}`)) continue;
-        const r = saveFact(`channel:${channelId}`, fact.trim());
+      for (const entry of parsed.channel_facts.slice(0, 2)) {
+        const f = normalizeFact(entry);
+        if (!f) continue;
+        if (await isDuplicate(f.text, `channel:${channelId}`)) continue;
+        const r = saveFact(`channel:${channelId}`, f.text, { category: f.category, confidence: f.confidence, source });
         if (r.success) saved++;
       }
     }
 
     // Save global facts (max 1 per extraction)
     if (Array.isArray(parsed.global_facts)) {
-      for (const fact of parsed.global_facts.slice(0, 1)) {
-        if (typeof fact !== "string" || !fact.trim()) continue;
-        if (await isDuplicate(fact, "global")) continue;
-        const r = saveFact("global", fact.trim());
+      for (const entry of parsed.global_facts.slice(0, 1)) {
+        const f = normalizeFact(entry);
+        if (!f) continue;
+        if (await isDuplicate(f.text, "global")) continue;
+        const r = saveFact("global", f.text, { category: f.category, confidence: f.confidence, source });
         if (r.success) saved++;
       }
     }

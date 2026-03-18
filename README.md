@@ -18,7 +18,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Persona System** - Composable personality from layered markdown files with hot-reload
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
-- **Memory** - Per-user and per-channel fact storage with semantic search via vector embeddings (Vectra + OpenAI); auto-extracts facts from conversations and synthesizes personality profiles
+- **Memory** - Per-user and per-channel fact storage with enriched metadata (category, confidence, source), semantic search via vector embeddings (Vectra + OpenAI), auto-extraction with contradiction detection, weighted ranking (semantic relevance + recency + access frequency), periodic consolidation of related facts, and automatic personality profile synthesis
 - **Web Search** - Brave Search or OpenAI Responses API (configurable provider)
 - **Google Tasks** - Full task management: list, create, complete, update, delete
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
@@ -33,7 +33,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Daily Log** - Automatic daily activity logging
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
 - **Image Generation** - DALL-E 3 or compatible API via the luminizer tool (text-to-image with configurable style prompts)
-- **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, data cleanup
+- **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response, manual set/reclassify via API
 - **Data Export** - JSON bundle of all bot data via API or dashboard
@@ -41,7 +41,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Config Validation** - Zod-powered schema validation with clear startup errors
 - **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
-- **Web Dashboard** - Status, personas, tools, agents, sessions, memory, users, notes, todos, scoring leaderboard, cron, console, mood, export
+- **Web Dashboard** - 5-tab layout (Home, Persona, Data, Automation, System) with at-a-glance stat cards, achievements, calendar, scoring, live console, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
@@ -98,8 +98,8 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `tools` | Per-tool config (API keys, Google OAuth credentials, etc.) |
 | `supabase` | Supabase project URL and anon key for scoring persistence |
 | `agents` | Agent system toggle, max iterations |
-| `heartbeat` | Periodic handler system interval |
-| `memory` | Max facts per scope, max fact length, TTL for auto-pruning |
+| `heartbeat` | Periodic handler system interval (default: 15 min) |
+| `memory` | Max facts per scope, max fact length, TTL, vector search, embedding config, consolidation |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
 | `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix) |
@@ -461,9 +461,9 @@ src/
 ├── supabase.ts                 # Supabase client singleton and typed helpers
 ├── cron.ts                     # Cron scheduler (file-based, atomic writes)
 ├── sessions.ts                 # Session tracking and persistence
-├── memory.ts                   # Per-user/channel fact store
+├── memory.ts                   # Per-user/channel fact store with enriched metadata + ranking
 ├── vector-store.ts             # Semantic search via Vectra + OpenAI embeddings
-├── fact-extractor.ts           # Auto-extract facts from conversations + personality synthesis
+├── fact-extractor.ts           # Auto-extract facts with contradiction detection + personality synthesis
 ├── daily-log.ts                # Daily activity logging
 ├── users.ts                    # User profile tracking
 ├── mood.ts                     # Emotion state (Plutchik's wheel)
@@ -476,6 +476,7 @@ src/
 ├── heartbeat-cleanup.ts        # Data pruning
 ├── heartbeat-reply-check.ts    # Missed reply detection
 ├── heartbeat-alive.ts          # Status channel heartbeat
+├── heartbeat-consolidation.ts  # Fact consolidation (LLM merge pass)
 ├── heartbeat-conversations.ts  # Conversation persistence
 ├── state.ts                    # Persisted bot state
 ├── lifecycle.ts                # Graceful reboot

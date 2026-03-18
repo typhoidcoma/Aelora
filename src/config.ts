@@ -107,6 +107,16 @@ const supabaseSchema = z
   })
   .optional();
 
+const knowledgeSchema = z.object({
+  enabled: z.boolean().default(false),
+  driveFolderId: z.string().default(""),
+  syncIntervalMinutes: z.number().int().positive().default(30),
+  chunkSize: z.number().int().positive().default(800),
+  chunkOverlap: z.number().int().nonnegative().default(100),
+  maxChunksPerPrompt: z.number().int().positive().default(5),
+  minRelevanceScore: z.number().min(0).max(1).default(0.35),
+});
+
 const configSchema = z.object({
   timezone: z.string().default("UTC"),
   discord: discordSchema,
@@ -120,6 +130,7 @@ const configSchema = z.object({
   memory: memorySchema.default({}),
   logger: loggerSchema.default({}),
   cron: cronSchema.default({}),
+  knowledge: knowledgeSchema.default({}),
   supabase: supabaseSchema,
 });
 
@@ -198,6 +209,7 @@ function applyEnvOverrides(config: Config): void {
     if (env.AELORA_SUPABASE_URL)      applied.push("AELORA_SUPABASE_URL");
     if (env.AELORA_SUPABASE_ANON_KEY) applied.push("AELORA_SUPABASE_ANON_KEY");
   }
+  if (env.AELORA_KB_DRIVE_FOLDER_ID)    { config.knowledge.driveFolderId = env.AELORA_KB_DRIVE_FOLDER_ID; applied.push("AELORA_KB_DRIVE_FOLDER_ID"); }
   if (applied.length > 0) {
     console.log(`Config: env overrides applied: ${applied.join(", ")}`);
   }

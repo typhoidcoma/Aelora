@@ -195,3 +195,18 @@ activity:
   clientId: "YOUR_APPLICATION_ID"
   clientSecret: "YOUR_CLIENT_SECRET"
   # serverUrl: "https://your-tunnel.example.com"
+
+# --- Knowledge Base (Google Drive) ---
+# Sync a Google Drive folder to the semantic vector index.
+# Files are periodically fetched, chunked, embedded, and indexed.
+# Supported: Google Docs, PDFs, text/markdown/CSV, Google Sheets, images (via description).
+# Requires Google Workspace credentials (see tools.google above).
+
+knowledge:
+  enabled: false
+  driveFolderId: ""             # Folder ID from the Google Drive URL (after /folders/)
+  syncIntervalMinutes: 30       # How often to check Drive for new/updated files
+  chunkSize: 800                # Max characters per chunk
+  chunkOverlap: 100             # Overlap between consecutive chunks
+  maxChunksPerPrompt: 5         # Max KB chunks injected into LLM context per message
+  minRelevanceScore: 0.35       # Minimum semantic similarity score (0.0-1.0)

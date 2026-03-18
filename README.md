@@ -24,6 +24,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
 - **Gmail** - Read, send, search, label, and trash messages
 - **Google Docs** - Read, create, append, search documents
+- **Knowledge Base** - Sync a Google Drive folder to the vector index; files (Docs, PDFs, text, Sheets, images) are chunked, embedded, and auto-searched on every message
 - **Linear** - Issue tracking integration with priority and estimate sync into the scoring system
 - **Scoring System** - Science-backed 0-100 task scoring with XP, streaks, achievements, and adaptive per-user learning (see below)
 - **Notes** - Persistent notes scoped to channels or global
@@ -33,7 +34,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Daily Log** - Automatic daily activity logging
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
 - **Image Generation** - DALL-E 3 or compatible API via the luminizer tool (text-to-image with configurable style prompts)
-- **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup
+- **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup, knowledge base sync
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response, manual set/reclassify via API
 - **Data Export** - JSON bundle of all bot data via API or dashboard
@@ -104,6 +105,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `cron` | Max execution history records per job |
 | `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix) |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
+| `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
 
 </details>
 
@@ -249,6 +251,38 @@ tools:
     clientSecret: "your-client-secret"
     refreshToken: "1//your-refresh-token"
 ```
+
+</details>
+
+---
+
+<details>
+<summary><strong>Knowledge Base (Google Drive)</strong></summary>
+
+Sync a Google Drive folder so the bot can automatically reference shared documents when responding. Files are periodically fetched, chunked, embedded into the vector index, and semantically searched on every incoming message.
+
+**Supported file types:**
+- Google Docs (exported as plain text)
+- PDFs (text extracted via pdf-parse)
+- Plain text, Markdown, CSV, JSON, XML
+- Google Sheets (exported as CSV)
+- Images (uses the file's description from Drive metadata)
+
+**Setup:**
+
+1. Create or choose a Google Drive folder for your team's reference material
+2. Copy the folder ID from the URL (the string after `/folders/`)
+3. Add to `settings.yaml`:
+
+```yaml
+knowledge:
+  enabled: true
+  driveFolderId: "YOUR_FOLDER_ID"
+```
+
+Or set `AELORA_KB_DRIVE_FOLDER_ID` as an environment variable.
+
+The bot syncs every 30 minutes by default. Relevant excerpts appear automatically in Wendy's responses as a "Reference Material" section in her context. All config options (sync interval, chunk size, overlap, max chunks per prompt, min relevance score) are documented in `settings.example.yaml`.
 
 </details>
 
@@ -464,6 +498,7 @@ src/
 ├── memory.ts                   # Per-user/channel fact store with enriched metadata + ranking
 ├── vector-store.ts             # Semantic search via Vectra + OpenAI embeddings
 ├── fact-extractor.ts           # Auto-extract facts with contradiction detection + personality synthesis
+├── knowledge-base.ts           # Google Drive knowledge base (sync, chunk, search)
 ├── daily-log.ts                # Daily activity logging
 ├── users.ts                    # User profile tracking
 ├── mood.ts                     # Emotion state (Plutchik's wheel)
@@ -477,6 +512,7 @@ src/
 ├── heartbeat-reply-check.ts    # Missed reply detection
 ├── heartbeat-alive.ts          # Status channel heartbeat
 ├── heartbeat-consolidation.ts  # Fact consolidation (LLM merge pass)
+├── heartbeat-knowledge-sync.ts # Google Drive knowledge base sync
 ├── heartbeat-conversations.ts  # Conversation persistence
 ├── state.ts                    # Persisted bot state
 ├── lifecycle.ts                # Graceful reboot

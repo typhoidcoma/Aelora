@@ -694,6 +694,14 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 - Processes at most 1 scope per tick to limit API usage
 - Configurable via `memory.consolidationEnabled` and `memory.consolidationThreshold`
 
+**Knowledge Base Sync** (`heartbeat-knowledge-sync.ts`):
+- Every 30 minutes (configurable): syncs a Google Drive folder to the vector index
+- Detects new, updated, and deleted files; re-chunks and re-indexes as needed
+- Persists file manifest to `data/kb-manifest.json` for change detection
+- Silently skips if knowledge base is disabled or Google credentials are not configured
+
+**Data Cleanup** also prunes orphaned vectors hourly, but skips `kb`-scoped vectors (managed by the sync pipeline).
+
 ### Adding a Handler
 
 ```typescript
@@ -819,6 +827,67 @@ type TodoItem = {
 ```
 
 Exported functions: `listTodos`, `getTodoByUid`, `createTodo`, `completeTodo`, `updateTodoItem`, `deleteTodoItem`. All accept a `GoogleConfig` param and call `googleFetch` internally. Priority is read from Supabase `life_events.priority` by `external_uid` when available; otherwise defaults to `"medium"`.
+
+---
+
+## Knowledge Base (Google Drive)
+
+**Files:** [src/knowledge-base.ts](src/knowledge-base.ts), [src/heartbeat-knowledge-sync.ts](src/heartbeat-knowledge-sync.ts)
+
+The knowledge base syncs a designated Google Drive folder into the Vectra vector index, making shared documents automatically searchable during conversations. It reuses the same vector store, embedding pipeline, and Google OAuth as the memory and Google Workspace systems.
+
+### Sync Pipeline
+
+Runs on a heartbeat handler (default every 30 minutes):
+
+1. **List** — fetch all files in the configured Drive folder via `googleFetch()`
+2. **Diff** — compare against `data/kb-manifest.json` (tracks fileId, modifiedTime, chunkCount)
+3. **Delete** — remove vectors for files no longer in Drive (`removeItemsByFilter({ source: "drive:{fileId}" })`)
+4. **Extract** — pull text based on MIME type:
+   - Google Docs → export as `text/plain`
+   - PDFs → download binary, extract with `pdf-parse` (PDFParse class)
+   - Text/Markdown/CSV/JSON/XML → download directly
+   - Google Sheets → export as CSV
+   - Images → use file `description` metadata from Drive (skip if empty)
+5. **Chunk** — split text on paragraph boundaries, merge up to `chunkSize` chars with `chunkOverlap` overlap. Falls back to sentence splitting for oversized paragraphs. Each chunk gets a `[FileName]` header prepended for embedding context.
+6. **Embed & index** — each chunk is indexed via `vectorStore.indexFact()` with:
+   - `scope` = `"kb"`
+   - `source` = `"drive:{fileId}"` (enables per-file cleanup on re-sync)
+   - `category` = `"knowledge"`, `confidence` = `"stated"`
+7. **Save manifest** — update `data/kb-manifest.json` with new file metadata
+
+### System Prompt Injection
+
+In `buildSystemPrompt()` (llm.ts), KB search runs in parallel with memory search via `Promise.all`. Results appear as:
+
+```
+## Reference Material
+The following excerpts from shared documents may be relevant:
+
+**[Document Name]** (excerpt):
+> relevant text chunk...
+```
+
+Capped at `maxChunksPerPrompt` (default 5) to control token budget.
+
+### Orphan Cleanup
+
+The hourly `pruneOrphanVectors()` in `heartbeat-cleanup.ts` passes `skipScopes: new Set(["kb"])` to avoid deleting KB vectors. KB cleanup is handled by the sync pipeline itself (removing vectors when files are deleted or re-indexed).
+
+### Config
+
+```yaml
+knowledge:
+  enabled: false
+  driveFolderId: ""
+  syncIntervalMinutes: 30
+  chunkSize: 800
+  chunkOverlap: 100
+  maxChunksPerPrompt: 5
+  minRelevanceScore: 0.35
+```
+
+Env override: `AELORA_KB_DRIVE_FOLDER_ID`
 
 ---
 

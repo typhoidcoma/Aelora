@@ -31,6 +31,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "openai": "^4.77.0",
+    "pdf-parse": "^2.4.5",
     "vectra": "^0.12.3",
     "ws": "^8.19.0",
     "yaml": "^2.7.0",
@@ -39,6 +40,7 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

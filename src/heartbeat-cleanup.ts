@@ -33,7 +33,7 @@ const dataCleanup: HeartbeatHandler = {
     // Prune orphaned vectors that no longer match memory.json
     if (vectorReady()) {
       try {
-        const pruned = await pruneOrphanVectors(getAllMemory());
+        const pruned = await pruneOrphanVectors(getAllMemory(), new Set(["kb"]));
         if (pruned > 0) results.push(`pruned ${pruned} orphaned vector(s)`);
       } catch (err) {
         console.warn("Cleanup: vector orphan prune failed:", err);

@@ -7,6 +7,7 @@ import {
   executeToolText,
 } from "./tool-registry.js";
 import { getMemoryForPrompt } from "./memory.js";
+import { searchKnowledgeBase } from "./knowledge-base.js";
 import { buildMoodPromptSection } from "./mood.js";
 import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
@@ -499,9 +500,25 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
     }
   }
 
-  // --- Memory (semi-static  -  changes on fact save) ---
-  const memoryBlock = await getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext);
-  if (memoryBlock) sections.push("\n\n" + memoryBlock);
+  // --- Memory + Knowledge Base (semi-static) ---
+  {
+    const [memoryBlock, kbResults] = await Promise.all([
+      getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
+      conversationContext ? searchKnowledgeBase(conversationContext) : Promise.resolve([]),
+    ]);
+
+    if (memoryBlock) sections.push("\n\n" + memoryBlock);
+
+    if (kbResults.length > 0) {
+      const kbLines = kbResults.map(
+        (r) => `**${r.fileName}** (excerpt):\n> ${r.chunk.slice(0, 600).replace(/\n/g, "\n> ")}`,
+      );
+      sections.push(
+        "\n\n## Reference Material\nThe following excerpts from shared documents may be relevant:\n\n" +
+        kbLines.join("\n\n"),
+      );
+    }
+  }
 
   // --- Conversation summary (dynamic  -  changes after compaction) ---
   if (channelId && summaries[channelId]) {

@@ -350,11 +350,38 @@ export async function rebuildIndex(
 }
 
 /**
+ * Remove all vector items matching a metadata filter.
+ * E.g. removeItemsByFilter({ source: { $eq: "drive:FILE_ID" } })
+ */
+export async function removeItemsByFilter(
+  filter: Record<string, unknown>,
+): Promise<number> {
+  if (!index) return 0;
+
+  const items = await index.listItemsByMetadata(filter as any);
+  if (items.length === 0) return 0;
+
+  await index.beginUpdate();
+  for (const item of items) {
+    try {
+      await index.deleteItem(item.id);
+    } catch {
+      // already gone
+    }
+  }
+  await index.endUpdate();
+
+  return items.length;
+}
+
+/**
  * Remove orphaned vectors that no longer have a matching fact in the memory store.
  * Pass the full memory store as a record of scope → facts.
+ * Items whose scope is in `skipScopes` are ignored (managed by other systems).
  */
 export async function pruneOrphanVectors(
   store: Record<string, { fact: string }[]>,
+  skipScopes?: Set<string>,
 ): Promise<number> {
   if (!index) return 0;
 
@@ -370,6 +397,11 @@ export async function pruneOrphanVectors(
   const allItems = await index.listItems();
   const orphanIds: string[] = [];
   for (const item of allItems) {
+    // Skip items managed by other systems (e.g. knowledge base)
+    if (skipScopes) {
+      const itemScope = (item.metadata as any)?.scope as string | undefined;
+      if (itemScope && skipScopes.has(itemScope)) continue;
+    }
     if (!validIds.has(item.id)) {
       orphanIds.push(item.id);
     }

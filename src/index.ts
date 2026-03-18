@@ -17,6 +17,7 @@ import { registerLastAlive } from "./heartbeat-alive.js";
 import { registerConversationSave } from "./heartbeat-conversations.js";
 import { registerScoringSync } from "./heartbeat-scoring-sync.js";
 import { registerConsolidation, configureConsolidation } from "./heartbeat-consolidation.js";
+import { registerKnowledgeSync } from "./heartbeat-knowledge-sync.js";
 import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
@@ -117,6 +118,21 @@ async function main(): Promise<void> {
       threshold: config.memory.consolidationThreshold,
     });
     registerConsolidation();
+    // Knowledge base sync (Google Drive → vector index)
+    if (config.knowledge.enabled && config.knowledge.driveFolderId) {
+      const google = config.tools?.google as
+        | { clientId?: string; clientSecret?: string; refreshToken?: string }
+        | undefined;
+      if (google?.clientId && google?.refreshToken) {
+        registerKnowledgeSync(config.knowledge, {
+          clientId: google.clientId,
+          clientSecret: google.clientSecret ?? "",
+          refreshToken: google.refreshToken,
+        });
+      } else {
+        console.warn("KnowledgeBase: enabled but Google credentials not configured");
+      }
+    }
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,

@@ -224,12 +224,31 @@ components:
 
     MemoryFact:
       type: object
+      required: [fact, savedAt, category, confidence, source]
       properties:
         fact:
           type: string
         savedAt:
           type: string
           format: date-time
+        category:
+          type: string
+          enum: [preference, biographical, behavioral, relationship, technical, contextual]
+          description: Classification of what the fact represents
+        confidence:
+          type: string
+          enum: [stated, inferred]
+          description: Whether the user explicitly stated this or it was inferred from context
+        source:
+          type: string
+          description: "Origin of the fact (e.g. channel:123, manual, legacy, consolidation)"
+        lastAccessedAt:
+          type: string
+          format: date-time
+          description: Last time this fact was injected into the system prompt
+        accessCount:
+          type: integer
+          description: Number of times this fact has been injected into the system prompt
 
     Tool:
       type: object
@@ -1143,6 +1162,39 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/MemoryFact"
+
+  /api/memory/scope:
+    get:
+      tags: [Memory]
+      summary: Get facts for a specific scope
+      description: Returns all facts for a single scope. Useful for fetching a specific user's or channel's facts without loading all memory.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Scope key (e.g. user:123, channel:456, global)"
+      responses:
+        "200":
+          description: Facts for the scope
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    type: string
+                  facts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MemoryFact"
+        "400":
+          description: Missing name parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/memory/{scope}/{index}:
     delete:

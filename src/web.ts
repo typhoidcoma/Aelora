@@ -836,6 +836,17 @@ export function startWeb(state: AppState): Server | null {
     res.json(getAllMemory());
   });
 
+  // Memory  -  get facts for a specific scope (e.g. /api/memory/scope?name=user:123)
+  app.get("/api/memory/scope", (req, res) => {
+    const scope = req.query.name as string | undefined;
+    if (!scope) {
+      res.status(400).json({ error: "Missing ?name= query parameter" });
+      return;
+    }
+    const facts = getFacts(scope);
+    res.json({ scope, facts });
+  });
+
   // Memory  -  delete a single fact
   app.delete("/api/memory/:scope/:index", (req, res) => {
     const { scope, index } = req.params;

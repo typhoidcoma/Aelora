@@ -147,7 +147,7 @@ export async function startDiscord(config: Config): Promise<Client> {
       // Name-triggered (not @mentioned) — add a random delay so she doesn't
       // respond instantly, fetch recent context, then let LLM decide whether to chime in
       if (!mentioned && namedInText) {
-        const delayMs = 3000 + Math.random() * 8000; // 3-11 seconds
+        const delayMs = 10000 + Math.random() * 50000; // 10-60 seconds
         await new Promise((r) => setTimeout(r, delayMs));
 
         // Fetch recent messages for context so she can decide if chiming in makes sense

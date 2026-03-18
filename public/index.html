@@ -30,6 +30,7 @@
         <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">Home</button>
         <button class="tab-btn" data-tab="persona" onclick="switchTab('persona')">Persona</button>
         <button class="tab-btn" data-tab="data" onclick="switchTab('data')">Data</button>
+        <button class="tab-btn" data-tab="people" onclick="switchTab('people')">People</button>
         <button class="tab-btn" data-tab="automation" onclick="switchTab('automation')">Automation</button>
         <button class="tab-btn" data-tab="system" onclick="switchTab('system')">System</button>
       </nav>
@@ -220,18 +221,6 @@
       <!-- Tab: Data -->
       <div class="tab-pane" data-tab="data">
 
-      <!-- Sessions -->
-      <section>
-        <div class="section-header" data-section="sessions">
-          <span class="chevron">&#9660;</span>
-          <h2>Sessions</h2>
-          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All</button>
-        </div>
-        <div class="section-body" data-section="sessions">
-          <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
-        </div>
-      </section>
-
       <!-- Memory -->
       <section>
         <div class="section-header" data-section="memory">
@@ -327,6 +316,23 @@
         </div>
       </section>
 
+      </div><!-- /tab: data -->
+
+      <!-- Tab: People -->
+      <div class="tab-pane" data-tab="people">
+
+      <!-- Sessions -->
+      <section>
+        <div class="section-header" data-section="sessions">
+          <span class="chevron">&#9660;</span>
+          <h2>Sessions</h2>
+          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All</button>
+        </div>
+        <div class="section-body" data-section="sessions">
+          <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
+        </div>
+      </section>
+
       <!-- Users -->
       <section>
         <div class="section-header" data-section="users">
@@ -352,7 +358,7 @@
         </div>
       </section>
 
-      </div><!-- /tab: data -->
+      </div><!-- /tab: people -->
 
       <!-- Tab: Automation -->
       <div class="tab-pane" data-tab="automation">

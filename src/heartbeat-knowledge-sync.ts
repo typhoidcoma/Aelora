@@ -33,4 +33,18 @@ export function registerKnowledgeSync(cfg: KnowledgeConfig, gCfg: GoogleConfig):
   syncIntervalMs = cfg.syncIntervalMinutes * 60 * 1000;
   configureKnowledgeBase(cfg, gCfg);
   registerHeartbeatHandler(knowledgeSync);
+
+  // Run first sync immediately in the background (don't block startup)
+  lastSync = Date.now();
+  syncKnowledgeBase()
+    .then((result) => {
+      if (!result) return;
+      const parts: string[] = [];
+      if (result.added > 0) parts.push(`${result.added} added`);
+      if (result.updated > 0) parts.push(`${result.updated} updated`);
+      if (result.chunksIndexed > 0) parts.push(`${result.chunksIndexed} chunks indexed`);
+      if (result.errors > 0) parts.push(`${result.errors} errors`);
+      if (parts.length > 0) console.log(`KnowledgeBase: initial sync complete — ${parts.join(", ")}`);
+    })
+    .catch((err) => console.warn("KnowledgeBase: initial sync failed:", err));
 }

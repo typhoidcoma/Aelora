@@ -142,10 +142,16 @@ async function exportGoogleDoc(fileId: string): Promise<string | null> {
     googleConfig,
   );
   if (!res.ok) {
-    console.warn(`KnowledgeBase: export doc ${fileId} failed (${res.status})`);
+    const body = await res.text();
+    console.warn(`KnowledgeBase: export doc ${fileId} failed (${res.status}): ${body.slice(0, 200)}`);
     return null;
   }
-  return res.text();
+  const text = await res.text();
+  if (!text.trim()) {
+    console.log(`KnowledgeBase: Google Doc ${fileId} exported as empty`);
+    return null;
+  }
+  return text;
 }
 
 async function downloadFileText(fileId: string): Promise<string | null> {
@@ -331,6 +337,7 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
 
   try {
     const driveFiles = await listDriveFiles();
+    console.log(`KnowledgeBase: found ${driveFiles.length} file(s) in Drive folder`);
     const driveFileIds = new Set(driveFiles.map((f) => f.id));
 
     // Detect deleted files
@@ -352,8 +359,12 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
       if (!isNew && !isUpdated) continue;
 
       try {
+        console.log(`KnowledgeBase: processing ${file.name} (${file.mimeType})`);
         const text = await extractText(file);
-        if (!text) continue;
+        if (!text) {
+          console.log(`KnowledgeBase: no text extracted from ${file.name}, skipping`);
+          continue;
+        }
 
         // Remove old chunks if updating
         if (isUpdated) {

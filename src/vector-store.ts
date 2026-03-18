@@ -2,6 +2,7 @@ import { LocalIndex, OpenAIEmbeddings } from "vectra";
 import type { OpenAIEmbeddingsOptions } from "vectra";
 import type { MetadataTypes } from "vectra";
 import path from "node:path";
+import { rmSync } from "node:fs";
 
 // ── Types ────────────────────────────────────────────────
 
@@ -66,12 +67,21 @@ export async function initVectorStore(cfg: VectorStoreConfig): Promise<boolean> 
 
   index = new LocalIndex(INDEX_PATH);
 
-  if (!(await index.isIndexCreated())) {
+  try {
+    if (!(await index.isIndexCreated())) {
+      await index.createIndex({ version: 1 });
+      console.log("VectorStore: created new index at", INDEX_PATH);
+    } else {
+      const stats = await index.getIndexStats();
+      console.log(`VectorStore: loaded existing index from ${INDEX_PATH} (${stats.items} vectors)`);
+    }
+  } catch (err) {
+    // Corrupted index — delete and recreate
+    console.warn(`VectorStore: index corrupted (${err instanceof Error ? err.message : err}), rebuilding...`);
+    try { rmSync(INDEX_PATH, { recursive: true, force: true }); } catch { /* already gone */ }
+    index = new LocalIndex(INDEX_PATH);
     await index.createIndex({ version: 1 });
-    console.log("VectorStore: created new index at", INDEX_PATH);
-  } else {
-    const stats = await index.getIndexStats();
-    console.log(`VectorStore: loaded existing index from ${INDEX_PATH} (${stats.items} vectors)`);
+    console.log("VectorStore: recreated index after corruption");
   }
 
   // Validate embedding endpoint with a test call

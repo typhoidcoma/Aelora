@@ -104,6 +104,8 @@ async function listDriveFilesRecursive(folderId: string): Promise<DriveFile[]> {
       q: `'${folderId}' in parents and trashed = false`,
       fields: "nextPageToken,files(id,name,mimeType,modifiedTime,description)",
       pageSize: "100",
+      includeItemsFromAllDrives: "true",
+      supportsAllDrives: "true",
     });
     if (pageToken) params.set("pageToken", pageToken);
 
@@ -134,7 +136,7 @@ async function listDriveFilesRecursive(folderId: string): Promise<DriveFile[]> {
 async function exportGoogleDoc(fileId: string): Promise<string | null> {
   if (!googleConfig) return null;
 
-  const params = new URLSearchParams({ mimeType: "text/plain" });
+  const params = new URLSearchParams({ mimeType: "text/plain", supportsAllDrives: "true" });
   const res = await googleFetch(
     `${DRIVE_BASE}/${fileId}/export?${params}`,
     googleConfig,
@@ -150,7 +152,7 @@ async function downloadFileText(fileId: string): Promise<string | null> {
   if (!googleConfig) return null;
 
   const res = await googleFetch(
-    `${DRIVE_BASE}/${fileId}?alt=media`,
+    `${DRIVE_BASE}/${fileId}?alt=media&supportsAllDrives=true`,
     googleConfig,
   );
   if (!res.ok) {
@@ -164,7 +166,7 @@ async function downloadFileBinary(fileId: string): Promise<Buffer | null> {
   if (!googleConfig) return null;
 
   const res = await googleFetch(
-    `${DRIVE_BASE}/${fileId}?alt=media`,
+    `${DRIVE_BASE}/${fileId}?alt=media&supportsAllDrives=true`,
     googleConfig,
   );
   if (!res.ok) {
@@ -212,7 +214,7 @@ async function extractText(file: DriveFile): Promise<string | null> {
   // Google Sheets — export as CSV
   if (mimeType === "application/vnd.google-apps.spreadsheet") {
     if (!googleConfig) return null;
-    const params = new URLSearchParams({ mimeType: "text/csv" });
+    const params = new URLSearchParams({ mimeType: "text/csv", supportsAllDrives: "true" });
     const res = await googleFetch(
       `${DRIVE_BASE}/${id}/export?${params}`,
       googleConfig,

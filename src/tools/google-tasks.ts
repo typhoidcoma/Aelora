@@ -72,7 +72,7 @@ export default defineTool({
       "Due date in YYYY-MM-DD format. Optional for add and update. Only supports dates, not times.",
     ),
     taskId: param.string("Task ID. Required for complete, update, delete."),
-    taskListId: param.string("Task list ID (default: '@default' which is the primary list). Use 'lists' action to see all lists."),
+    taskListId: param.string("Task list ID. Required for all actions except 'lists'. Use 'lists' action to find IDs."),
     showCompleted: param.boolean("Include completed tasks in list results. Default: false."),
     maxResults: param.number("Max tasks to return for list (1-100, default 20).", { minimum: 1, maximum: 100 }),
   },
@@ -84,6 +84,11 @@ export default defineTool({
     { toolConfig },
   ) => {
     const config = extractGoogleConfig(toolConfig);
+
+    // Never fall back to @default — require an explicit list ID (except for 'lists' action)
+    if (!taskListId && action !== "lists") {
+      return "Error: taskListId is required. Use the 'lists' action to find available list IDs, or use the 'tasks' tool for personal task management.";
+    }
     const listId = taskListId || "@default";
 
     try {

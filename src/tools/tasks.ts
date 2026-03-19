@@ -1,5 +1,7 @@
 import { defineTool, param } from "./types.js";
 import { googleFetch, extractGoogleConfig, resetGoogleToken, type GoogleConfig } from "./_google-auth.js";
+import { getCachedSupabaseClient, ensureUserProfile, getTaskListId, setTaskListId } from "../supabase.js";
+import { getUser } from "../users.js";
 
 const TASKS_BASE = "https://tasks.googleapis.com/tasks/v1";
 
@@ -7,7 +9,7 @@ const TASKS_BASE = "https://tasks.googleapis.com/tasks/v1";
 // Types
 // ============================================================
 
-export type TodoItem = {
+export type TaskItem = {
   uid: string;           // Google Task id
   title: string;
   description?: string;  // Google Tasks "notes"
@@ -17,7 +19,7 @@ export type TodoItem = {
   updatedAt?: string;    // Google Tasks "updated" timestamp
 };
 
-export type ScoredTodoItem = TodoItem & {
+export type ScoredTaskItem = TaskItem & {
   score?: number;
   scoreBreakdown?: {
     urgency: number;
@@ -42,14 +44,14 @@ type GoogleTask = {
 // Helpers
 // ============================================================
 
-function taskToTodoItem(task: GoogleTask): TodoItem {
+function taskToItem(task: GoogleTask): TaskItem {
   return {
     uid: task.id,
     title: task.title,
     description: task.notes,
     completed: task.status === "completed",
-    priority: "medium",  // Google Tasks has no priority  -  overlaid from Supabase later
-    dueDate: task.due ? task.due.slice(0, 10) : undefined,  // extract YYYY-MM-DD
+    priority: "medium",  // Google Tasks has no priority; overlaid from Supabase later
+    dueDate: task.due ? task.due.slice(0, 10) : undefined,
     updatedAt: task.updated,
   };
 }
@@ -71,14 +73,70 @@ export function getGoogleConfig(
 }
 
 // ============================================================
-// CRUD operations (exported for use by web.ts API routes)
+// Per-user task list management
 // ============================================================
 
-export async function listTodos(
+/** Create a new Google Task list and return its ID. */
+export async function createTaskList(
   config: GoogleConfig,
-  taskListId = "@default",
+  title: string,
+): Promise<string> {
+  const res = await googleFetch(
+    `${TASKS_BASE}/users/@me/lists`,
+    config,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google Tasks API error creating list (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { id: string };
+  return data.id;
+}
+
+/**
+ * Resolve a user's Google Task list ID.
+ * If the user doesn't have one yet, creates it and stores the mapping.
+ */
+export async function resolveUserTaskList(
+  config: GoogleConfig,
+  discordUserId: string,
+  username?: string,
+): Promise<string> {
+  const sb = getCachedSupabaseClient();
+
+  if (sb) {
+    await ensureUserProfile(sb, discordUserId);
+    const existing = await getTaskListId(sb, discordUserId);
+    if (existing) return existing;
+  }
+
+  // Create a new task list for this user
+  const displayName = username ?? getUser(discordUserId)?.username ?? discordUserId;
+  const listTitle = `${displayName}'s Tasks`;
+  const listId = await createTaskList(config, listTitle);
+  console.log(`Tasks: created list "${listTitle}" (${listId}) for user ${discordUserId}`);
+
+  if (sb) {
+    await setTaskListId(sb, discordUserId, listId);
+  }
+
+  return listId;
+}
+
+// ============================================================
+// CRUD operations (exported for use by web.ts and scoring)
+// ============================================================
+
+export async function listTasks(
+  config: GoogleConfig,
+  taskListId: string,
   status: "all" | "pending" | "completed" = "pending",
-): Promise<TodoItem[]> {
+): Promise<TaskItem[]> {
   const showCompleted = status === "completed" || status === "all";
   const params = new URLSearchParams({
     maxResults: "100",
@@ -96,18 +154,18 @@ export async function listTodos(
   }
 
   const data = (await res.json()) as { items?: GoogleTask[] };
-  const items = (data.items ?? []).map(taskToTodoItem);
+  const items = (data.items ?? []).map(taskToItem);
 
   if (status === "pending") return items.filter((t) => !t.completed);
   if (status === "completed") return items.filter((t) => t.completed);
   return items;
 }
 
-export async function getTodoByUid(
+export async function getTaskByUid(
   config: GoogleConfig,
   uid: string,
-  taskListId = "@default",
-): Promise<TodoItem | null> {
+  taskListId: string,
+): Promise<TaskItem | null> {
   const res = await googleFetch(
     `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
     config,
@@ -115,26 +173,25 @@ export async function getTodoByUid(
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
   const task = (await res.json()) as GoogleTask;
-  return taskToTodoItem(task);
+  return taskToItem(task);
 }
 
-export async function createTodo(
+export async function createTask(
   config: GoogleConfig,
+  taskListId: string,
   opts: {
     title: string;
     description?: string;
     priority?: string;
     dueDate?: string;
-    taskListId?: string;
   },
-): Promise<TodoItem> {
-  const listId = opts.taskListId ?? "@default";
+): Promise<TaskItem> {
   const body: Record<string, unknown> = { title: opts.title };
   if (opts.description) body.notes = opts.description;
   if (opts.dueDate) body.due = `${opts.dueDate}T00:00:00.000Z`;
 
   const res = await googleFetch(
-    `${TASKS_BASE}/lists/${encodeURIComponent(listId)}/tasks`,
+    `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks`,
     config,
     {
       method: "POST",
@@ -148,19 +205,18 @@ export async function createTodo(
   }
 
   const task = (await res.json()) as GoogleTask;
-  const item = taskToTodoItem(task);
-  // Preserve priority from opts in the immediate response
+  const item = taskToItem(task);
   if (opts.priority && ["low", "medium", "high"].includes(opts.priority)) {
     item.priority = opts.priority as "low" | "medium" | "high";
   }
   return item;
 }
 
-export async function completeTodo(
+export async function completeTask(
   config: GoogleConfig,
   uid: string,
-  taskListId = "@default",
-): Promise<TodoItem | null> {
+  taskListId: string,
+): Promise<TaskItem | null> {
   const res = await googleFetch(
     `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
     config,
@@ -173,10 +229,10 @@ export async function completeTodo(
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
   const task = (await res.json()) as GoogleTask;
-  return taskToTodoItem(task);
+  return taskToItem(task);
 }
 
-export async function updateTodoItem(
+export async function updateTask(
   config: GoogleConfig,
   uid: string,
   updates: {
@@ -185,16 +241,15 @@ export async function updateTodoItem(
     priority?: string;
     dueDate?: string;
   },
-  taskListId = "@default",
-): Promise<TodoItem | null> {
+  taskListId: string,
+): Promise<TaskItem | null> {
   const patch: Record<string, unknown> = {};
   if (updates.title) patch.title = updates.title;
   if (updates.description !== undefined) patch.notes = updates.description;
   if (updates.dueDate) patch.due = `${updates.dueDate}T00:00:00.000Z`;
 
   if (Object.keys(patch).length === 0) {
-    // Only priority changed  -  priority is Supabase-only, fetch current task for response
-    return getTodoByUid(config, uid, taskListId);
+    return getTaskByUid(config, uid, taskListId);
   }
 
   const res = await googleFetch(
@@ -210,17 +265,17 @@ export async function updateTodoItem(
   if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
 
   const task = (await res.json()) as GoogleTask;
-  const item = taskToTodoItem(task);
+  const item = taskToItem(task);
   if (updates.priority && ["low", "medium", "high"].includes(updates.priority)) {
     item.priority = updates.priority as "low" | "medium" | "high";
   }
   return item;
 }
 
-export async function deleteTodoItem(
+export async function deleteTask(
   config: GoogleConfig,
   uid: string,
-  taskListId = "@default",
+  taskListId: string,
 ): Promise<boolean> {
   const res = await googleFetch(
     `${TASKS_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(uid)}`,
@@ -237,11 +292,11 @@ export async function deleteTodoItem(
 // ============================================================
 
 export default defineTool({
-  name: "todo",
+  name: "tasks",
   description:
-    "Manage todos and tasks. Actions: list, add, complete, update, delete. " +
-    "Uses Google Tasks as the backend. Priority is stored as metadata and does not " +
-    "sync to Google Tasks (Google Tasks has no priority field).",
+    "Manage personal tasks. Each user has their own task list. " +
+    "Actions: list, add, complete, update, delete. " +
+    "Uses Google Tasks as the backend. Priority is stored as metadata.",
 
   config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
 
@@ -253,7 +308,7 @@ export default defineTool({
     ),
     title: param.string("Task title. Required for add."),
     description: param.string("Task description/notes. Optional for add and update."),
-    todoId: param.string("Task ID (uid). Required for complete, update, and delete."),
+    taskId: param.string("Task ID (uid). Required for complete, update, and delete."),
     priority: param.enum(
       "Task priority (stored as metadata, not synced to Google Tasks).",
       ["low", "medium", "high"] as const,
@@ -266,20 +321,27 @@ export default defineTool({
   },
 
   handler: async (
-    { action, title, description, todoId, priority, dueDate, status },
-    { toolConfig },
+    { action, title, description, taskId, priority, dueDate, status },
+    { toolConfig, userId },
   ) => {
     const config = extractGoogleConfig(toolConfig);
+
+    if (!userId) {
+      return "Error: Tasks require a user context. Run this in a Discord channel or DM.";
+    }
+
     try {
+      const taskListId = await resolveUserTaskList(config, userId);
+
       switch (action) {
         case "list": {
-          const items = await listTodos(
+          const items = await listTasks(
             config,
-            "@default",
+            taskListId,
             (status as "all" | "pending" | "completed") ?? "pending",
           );
           if (items.length === 0) {
-            return { text: "No todos found.", data: { action: "list", count: 0, todos: [] } };
+            return { text: "No tasks found.", data: { action: "list", count: 0, tasks: [] } };
           }
           const lines = items.map((t, i) => {
             let line = `${i + 1}. [${t.completed ? "x" : " "}] ${t.title}`;
@@ -289,57 +351,57 @@ export default defineTool({
             return line;
           });
           return {
-            text: `Todos (${items.length}):\n\n${lines.join("\n\n")}`,
-            data: { action: "list", count: items.length, todos: items },
+            text: `Tasks (${items.length}):\n\n${lines.join("\n\n")}`,
+            data: { action: "list", count: items.length, tasks: items },
           };
         }
 
         case "add": {
           if (!title) return "Error: title is required for add.";
-          const item = await createTodo(config, {
+          const item = await createTask(config, taskListId, {
             title: title as string,
             description: description as string | undefined,
             priority: priority as string | undefined,
             dueDate: dueDate as string | undefined,
           });
           return {
-            text: `Todo added: ${item.title}${item.dueDate ? ` (due ${item.dueDate})` : ""}\nID: ${item.uid}`,
-            data: { action: "add", todo: item },
+            text: `Task added: ${item.title}${item.dueDate ? ` (due ${item.dueDate})` : ""}\nID: ${item.uid}`,
+            data: { action: "add", task: item },
           };
         }
 
         case "complete": {
-          if (!todoId) return "Error: todoId is required for complete.";
-          const item = await completeTodo(config, todoId as string);
-          if (!item) return `Error: todo "${todoId}" not found.`;
+          if (!taskId) return "Error: taskId is required for complete.";
+          const item = await completeTask(config, taskId as string, taskListId);
+          if (!item) return `Error: task "${taskId}" not found.`;
           return {
-            text: `Todo completed: ${item.title}`,
-            data: { action: "complete", todo: item },
+            text: `Task completed: ${item.title}`,
+            data: { action: "complete", task: item },
           };
         }
 
         case "update": {
-          if (!todoId) return "Error: todoId is required for update.";
-          const item = await updateTodoItem(config, todoId as string, {
+          if (!taskId) return "Error: taskId is required for update.";
+          const item = await updateTask(config, taskId as string, {
             title: title as string | undefined,
             description: description as string | undefined,
             priority: priority as string | undefined,
             dueDate: dueDate as string | undefined,
-          });
-          if (!item) return `Error: todo "${todoId}" not found.`;
+          }, taskListId);
+          if (!item) return `Error: task "${taskId}" not found.`;
           return {
-            text: `Todo updated: ${item.title}`,
-            data: { action: "update", todo: item },
+            text: `Task updated: ${item.title}`,
+            data: { action: "update", task: item },
           };
         }
 
         case "delete": {
-          if (!todoId) return "Error: todoId is required for delete.";
-          const deleted = await deleteTodoItem(config, todoId as string);
-          if (!deleted) return `Error: todo "${todoId}" not found.`;
+          if (!taskId) return "Error: taskId is required for delete.";
+          const deleted = await deleteTask(config, taskId as string, taskListId);
+          if (!deleted) return `Error: task "${taskId}" not found.`;
           return {
-            text: `Todo deleted (ID: ${todoId}).`,
-            data: { action: "delete", uid: todoId },
+            text: `Task deleted (ID: ${taskId}).`,
+            data: { action: "delete", uid: taskId },
           };
         }
 

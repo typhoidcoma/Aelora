@@ -38,7 +38,7 @@ import { loadMood, resolveLabel, classifyMood } from "./mood.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
-import { listTodos, getTodoByUid, createTodo, completeTodo, updateTodoItem, deleteTodoItem, getGoogleConfig } from "./tools/todo.js";
+import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTask, getGoogleConfig, resolveUserTaskList } from "./tools/tasks.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
@@ -1064,14 +1064,27 @@ export function startWeb(state: AppState): Server | null {
   const getGoogleTasksConfig = () =>
     getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
 
-  // List todos, optionally filter by ?status=pending|completed|all
-  app.get("/api/todos", async (req, res) => {
-    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
+  // Helper: resolve task list for API requests (requires X-Discord-User-Id header)
+  function requireTaskUser(req: express.Request, res: express.Response): string | null {
+    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    if (!uid) {
+      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for tasks" });
+      return null;
+    }
+    return uid;
+  }
+
+  // List tasks, optionally filter by ?status=pending|completed|all
+  app.get("/api/tasks", async (req, res) => {
+    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    const discordUserId = requireTaskUser(req, res);
+    if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
+      const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
       const status = (req.query.status as string) || "all";
-      const items = await listTodos(googleConfig, "@default", status as "all" | "pending" | "completed");
-      res.json({ todos: items, count: items.length });
+      const items = await listTasks(googleConfig, taskListId, status as "all" | "pending" | "completed");
+      res.json({ tasks: items, count: items.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not configured")) {
@@ -1082,22 +1095,27 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // Get single todo by UID
-  app.get("/api/todos/:uid", async (req, res) => {
-    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
+  // Get single task by UID
+  app.get("/api/tasks/:uid", async (req, res) => {
+    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    const discordUserId = requireTaskUser(req, res);
+    if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
-      const item = await getTodoByUid(googleConfig, req.params.uid);
-      if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+      const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
+      const item = await getTaskByUid(googleConfig, req.params.uid, taskListId);
+      if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
       res.json(item);
     } catch (err) {
       res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
-  // Create todo
-  app.post("/api/todos", async (req, res) => {
-    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
+  // Create task
+  app.post("/api/tasks", async (req, res) => {
+    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    const discordUserId = requireTaskUser(req, res);
+    if (!discordUserId) return;
     const { title, description, priority, dueDate } = req.body ?? {};
     if (!title || typeof title !== "string") {
       res.status(400).json({ error: "title is required" });
@@ -1105,34 +1123,35 @@ export function startWeb(state: AppState): Server | null {
     }
     try {
       const googleConfig = getGoogleTasksConfig();
-      const item = await createTodo(googleConfig, { title, description, priority, dueDate });
+      const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
+      const item = await createTask(googleConfig, taskListId, { title, description, priority, dueDate });
       res.status(201).json(item);
     } catch (err) {
       res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
-  // Update todo (or mark complete with { completed: true })
-  // Optional body fields for scoring on completion:
-  //   discordUserId   -  required to trigger scoring pipeline
-  //   smeqActual      -  post-completion SMEQ self-report (0–150)
-  app.put("/api/todos/:uid", async (req, res) => {
-    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
-    const { title, description, priority, dueDate, completed, discordUserId, smeqActual } = req.body ?? {};
+  // Update task (or mark complete with { completed: true })
+  // Requires X-Discord-User-Id header for user scoping and scoring pipeline
+  app.put("/api/tasks/:uid", async (req, res) => {
+    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    const discordUserId = requireTaskUser(req, res);
+    if (!discordUserId) return;
+    const { title, description, priority, dueDate, completed, smeqActual } = req.body ?? {};
     try {
       const googleConfig = getGoogleTasksConfig();
+      const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
       if (completed === true) {
-        const item = await completeTodo(googleConfig, req.params.uid);
-        if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+        const item = await completeTask(googleConfig, req.params.uid, taskListId);
+        if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
 
         // --- Scoring pipeline (non-blocking, best-effort) ---
         let scoringResult: { pointsAwarded: number; score: number; newAchievements: string[] } | null = null;
         const sb = tryGetSupabaseClient(config);
-        if (sb && discordUserId && typeof discordUserId === "string") {
+        if (sb) {
           try {
             await ensureUserProfile(sb, discordUserId);
 
-            // Upsert into life_events
             const lifeEvent = await upsertLifeEvent(sb, {
               discord_user_id:   discordUserId,
               title:             item.title,
@@ -1153,7 +1172,6 @@ export function startWeb(state: AppState): Server | null {
               tags:              null,
             });
 
-            // Load user state
             const userData = await getUserStats(sb, discordUserId);
             const catStats = userData?.categoryStats.find((cs) => cs.category === lifeEvent?.category);
             const userState: UserState = {
@@ -1171,7 +1189,6 @@ export function startWeb(state: AppState): Server | null {
               } : undefined,
             };
 
-            // Score input
             const scoreInput: ScoreInput = {
               title:             item.title,
               description:       item.description,
@@ -1189,7 +1206,6 @@ export function startWeb(state: AppState): Server | null {
 
             const completion = processCompletion(scoreInput, userState, smeqActual != null ? Number(smeqActual) : null);
 
-            // Persist scoring event
             await recordScoringEvent(sb, {
               discord_user_id:    discordUserId,
               life_event_id:      lifeEvent?.id ?? null,
@@ -1204,7 +1220,6 @@ export function startWeb(state: AppState): Server | null {
               streak_at_time:     completion.updatedStreak,
             });
 
-            // Update user profile
             await updateUserProfile(sb, discordUserId, {
               totalPoints:         (userData?.profile.total_points ?? 0) + completion.pointsAwarded,
               currentStreak:       completion.updatedStreak,
@@ -1212,7 +1227,6 @@ export function startWeb(state: AppState): Server | null {
               lastCompletionDate:  completion.lastCompletionDate,
             });
 
-            // Update category stats
             const cat = lifeEvent?.category ?? "tasks";
             await upsertCategoryStats(sb, {
               discord_user_id:       discordUserId,
@@ -1224,7 +1238,6 @@ export function startWeb(state: AppState): Server | null {
               personal_bias:         completion.emaUpdates.personalBias,
             });
 
-            // Unlock achievements
             for (const achId of completion.newAchievements) {
               await unlockAchievement(sb, discordUserId, achId);
             }
@@ -1241,8 +1254,8 @@ export function startWeb(state: AppState): Server | null {
 
         res.json({ ...item, ...(scoringResult ?? {}) });
       } else {
-        const item = await updateTodoItem(googleConfig, req.params.uid, { title, description, priority, dueDate });
-        if (!item) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+        const item = await updateTask(googleConfig, req.params.uid, { title, description, priority, dueDate }, taskListId);
+        if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
         res.json(item);
       }
     } catch (err) {
@@ -1250,13 +1263,16 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // Delete todo
-  app.delete("/api/todos/:uid", async (req, res) => {
-    if (!isToolEnabled("todo")) { res.status(404).json({ error: "Todo tool is not enabled" }); return; }
+  // Delete task
+  app.delete("/api/tasks/:uid", async (req, res) => {
+    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    const discordUserId = requireTaskUser(req, res);
+    if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
-      const deleted = await deleteTodoItem(googleConfig, req.params.uid);
-      if (!deleted) { res.status(404).json({ error: `Todo "${req.params.uid}" not found` }); return; }
+      const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
+      const deleted = await deleteTask(googleConfig, req.params.uid, taskListId);
+      if (!deleted) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
       res.json({ success: true });
     } catch (err) {
       res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });

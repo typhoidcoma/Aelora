@@ -1,18 +1,12 @@
-import { LinearClient } from "@linear/sdk";
-import { defineTool, param, getToolConfigValue } from "./types.js";
+import { defineTool, param } from "./types.js";
 import { getCachedSupabaseClient, getUserStats, getPendingLifeEvents, upsertLifeEvent, upsertCategoryStats, ensureUserProfile, type LifeEventRow } from "../supabase.js";
 import { scoreTask, emaUpdate, inferCategory, inferIrreversible, inferAffectsOthers, ACHIEVEMENTS, type LifeCategory, type ScoreInput } from "../scoring.js";
-import { listTodos } from "./todo.js";
+import { listTasks, resolveUserTaskList } from "./tasks.js";
+import { extractGoogleConfig } from "./_google-auth.js";
 
 // ============================================================
 // Helpers
 // ============================================================
-
-function getUserId(toolConfig: Record<string, unknown> | undefined): string {
-  const uid = toolConfig?.discordUserId as string | undefined;
-  if (!uid) throw new Error("Discord user ID not available in tool context.");
-  return uid;
-}
 
 function lifeEventToScoreInput(ev: LifeEventRow, catStats?: { avgSmeqActual: number; completionCount: number; personalBias: number } | null): ScoreInput {
   return {
@@ -41,19 +35,19 @@ function scoreTierLabel(score: number): string {
 }
 
 // ============================================================
-// Google Tasks → Supabase sync helper
+// Google Tasks → Supabase sync helper (per-user)
 // ============================================================
 
-async function syncGoogleTasksForUser(
-  sb: ReturnType<typeof getCachedSupabaseClient> & object,
+export async function syncGoogleTasksForUser(
+  sb: NonNullable<ReturnType<typeof getCachedSupabaseClient>>,
   discordUserId: string,
   toolConfig: Record<string, unknown>,
 ): Promise<void> {
-  const { clientId, clientSecret, refreshToken } = toolConfig as Record<string, string>;
-  if (!clientId || !clientSecret || !refreshToken) return;
+  const config = extractGoogleConfig(toolConfig);
 
   await ensureUserProfile(sb, discordUserId);
-  const items = await listTodos({ clientId, clientSecret, refreshToken }, "@default", "pending");
+  const taskListId = await resolveUserTaskList(config, discordUserId);
+  const items = await listTasks(config, taskListId, "pending");
 
   for (const item of items) {
     await upsertLifeEvent(sb, {
@@ -79,77 +73,6 @@ async function syncGoogleTasksForUser(
 }
 
 // ============================================================
-// Linear → Supabase sync helper
-// ============================================================
-
-function mapLinearPriority(p: number): "low" | "medium" | "high" {
-  if (p <= 2) return "high";   // 1=urgent, 2=high
-  if (p === 3) return "medium";
-  return "low";                 // 4=low, 0=none
-}
-
-function mapLinearPriorityToImpact(p: number): "trivial" | "low" | "moderate" | "high" | "critical" | null {
-  switch (p) {
-    case 1: return "critical";
-    case 2: return "high";
-    case 3: return "moderate";
-    case 4: return "low";
-    default: return null;  // 0=none, let scoring infer
-  }
-}
-
-function mapLinearEstimateToSize(est: number | undefined | null): "micro" | "small" | "medium" | "large" | "epic" | null {
-  if (est == null) return null;
-  if (est <= 1) return "micro";
-  if (est <= 2) return "small";
-  if (est <= 3) return "medium";
-  if (est <= 5) return "large";
-  return "epic";
-}
-
-async function syncLinearIssuesForUser(
-  sb: ReturnType<typeof getCachedSupabaseClient> & object,
-  discordUserId: string,
-): Promise<void> {
-  const apiKey = getToolConfigValue("linear.apiKey") as string | undefined;
-  if (!apiKey) return;  // Linear not configured, skip silently
-
-  const client = new LinearClient({ apiKey });
-  const me = await client.viewer;
-
-  const assigned = await me.assignedIssues({
-    first: 100,
-    filter: {
-      state: { type: { nin: ["completed", "canceled"] } },
-    },
-  });
-
-  await ensureUserProfile(sb, discordUserId);
-
-  for (const issue of assigned.nodes) {
-    await upsertLifeEvent(sb, {
-      discord_user_id:   discordUserId,
-      title:             `${issue.identifier}: ${issue.title}`,
-      description:       issue.description ?? null,
-      category:          "work",
-      source:            "linear",
-      external_uid:      `linear:${issue.identifier}`,
-      priority:          mapLinearPriority(issue.priority),
-      due_date:          issue.dueDate ?? null,
-      completed:         false,
-      completed_at:      null,
-      estimated_minutes: null,
-      size_label:        mapLinearEstimateToSize(issue.estimate),
-      impact_level:      mapLinearPriorityToImpact(issue.priority),
-      irreversible:      null,
-      affects_others:    null,
-      smeq_estimate:     null,
-      tags:              null,
-    });
-  }
-}
-
-// ============================================================
 // Tool definition
 // ============================================================
 
@@ -158,7 +81,7 @@ export default defineTool({
   description:
     "Aelora scoring and life event management. Actions: stats (XP/streak/achievements), " +
     "leaderboard (top tasks ranked by score), achievements (list locked/unlocked), " +
-    "rate_effort (report post-task cognitive effort 0–150 to calibrate adaptive learning), " +
+    "rate_effort (report post-task cognitive effort 0-150 to calibrate adaptive learning), " +
     "set_metadata (update task scoring metadata like impact_level or irreversible flag), " +
     "add_event (create a non-Google life event for health/finance/social/work categories).",
 
@@ -172,19 +95,19 @@ export default defineTool({
     ),
     // leaderboard
     category: param.enum(
-      "Life category  -  filter leaderboard or assign to add_event.",
+      "Life category; filter leaderboard or assign to add_event.",
       ["tasks", "health", "finance", "social", "work"] as const,
     ),
     limit: param.number("Max items to return for leaderboard. Default 10."),
     // rate_effort / set_metadata
     life_event_id: param.string("UUID of the life_events row to act on (rate_effort, set_metadata)."),
     smeq_actual: param.number(
-      "Post-completion cognitive effort (rate_effort). SMEQ scale 0–150: 0=no effort, 30=very little, 65=considerable, 110=exceptional, 150=extreme.",
+      "Post-completion cognitive effort (rate_effort). SMEQ scale 0-150: 0=no effort, 30=very little, 65=considerable, 110=exceptional, 150=extreme.",
       { minimum: 0, maximum: 150 },
     ),
     // set_metadata / add_event
     smeq_estimate: param.number(
-      "Pre-task estimated cognitive effort. SMEQ 0–150.",
+      "Pre-task estimated cognitive effort. SMEQ 0-150.",
       { minimum: 0, maximum: 150 },
     ),
     size_label: param.enum(
@@ -220,7 +143,7 @@ export default defineTool({
         if (!sb) return "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.";
         const data = await getUserStats(sb, discordUserId);
         if (!data) {
-          return "No stats yet  -  complete your first task to start earning XP!";
+          return "No stats yet; complete your first task to start earning XP!";
         }
 
         const { profile, categoryStats, achievements } = data;
@@ -249,11 +172,10 @@ export default defineTool({
         const lim = Math.min(Number(limit ?? 10), 50);
 
         if (sb) {
-          // Sync external sources into life_events before querying
-          await Promise.allSettled([
-            syncGoogleTasksForUser(sb, discordUserId, toolConfig),
-            syncLinearIssuesForUser(sb, discordUserId),
-          ]);
+          // Sync Google Tasks for this user before querying
+          await syncGoogleTasksForUser(sb, discordUserId, toolConfig).catch((err) => {
+            console.warn("Scoring: Google Tasks sync failed:", err instanceof Error ? err.message : err);
+          });
 
           const events = await getPendingLifeEvents(sb, discordUserId, category as string | undefined, lim * 3);
           const userStats = await getUserStats(sb, discordUserId);
@@ -290,7 +212,6 @@ export default defineTool({
           };
         }
 
-        // Ephemeral  -  no Supabase
         return "Supabase is not configured. Connect Supabase to see persisted task scores.";
       }
 
@@ -307,7 +228,7 @@ export default defineTool({
 
         const lines = ACHIEVEMENTS.map((ach) => {
           const unlocked = unlockedIds.has(ach.id);
-          return `${unlocked ? "✅" : "🔒"} **${ach.name}**  -  ${ach.description}`;
+          return `${unlocked ? "✅" : "🔒"} **${ach.name}** - ${ach.description}`;
         });
 
         return {
@@ -324,9 +245,8 @@ export default defineTool({
       case "rate_effort": {
         if (!sb) return "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.";
         if (!life_event_id) return "Error: life_event_id is required for rate_effort.";
-        if (smeq_actual == null) return "Error: smeq_actual (0–150) is required for rate_effort.";
+        if (smeq_actual == null) return "Error: smeq_actual (0-150) is required for rate_effort.";
 
-        // Get the life event to know its category
         const { data: evRow, error: evErr } = await sb
           .from("life_events")
           .select("category")
@@ -337,7 +257,6 @@ export default defineTool({
 
         const cat = (evRow as { category: string }).category;
 
-        // Stamp smeq_actual on the most recent scoring event for this life_event
         await sb
           .from("scoring_events")
           .update({ smeq_actual })
@@ -346,7 +265,6 @@ export default defineTool({
           .order("completed_at", { ascending: false })
           .limit(1);
 
-        // Read current category stats and EMA-update avg_smeq_actual
         const { data: catRows } = await sb
           .from("category_stats")
           .select("*")
@@ -374,7 +292,7 @@ export default defineTool({
           : "enormous/extreme effort";
 
         return {
-          text: `Effort logged (SMEQ ${smeq_actual}  -  ${smeqLabel}). ` +
+          text: `Effort logged (SMEQ ${smeq_actual}, ${smeqLabel}). ` +
                 `${cat} category baseline updated: ${Math.round(prevAvg)} → ${Math.round(newAvg)}. ` +
                 `Future ${cat} tasks without a SMEQ estimate will use ${Math.round(newAvg)} as their baseline.`,
           data: { life_event_id, category: cat, smeq_actual, prev_avg: prevAvg, new_avg: newAvg },
@@ -386,7 +304,6 @@ export default defineTool({
         if (!sb) return "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.";
         if (!life_event_id) return "Error: life_event_id is required for set_metadata.";
 
-        // Build partial update from only provided fields
         const updates: Record<string, unknown> = {};
         if (smeq_estimate   != null) updates.smeq_estimate   = smeq_estimate;
         if (size_label      != null) updates.size_label      = size_label;
@@ -427,7 +344,6 @@ export default defineTool({
 
         await ensureUserProfile(sb, discordUserId);
 
-        // Build a minimal ScoreInput so we can run keyword inference
         const inferInput: ScoreInput = {
           title,
           description: description ?? undefined,

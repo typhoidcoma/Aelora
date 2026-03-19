@@ -1434,7 +1434,7 @@ async function removeKBFile(fileId, fileName) {
   }
 }
 
-// --- Todos + Scoring ---
+// --- Tasks + Scoring ---
 
 // Discord User ID - persisted in localStorage
 let _discordUserId = localStorage.getItem("aelora_discord_uid") || "";
@@ -1448,7 +1448,7 @@ function setDiscordUserId(uid) {
 function onDiscordUserIdChange() {
   const val = document.getElementById("discord-user-id-input").value.trim();
   setDiscordUserId(val);
-  fetchTodos();
+  fetchTasks();
   if (val) fetchScoringStats();
 }
 
@@ -1456,11 +1456,11 @@ function onDiscordUserIdPromptChange() {
   const val = document.getElementById("discord-user-id-prompt").value.trim();
   document.getElementById("discord-user-id-input").value = val;
   setDiscordUserId(val);
-  if (val) { fetchTodos(); fetchScoringStats(); }
+  if (val) { fetchTasks(); fetchScoringStats(); }
 }
 
 function handleTodoSortChange() {
-  fetchTodos();
+  fetchTasks();
 }
 
 function getScoreTierClass(score) {
@@ -1495,10 +1495,10 @@ async function fetchScoringStats() {
   } catch { /* graceful */ }
 }
 
-async function fetchTodos() {
-  if (!isToolActive("todo")) {
+async function fetchTasks() {
+  if (!isToolActive("tasks")) {
     document.getElementById("todos-body").innerHTML =
-      '<tr><td colspan="6" class="muted">Todo tool is disabled</td></tr>';
+      '<tr><td colspan="6" class="muted">Tasks tool is disabled</td></tr>';
     return;
   }
 
@@ -1522,12 +1522,12 @@ async function fetchTodos() {
 
   try {
     // Score-sorted leaderboard (requires uid) or plain list
-    let todos;
+    let tasks;
     if (uid && sortMode === "score") {
       const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=50`);
       if (res.ok) {
         const data = await res.json();
-        todos = (data.tasks || []).map(t => ({
+        tasks = (data.tasks || []).map(t => ({
           ...t,
           uid: t.external_uid || t.id,
           dueDate: t.due_date ? t.due_date.slice(0, 10) : undefined,
@@ -1536,27 +1536,34 @@ async function fetchTodos() {
       }
     }
 
-    // Fallback: plain Google Tasks list
-    if (!todos) {
-      const res = await apiFetch("/api/todos");
+    // Fallback: plain Google Tasks list (requires Discord User ID header)
+    if (!tasks) {
+      const headers = {};
+      if (uid) headers["X-Discord-User-Id"] = uid;
+      const res = await apiFetch("/api/tasks", { headers });
       if (res.status === 503) {
         document.getElementById("todos-body").innerHTML =
           '<tr><td colspan="6" class="muted">Google Tasks not configured</td></tr>';
         return;
       }
+      if (res.status === 400) {
+        document.getElementById("todos-body").innerHTML =
+          '<tr><td colspan="6" class="muted">Set Discord User ID to view tasks</td></tr>';
+        return;
+      }
       const data = await res.json();
-      todos = data.todos || [];
+      tasks = data.tasks || [];
     }
 
     const tbody = document.getElementById("todos-body");
-    if (todos.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">No todos</td></tr>';
+    if (tasks.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">No tasks</td></tr>';
       return;
     }
 
     // Sort based on sortMode (score mode is pre-sorted by API)
     if (sortMode === "due") {
-      todos.sort((a, b) => {
+      tasks.sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
         if (a.dueDate) return -1;
@@ -1565,13 +1572,13 @@ async function fetchTodos() {
       });
     } else if (sortMode === "priority") {
       const priOrder = { high: 0, medium: 1, low: 2 };
-      todos.sort((a, b) => {
+      tasks.sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         return (priOrder[a.priority] ?? 1) - (priOrder[b.priority] ?? 1);
       });
     }
 
-    tbody.innerHTML = todos
+    tbody.innerHTML = tasks
       .map((t) => {
         const priClass = t.priority === "high" ? "error" : t.priority === "low" ? "muted" : "";
         const dueStr = t.dueDate ? formatTodoDate(t.dueDate) : "--";
@@ -1622,6 +1629,13 @@ function hideTodoForm() {
   document.getElementById("todo-form").style.display = "none";
 }
 
+function taskHeaders(extra = {}) {
+  const h = { ...extra };
+  const uid = getDiscordUserId();
+  if (uid) h["X-Discord-User-Id"] = uid;
+  return h;
+}
+
 async function submitTodo() {
   const title = document.getElementById("todo-f-title").value.trim();
   if (!title) {
@@ -1637,17 +1651,17 @@ async function submitTodo() {
   };
 
   try {
-    const res = await apiFetch("/api/todos", {
+    const res = await apiFetch("/api/tasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: taskHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
     });
     const data = await res.json();
 
     if (data.uid) {
-      showToast("Todo created");
+      showToast("Task created");
       hideTodoForm();
-      fetchTodos();
+      fetchTasks();
     } else {
       showToast(data.error || "Create failed", "error");
     }
@@ -1658,14 +1672,10 @@ async function submitTodo() {
 
 async function completeTodo(uid) {
   try {
-    const discordUserId = getDiscordUserId();
-    const body = { completed: true };
-    if (discordUserId) body.discordUserId = discordUserId;
-
-    const res = await apiFetch(`/api/todos/${encodeURIComponent(uid)}`, {
+    const res = await apiFetch(`/api/tasks/${encodeURIComponent(uid)}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      headers: taskHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ completed: true }),
     });
     const data = await res.json();
 
@@ -1676,9 +1686,9 @@ async function completeTodo(uid) {
         showToast(`✓ Done! +${data.pointsAwarded} XP (score: ${data.score})${achMsg}`);
         fetchScoringStats();
       } else {
-        showToast("Todo completed");
+        showToast("Task completed");
       }
-      fetchTodos();
+      fetchTasks();
     } else {
       showToast(data.error || "Complete failed", "error");
     }
@@ -1688,15 +1698,18 @@ async function completeTodo(uid) {
 }
 
 async function deleteTodo(uid) {
-  if (!confirm("Delete this todo?")) return;
+  if (!confirm("Delete this task?")) return;
 
   try {
-    const res = await apiFetch(`/api/todos/${encodeURIComponent(uid)}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/tasks/${encodeURIComponent(uid)}`, {
+      method: "DELETE",
+      headers: taskHeaders(),
+    });
     const data = await res.json();
 
     if (data.success) {
-      showToast("Todo deleted");
-      fetchTodos();
+      showToast("Task deleted");
+      fetchTasks();
     } else {
       showToast(data.error || "Delete failed", "error");
     }
@@ -2755,30 +2768,30 @@ async function fetchHomeTodos() {
   const uid = getDiscordUserId();
 
   try {
-    let todos = [];
+    let tasks = [];
     if (uid) {
       const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=5`);
       if (res.ok) {
         const data = await res.json();
-        todos = data.tasks || [];
+        tasks = data.tasks || [];
       }
     }
 
-    if (todos.length === 0) {
-      // Fallback to plain todo list
-      const res = await apiFetch("/api/todos?status=needsAction");
+    if (tasks.length === 0 && uid) {
+      // Fallback to plain task list
+      const res = await apiFetch("/api/tasks?status=needsAction", { headers: { "X-Discord-User-Id": uid } });
       if (res.ok) {
         const data = await res.json();
-        todos = (data.todos || []).slice(0, 5).map(t => ({ title: t.title, score: null, due: t.due }));
+        tasks = (data.tasks || []).slice(0, 5).map(t => ({ title: t.title, score: null, due: t.due }));
       }
     }
 
-    if (todos.length === 0) {
-      el.innerHTML = '<span class="muted">No pending todos</span>';
+    if (tasks.length === 0) {
+      el.innerHTML = '<span class="muted">No pending tasks</span>';
       return;
     }
 
-    el.innerHTML = todos.map(t => {
+    el.innerHTML = tasks.map(t => {
       const scoreBadge = t.score != null
         ? `<span class="${getScoreTierClass(t.score)}">${t.score}</span>`
         : "";
@@ -2786,7 +2799,7 @@ async function fetchHomeTodos() {
       return `<div class="home-list-item"><span class="home-item-title">${esc(t.title)}</span>${scoreBadge}<span class="home-item-meta">${due}</span></div>`;
     }).join("");
   } catch {
-    el.innerHTML = '<span class="muted">Todos unavailable</span>';
+    el.innerHTML = '<span class="muted">Tasks unavailable</span>';
   }
 }
 
@@ -2974,7 +2987,7 @@ function refreshAll() {
   fetchUsers();
   fetchNotes();
   fetchKnowledgeBase();
-  fetchTodos();
+  fetchTasks();
   fetchHeartbeat();
   fetchHomeData();
   fetchCalendarEvents();
@@ -2991,7 +3004,7 @@ function startPolling() {
     setInterval(fetchAgents, 60000),
     setInterval(fetchUsers, 60000),
     setInterval(fetchNotes, 60000),
-    setInterval(fetchTodos, 30000),
+    setInterval(fetchTasks, 30000),
     setInterval(fetchHeartbeat, 60000),
     setInterval(fetchHomeData, 30000),
     setInterval(fetchCalendarEvents, 60000),
@@ -3027,7 +3040,7 @@ fetchAgents();
 fetchUsers();
 fetchNotes();
 fetchKnowledgeBase();
-fetchTodos();
+fetchTasks();
 fetchHeartbeat();
 fetchHomeData();
 fetchCalendarEvents();

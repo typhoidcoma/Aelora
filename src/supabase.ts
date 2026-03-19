@@ -44,6 +44,7 @@ export type UserProfileRow = {
   current_streak: number;
   longest_streak: number;
   last_completion_date: string | null;  // YYYY-MM-DD
+  google_task_list_id: string | null;   // Per-user Google Task list ID
   created_at: string;
   updated_at: string;
 };
@@ -117,6 +118,32 @@ export async function ensureUserProfile(
     { discord_user_id: discordUserId },
     { onConflict: "discord_user_id", ignoreDuplicates: true },
   );
+}
+
+/** Get the user's Google Task list ID (null if not yet created). */
+export async function getTaskListId(
+  sb: SupabaseClient,
+  discordUserId: string,
+): Promise<string | null> {
+  const { data, error } = await sb
+    .from("user_profiles")
+    .select("google_task_list_id")
+    .eq("discord_user_id", discordUserId)
+    .single();
+  if (error || !data) return null;
+  return (data as { google_task_list_id: string | null }).google_task_list_id;
+}
+
+/** Store the user's Google Task list ID after creation. */
+export async function setTaskListId(
+  sb: SupabaseClient,
+  discordUserId: string,
+  listId: string,
+): Promise<void> {
+  await sb
+    .from("user_profiles")
+    .update({ google_task_list_id: listId })
+    .eq("discord_user_id", discordUserId);
 }
 
 /** Upsert a life event from an external source (e.g. Google Tasks sync). */

@@ -1,6 +1,7 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
-import { getCachedSupabaseClient, ensureUserProfile, upsertLifeEvent, type LifeEventRow } from "./supabase.js";
-import { listTodos } from "./tools/todo.js";
+import { getCachedSupabaseClient, ensureUserProfile, upsertLifeEvent, getTaskListId, type LifeEventRow } from "./supabase.js";
+import { listTasks, resolveUserTaskList } from "./tools/tasks.js";
+import { extractGoogleConfig } from "./tools/_google-auth.js";
 import { getLLMClient, getAuxiliaryModel, stripThinkBlocks } from "./llm.js";
 import type OpenAI from "openai";
 
@@ -153,7 +154,7 @@ async function enrichTasks(
 
 const scoringSync: HeartbeatHandler = {
   name: "scoring-sync",
-  description: "Syncs Google Tasks into Supabase life_events for scoring (every 5 min)",
+  description: "Syncs per-user Google Tasks into Supabase life_events for scoring (every 5 min)",
   enabled: true,
 
   execute: async (ctx) => {
@@ -168,82 +169,84 @@ const scoringSync: HeartbeatHandler = {
     const g = tools?.["google"] as Record<string, string> | undefined;
     if (!g?.clientId || !g?.clientSecret || !g?.refreshToken) return;
 
-    // Get all known user profiles to sync for
-    const { data: profiles } = await sb.from("user_profiles").select("discord_user_id");
+    const googleConfig = { clientId: g.clientId, clientSecret: g.clientSecret, refreshToken: g.refreshToken };
+
+    // Get all known user profiles that have a task list
+    const { data: profiles } = await sb
+      .from("user_profiles")
+      .select("discord_user_id, google_task_list_id")
+      .not("google_task_list_id", "is", null);
+
     if (!profiles || profiles.length === 0) return;
 
-    const items = await listTodos(
-      { clientId: g.clientId, clientSecret: g.clientSecret, refreshToken: g.refreshToken },
-      "@default",
-      "pending",
-    );
-    if (items.length === 0) return;
+    let totalSynced = 0;
 
-    // Check which external_uids already exist so we don't overwrite enriched data
-    const existingUids = new Set<string>();
     for (const profile of profiles) {
-      const { data: existing } = await sb
-        .from("life_events")
-        .select("external_uid")
-        .eq("discord_user_id", profile.discord_user_id)
-        .eq("source", "google_tasks")
-        .not("external_uid", "is", null);
+      const taskListId = (profile as { discord_user_id: string; google_task_list_id: string }).google_task_list_id;
+      if (!taskListId) continue;
 
-      if (existing) {
-        for (const row of existing) {
-          existingUids.add(`${profile.discord_user_id}:${row.external_uid}`);
+      try {
+        const items = await listTasks(googleConfig, taskListId, "pending");
+
+        // Check which external_uids already exist
+        const { data: existing } = await sb
+          .from("life_events")
+          .select("external_uid")
+          .eq("discord_user_id", profile.discord_user_id)
+          .eq("source", "google_tasks")
+          .not("external_uid", "is", null);
+
+        const existingUids = new Set(
+          (existing ?? []).map((r) => (r as { external_uid: string }).external_uid),
+        );
+
+        for (const item of items) {
+          if (existingUids.has(item.uid)) {
+            // Update title/description/due_date/priority only (preserve enrichment)
+            await sb
+              .from("life_events")
+              .update({
+                title:       item.title,
+                description: item.description ?? null,
+                due_date:    item.dueDate ?? null,
+                priority:    item.priority,
+              })
+              .eq("discord_user_id", profile.discord_user_id)
+              .eq("external_uid", item.uid);
+          } else {
+            await upsertLifeEvent(sb, {
+              discord_user_id:   profile.discord_user_id,
+              title:             item.title,
+              description:       item.description ?? null,
+              category:          "tasks",
+              source:            "google_tasks",
+              external_uid:      item.uid,
+              priority:          item.priority,
+              due_date:          item.dueDate ?? null,
+              completed:         false,
+              completed_at:      null,
+              estimated_minutes: null,
+              size_label:        null,
+              impact_level:      null,
+              irreversible:      null,
+              affects_others:    null,
+              smeq_estimate:     null,
+              tags:              null,
+            });
+          }
+          totalSynced++;
         }
+
+        // Auto-enrich un-enriched tasks
+        await enrichTasks(sb, profile.discord_user_id);
+      } catch (err) {
+        console.warn(`Scoring sync: failed for user ${profile.discord_user_id}:`, err instanceof Error ? err.message : err);
       }
     }
 
-    let synced = 0;
-    for (const profile of profiles) {
-      await ensureUserProfile(sb, profile.discord_user_id);
-      for (const item of items) {
-        const key = `${profile.discord_user_id}:${item.uid}`;
-
-        if (existingUids.has(key)) {
-          // Task already exists, only update title/description/due_date/priority (not enrichment fields)
-          await sb
-            .from("life_events")
-            .update({
-              title:       item.title,
-              description: item.description ?? null,
-              due_date:    item.dueDate ?? null,
-              priority:    item.priority,
-            })
-            .eq("discord_user_id", profile.discord_user_id)
-            .eq("external_uid", item.uid);
-        } else {
-          // New task, insert with null enrichment (will be enriched below)
-          await upsertLifeEvent(sb, {
-            discord_user_id:   profile.discord_user_id,
-            title:             item.title,
-            description:       item.description ?? null,
-            category:          "tasks",
-            source:            "google_tasks",
-            external_uid:      item.uid,
-            priority:          item.priority,
-            due_date:          item.dueDate ?? null,
-            completed:         false,
-            completed_at:      null,
-            estimated_minutes: null,
-            size_label:        null,
-            impact_level:      null,
-            irreversible:      null,
-            affects_others:    null,
-            smeq_estimate:     null,
-            tags:              null,
-          });
-        }
-        synced++;
-      }
-
-      // Auto-enrich any un-enriched tasks for this user
-      await enrichTasks(sb, profile.discord_user_id);
+    if (totalSynced > 0) {
+      return `synced ${totalSynced} task(s) for ${profiles.length} user(s)`;
     }
-
-    return `synced ${items.length} task(s) for ${profiles.length} user(s)`;
   },
 };
 

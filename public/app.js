@@ -2730,7 +2730,7 @@ async function fetchHomeCronSummary() {
 async function fetchHomeCalendar() {
   const el = document.getElementById("home-calendar");
   try {
-    const res = await apiFetch("/api/calendar/events?maxResults=5&daysAhead=14");
+    const res = await apiFetch("/api/calendar/all-events?maxResults=8&daysAhead=14");
     if (res.status === 404 || res.status === 503) {
       el.innerHTML = '<span class="muted">Calendar not configured</span>';
       _homeNextEvent = null;
@@ -2751,7 +2751,8 @@ async function fetchHomeCalendar() {
       const isAllDay = dt && dt.length <= 10;
       const timePart = isAllDay ? '<span class="calendar-allday-badge">All Day</span>' : timeUntil(dt);
       const loc = ev.location ? ` &middot; ${esc(ev.location)}` : "";
-      return `<div class="home-list-item"><span class="home-item-title">${esc(ev.summary)}</span><span class="home-item-meta">${timePart}${loc}</span></div>`;
+      const userTag = ev.user ? `<span class="calendar-user-tag">${esc(ev.user.username)}</span>` : "";
+      return `<div class="home-list-item"><span class="home-item-title">${esc(ev.summary)}${userTag}</span><span class="home-item-meta">${timePart}${loc}</span></div>`;
     }).join("");
 
     // Sidebar glance - next event
@@ -2920,7 +2921,12 @@ async function fetchHomeData() {
 async function fetchCalendarEvents() {
   const tbody = document.getElementById("calendar-body");
   try {
-    const res = await apiFetch("/api/calendar/events?maxResults=20&daysAhead=30");
+    const uid = getDiscordUserId();
+    if (!uid) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">Set Discord User ID to view calendar</td></tr>';
+      return;
+    }
+    const res = await apiFetch(`/api/calendar/events?maxResults=20&daysAhead=30&userId=${encodeURIComponent(uid)}`);
     if (res.status === 404 || res.status === 503) {
       tbody.innerHTML = '<tr><td colspan="4" class="muted">Calendar not configured. Add Google credentials to settings.yaml.</td></tr>';
       return;

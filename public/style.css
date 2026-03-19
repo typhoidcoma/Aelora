@@ -1725,6 +1725,18 @@ pre {
   border: 1px solid var(--glow-gold-soft);
 }
 
+.calendar-user-tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-left: 0.4rem;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+}
+
 /* ==============================
    ACHIEVEMENTS
 ============================== */

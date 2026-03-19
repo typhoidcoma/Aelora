@@ -1037,6 +1037,57 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
+  // Aggregate calendar: all users' events merged (for Home tab)
+  app.get("/api/calendar/all-events", async (req, res) => {
+    if (!isToolEnabled("google_calendar") && !isToolEnabled("calendar")) {
+      res.status(404).json({ error: "Calendar tool is not enabled" });
+      return;
+    }
+
+    let googleConfig;
+    try {
+      googleConfig = getGoogleConfig(config.tools as Record<string, Record<string, unknown>> | undefined);
+    } catch {
+      res.status(503).json({ error: "Google not configured" });
+      return;
+    }
+
+    const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
+    const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
+
+    try {
+      const users = getAllUsers();
+      const userIds = Object.keys(users);
+
+      const results = await Promise.allSettled(
+        userIds.map(async (userId) => {
+          const calendarId = await resolveUserCalendar(googleConfig, userId);
+          const events = await listEvents(googleConfig, calendarId, { maxResults: 20, daysAhead });
+          const username = users[userId]?.username ?? userId;
+          return events.map((e) => ({
+            uid: e.id,
+            summary: e.summary ?? "Untitled",
+            description: e.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || undefined,
+            location: e.location,
+            dtstart: e.start.dateTime ?? e.start.date ?? "",
+            dtend: e.end.dateTime ?? e.end.date ?? "",
+            user: { userId, username },
+          }));
+        }),
+      );
+
+      const allEvents = results
+        .filter((r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled")
+        .flatMap((r) => r.value)
+        .sort((a, b) => (a.dtstart > b.dtstart ? 1 : a.dtstart < b.dtstart ? -1 : 0))
+        .slice(0, maxResults);
+
+      res.json({ events: allEvents, count: allEvents.length, daysAhead });
+    } catch (err) {
+      res.status(500).json({ error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}` });
+    }
+  });
+
   // --- Tasks ---
 
   const getGoogleTasksConfig = () =>

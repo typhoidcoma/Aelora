@@ -92,7 +92,7 @@ export async function createTaskList(
   );
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Google Tasks API error creating list (${res.status}): ${body.slice(0, 200)}`);
+    throw new Error(`Tasks API error creating list (${res.status}): ${body.slice(0, 200)}`);
   }
   const data = (await res.json()) as { id: string };
   return data.id;
@@ -150,7 +150,7 @@ export async function listTasks(
   );
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Google Tasks API error (${res.status}): ${body.slice(0, 200)}`);
+    throw new Error(`Tasks API error (${res.status}): ${body.slice(0, 200)}`);
   }
 
   const data = (await res.json()) as { items?: GoogleTask[] };
@@ -171,7 +171,7 @@ export async function getTaskByUid(
     config,
   );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  if (!res.ok) throw new Error(`Tasks API error (${res.status})`);
   const task = (await res.json()) as GoogleTask;
   return taskToItem(task);
 }
@@ -201,7 +201,7 @@ export async function createTask(
   );
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`Google Tasks API error (${res.status}): ${errBody.slice(0, 200)}`);
+    throw new Error(`Tasks API error (${res.status}): ${errBody.slice(0, 200)}`);
   }
 
   const task = (await res.json()) as GoogleTask;
@@ -227,7 +227,7 @@ export async function completeTask(
     },
   );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  if (!res.ok) throw new Error(`Tasks API error (${res.status})`);
   const task = (await res.json()) as GoogleTask;
   return taskToItem(task);
 }
@@ -262,7 +262,7 @@ export async function updateTask(
     },
   );
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  if (!res.ok) throw new Error(`Tasks API error (${res.status})`);
 
   const task = (await res.json()) as GoogleTask;
   const item = taskToItem(task);
@@ -283,7 +283,7 @@ export async function deleteTask(
     { method: "DELETE" },
   );
   if (res.status === 404) return false;
-  if (!res.ok) throw new Error(`Google Tasks API error (${res.status})`);
+  if (!res.ok) throw new Error(`Tasks API error (${res.status})`);
   return true;
 }
 
@@ -296,7 +296,7 @@ export default defineTool({
   description:
     "Manage personal tasks. Each user has their own task list. " +
     "Actions: list, add, complete, update, delete. " +
-    "Uses Google Tasks as the backend. Priority is stored as metadata.",
+    "Priority is stored as metadata.",
 
   config: ["google.clientId", "google.clientSecret", "google.refreshToken"],
 
@@ -310,7 +310,7 @@ export default defineTool({
     description: param.string("Task description/notes. Optional for add and update."),
     taskId: param.string("Task ID (uid). Required for complete, update, and delete."),
     priority: param.enum(
-      "Task priority (stored as metadata, not synced to Google Tasks).",
+      "Task priority.",
       ["low", "medium", "high"] as const,
     ),
     dueDate: param.date("Due date. Optional for add and update.", { format: "date" }),

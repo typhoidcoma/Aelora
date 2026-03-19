@@ -1059,7 +1059,7 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // --- Todos (Google Tasks) ---
+  // --- Tasks ---
 
   const getGoogleTasksConfig = () =>
     getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
@@ -1090,7 +1090,7 @@ export function startWeb(state: AppState): Server | null {
       if (msg.includes("not configured")) {
         res.status(503).json({ error: msg });
       } else {
-        res.status(502).json({ error: `Google Tasks error: ${msg}` });
+        res.status(502).json({ error: `Tasks error: ${msg}` });
       }
     }
   });
@@ -1107,7 +1107,7 @@ export function startWeb(state: AppState): Server | null {
       if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
       res.json(item);
     } catch (err) {
-      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
@@ -1127,7 +1127,7 @@ export function startWeb(state: AppState): Server | null {
       const item = await createTask(googleConfig, taskListId, { title, description, priority, dueDate });
       res.status(201).json(item);
     } catch (err) {
-      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
@@ -1259,7 +1259,7 @@ export function startWeb(state: AppState): Server | null {
         res.json(item);
       }
     } catch (err) {
-      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 
@@ -1275,7 +1275,7 @@ export function startWeb(state: AppState): Server | null {
       if (!deleted) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
       res.json({ success: true });
     } catch (err) {
-      res.status(502).json({ error: `Google Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
 

@@ -53,7 +53,7 @@ function formatTask(t: Task, index: number): string {
 export default defineTool({
   name: "google_tasks",
   description:
-    "Manage tasks on Google Tasks. Add, list, complete, update, and delete tasks. Use add_many to create multiple tasks in one call. Tasks sync with Gmail and Google Calendar.",
+    "Low-level task list management. Add, list, complete, update, and delete tasks. Use add_many to create multiple tasks in one call. Prefer the 'tasks' tool for personal task management.",
 
   params: {
     action: param.enum(
@@ -67,7 +67,7 @@ export default defineTool({
     ),
     notes: param.string("Task notes/description. Optional for add and update."),
     dueDate: param.string(
-      "Due date in YYYY-MM-DD format. Optional for add and update. Google Tasks only supports dates, not times.",
+      "Due date in YYYY-MM-DD format. Optional for add and update. Only supports dates, not times.",
     ),
     taskId: param.string("Task ID. Required for complete, update, delete."),
     taskListId: param.string("Task list ID (default: '@default' which is the primary list). Use 'lists' action to see all lists."),
@@ -358,8 +358,8 @@ export default defineTool({
     } catch (err) {
       resetGoogleToken();
       const msg = err instanceof Error ? err.message : String(err);
-      console.error("Google Tasks tool error:", msg);
-      return `Error: Google Tasks operation failed: ${msg}`;
+      console.error("google_tasks tool error:", msg);
+      return `Error: task operation failed: ${msg}`;
     }
   },
 });

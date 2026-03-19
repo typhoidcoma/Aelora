@@ -130,7 +130,7 @@ export default defineTool({
       lines.push(`Time: ${timeOnly}`);
     }
     lines.push(
-      "Note: Google Tasks only supports date-level due dates. Pass the date (YYYY-MM-DD) to the todo tool.",
+      "Note: Tasks only support date-level due dates (no times). Pass the date (YYYY-MM-DD) to the tasks tool.",
     );
 
     return {

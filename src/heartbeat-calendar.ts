@@ -1,7 +1,6 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
 import { loadCalendarNotified, saveCalendarNotified } from "./state.js";
-import { googleFetch, type GoogleConfig } from "./tools/_google-auth.js";
-import { getCachedSupabaseClient } from "./supabase.js";
+import { type GoogleConfig } from "./tools/_google-auth.js";
 import { listEvents, type CalendarEvent } from "./tools/google-calendar.js";
 
 const REMINDER_MINUTES = 15;
@@ -24,57 +23,9 @@ function formatEventTime(event: CalendarEvent): string {
   }
 }
 
-async function sendReminders(
-  events: CalendarEvent[],
-  guildId: string | undefined,
-): Promise<string[]> {
-  const now = Date.now();
-  const reminded: string[] = [];
-
-  for (const event of events) {
-    if (notifiedEvents.has(event.id)) continue;
-
-    const startStr = event.start.dateTime ?? event.start.date;
-    if (!startStr) continue;
-
-    const startTime = new Date(startStr).getTime();
-    const minutesUntil = (startTime - now) / 60_000;
-
-    if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
-      notifiedEvents.add(event.id);
-      saveCalendarNotified([...notifiedEvents]);
-
-      const mins = Math.round(minutesUntil);
-      const lines: string[] = [
-        `**Calendar Reminder**  -  in ${mins} minute${mins === 1 ? "" : "s"}`,
-        `**${event.summary ?? "Untitled event"}**`,
-        `Time: ${formatEventTime(event)}`,
-      ];
-      if (event.location) lines.push(`Location: ${event.location}`);
-      if (event.description) lines.push(`Notes: ${event.description.slice(0, 200)}`);
-
-      if (guildId) {
-        const { discordClient } = await import("./discord.js");
-        const guild = discordClient?.guilds.cache.get(guildId);
-        if (guild) {
-          const channel = guild.channels.cache.find(
-            (ch) => ch.isTextBased() && "send" in ch,
-          );
-          if (channel && "send" in channel) {
-            await (channel as any).send(lines.join("\n"));
-            reminded.push(event.summary ?? event.id);
-          }
-        }
-      }
-    }
-  }
-
-  return reminded;
-}
-
 const calendarReminder: HeartbeatHandler = {
   name: "calendar-reminder",
-  description: `Sends a reminder ${REMINDER_MINUTES} minutes before upcoming calendar events (per-user calendars)`,
+  description: `Sends a reminder ${REMINDER_MINUTES} minutes before upcoming calendar events`,
   enabled: true,
 
   execute: async (ctx): Promise<string | void> => {
@@ -92,32 +43,60 @@ const calendarReminder: HeartbeatHandler = {
       refreshToken: google.refreshToken,
     };
 
+    // Check the primary calendar for upcoming events
+    let events: CalendarEvent[];
+    try {
+      events = await listEvents(googleConfig, "primary", {
+        maxResults: 10,
+        daysAhead: 1,
+      });
+    } catch {
+      return; // Google not reachable
+    }
+
+    if (events.length === 0) return;
+
     const guildId = ctx.config.discord.guildId;
-    const allReminded: string[] = [];
+    const now = Date.now();
+    const reminded: string[] = [];
 
-    // Check per-user calendars from Supabase
-    const sb = getCachedSupabaseClient();
-    if (sb) {
-      const { data: profiles } = await sb
-        .from("user_profiles")
-        .select("discord_user_id, google_calendar_id")
-        .not("google_calendar_id", "is", null);
+    for (const event of events) {
+      if (notifiedEvents.has(event.id)) continue;
 
-      if (profiles && profiles.length > 0) {
-        for (const profile of profiles) {
-          const calId = (profile as { google_calendar_id: string }).google_calendar_id;
-          if (!calId) continue;
+      const startStr = event.start.dateTime ?? event.start.date;
+      if (!startStr) continue;
 
-          try {
-            const events = await listEvents(googleConfig, calId, {
-              maxResults: 10,
-              // Only look 1 day ahead for reminders (we just need the upcoming window)
-              daysAhead: 1,
-            });
-            const reminded = await sendReminders(events, guildId);
-            allReminded.push(...reminded);
-          } catch {
-            // Skip this user's calendar if it fails
+      const startTime = new Date(startStr).getTime();
+      const minutesUntil = (startTime - now) / 60_000;
+
+      if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
+        notifiedEvents.add(event.id);
+        saveCalendarNotified([...notifiedEvents]);
+
+        const mins = Math.round(minutesUntil);
+        const lines: string[] = [
+          `**Calendar Reminder**  -  in ${mins} minute${mins === 1 ? "" : "s"}`,
+          `**${event.summary ?? "Untitled event"}**`,
+          `Time: ${formatEventTime(event)}`,
+        ];
+        if (event.location) lines.push(`Location: ${event.location}`);
+        if (event.description) {
+          // Strip user tags from reminder display
+          const clean = event.description.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim();
+          if (clean) lines.push(`Notes: ${clean.slice(0, 200)}`);
+        }
+
+        if (guildId) {
+          const { discordClient } = await import("./discord.js");
+          const guild = discordClient?.guilds.cache.get(guildId);
+          if (guild) {
+            const channel = guild.channels.cache.find(
+              (ch) => ch.isTextBased() && "send" in ch,
+            );
+            if (channel && "send" in channel) {
+              await (channel as any).send(lines.join("\n"));
+              reminded.push(event.summary ?? event.id);
+            }
           }
         }
       }
@@ -129,8 +108,8 @@ const calendarReminder: HeartbeatHandler = {
       saveCalendarNotified([]);
     }
 
-    if (allReminded.length > 0) {
-      return `sent ${allReminded.length} reminder(s): ${allReminded.join(", ")}`;
+    if (reminded.length > 0) {
+      return `sent ${reminded.length} reminder(s): ${reminded.join(", ")}`;
     }
   },
 };

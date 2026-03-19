@@ -1,9 +1,8 @@
 import { defineTool, param } from "./types.js";
 import { getCachedSupabaseClient, getUserStats, getPendingLifeEvents, upsertLifeEvent, upsertCategoryStats, ensureUserProfile, type LifeEventRow } from "../supabase.js";
 import { scoreTask, emaUpdate, inferCategory, inferIrreversible, inferAffectsOthers, ACHIEVEMENTS, type LifeCategory, type ScoreInput } from "../scoring.js";
-import { listTasks, resolveUserTaskList } from "./tasks.js";
 import { listEvents } from "./google-calendar.js";
-import { resolveUserCalendar } from "./calendar.js";
+import { extractUserTag } from "./calendar.js";
 import { extractGoogleConfig } from "./_google-auth.js";
 
 // ============================================================
@@ -37,10 +36,10 @@ function scoreTierLabel(score: number): string {
 }
 
 // ============================================================
-// Google Tasks + Calendar → Supabase sync helper (per-user)
+// Calendar → Supabase sync helper (on-demand, for a specific user)
 // ============================================================
 
-export async function syncGoogleItemsForUser(
+export async function syncCalendarForUser(
   sb: NonNullable<ReturnType<typeof getCachedSupabaseClient>>,
   discordUserId: string,
   toolConfig: Record<string, unknown>,
@@ -48,46 +47,60 @@ export async function syncGoogleItemsForUser(
   const config = extractGoogleConfig(toolConfig);
   await ensureUserProfile(sb, discordUserId);
 
-  // ── Sync tasks ──────────────────────────────────────────
-  const taskListId = await resolveUserTaskList(config, discordUserId);
-  const items = await listTasks(config, taskListId, "pending");
+  // Pull all events from primary calendar, filter to this user's tagged events
+  const allEvents = await listEvents(config, "primary", { maxResults: 100, daysAhead: 30 });
+  const userEvents = allEvents.filter(e => {
+    const { userId } = extractUserTag(e.description);
+    return userId === discordUserId;
+  });
 
-  const { data: existingTasks } = await sb
+  const { data: existing } = await sb
     .from("life_events")
     .select("external_uid")
     .eq("discord_user_id", discordUserId)
-    .eq("source", "google_tasks")
+    .eq("source", "google_calendar")
     .not("external_uid", "is", null);
 
-  const existingTaskUids = new Set(
-    (existingTasks ?? []).map((r) => (r as { external_uid: string }).external_uid),
+  const existingUids = new Set(
+    (existing ?? []).map((r) => (r as { external_uid: string }).external_uid),
   );
 
-  for (const item of items) {
-    if (existingTaskUids.has(item.uid)) {
+  for (const event of userEvents) {
+    const startStr = event.start.dateTime ?? event.start.date ?? null;
+    const dueDate = startStr ? startStr.slice(0, 10) : null;
+
+    let estimatedMinutes: number | null = null;
+    if (event.start.dateTime && event.end.dateTime) {
+      const dur = (new Date(event.end.dateTime).getTime() - new Date(event.start.dateTime).getTime()) / 60_000;
+      if (dur > 0 && dur < 1440) estimatedMinutes = Math.round(dur);
+    }
+
+    const cleanDesc = event.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || null;
+
+    if (existingUids.has(event.id)) {
       await sb
         .from("life_events")
         .update({
-          title:       item.title,
-          description: item.description ?? null,
-          due_date:    item.dueDate ?? null,
-          priority:    item.priority,
+          title:             event.summary ?? "Untitled event",
+          description:       cleanDesc,
+          due_date:          dueDate,
+          estimated_minutes: estimatedMinutes,
         })
         .eq("discord_user_id", discordUserId)
-        .eq("external_uid", item.uid);
+        .eq("external_uid", event.id);
     } else {
       await upsertLifeEvent(sb, {
         discord_user_id:   discordUserId,
-        title:             item.title,
-        description:       item.description ?? null,
+        title:             event.summary ?? "Untitled event",
+        description:       cleanDesc,
         category:          "tasks",
-        source:            "google_tasks",
-        external_uid:      item.uid,
-        priority:          item.priority,
-        due_date:          item.dueDate ?? null,
+        source:            "google_calendar",
+        external_uid:      event.id,
+        priority:          "medium",
+        due_date:          dueDate,
         completed:         false,
         completed_at:      null,
-        estimated_minutes: null,
+        estimated_minutes: estimatedMinutes,
         size_label:        null,
         impact_level:      null,
         irreversible:      null,
@@ -97,74 +110,10 @@ export async function syncGoogleItemsForUser(
       });
     }
   }
-
-  // ── Sync calendar events ────────────────────────────────
-  try {
-    const calendarId = await resolveUserCalendar(config, discordUserId);
-    const events = await listEvents(config, calendarId, { maxResults: 50, daysAhead: 30 });
-
-    const { data: existingCal } = await sb
-      .from("life_events")
-      .select("external_uid")
-      .eq("discord_user_id", discordUserId)
-      .eq("source", "google_calendar")
-      .not("external_uid", "is", null);
-
-    const existingCalUids = new Set(
-      (existingCal ?? []).map((r) => (r as { external_uid: string }).external_uid),
-    );
-
-    for (const event of events) {
-      const startStr = event.start.dateTime ?? event.start.date ?? null;
-      const dueDate = startStr ? startStr.slice(0, 10) : null;
-
-      let estimatedMinutes: number | null = null;
-      if (event.start.dateTime && event.end.dateTime) {
-        const dur = (new Date(event.end.dateTime).getTime() - new Date(event.start.dateTime).getTime()) / 60_000;
-        if (dur > 0 && dur < 1440) estimatedMinutes = Math.round(dur);
-      }
-
-      if (existingCalUids.has(event.id)) {
-        await sb
-          .from("life_events")
-          .update({
-            title:             event.summary ?? "Untitled event",
-            description:       event.description ?? null,
-            due_date:          dueDate,
-            estimated_minutes: estimatedMinutes,
-          })
-          .eq("discord_user_id", discordUserId)
-          .eq("external_uid", event.id);
-      } else {
-        await upsertLifeEvent(sb, {
-          discord_user_id:   discordUserId,
-          title:             event.summary ?? "Untitled event",
-          description:       event.description ?? null,
-          category:          "tasks",
-          source:            "google_calendar",
-          external_uid:      event.id,
-          priority:          "medium",
-          due_date:          dueDate,
-          completed:         false,
-          completed_at:      null,
-          estimated_minutes: estimatedMinutes,
-          size_label:        null,
-          impact_level:      null,
-          irreversible:      null,
-          affects_others:    null,
-          smeq_estimate:     null,
-          tags:              null,
-        });
-      }
-    }
-  } catch (err) {
-    // Calendar sync is optional — don't fail the whole sync if it errors
-    console.warn(`Scoring sync: calendar failed for user ${discordUserId}:`, err instanceof Error ? err.message : err);
-  }
 }
 
-/** @deprecated Use syncGoogleItemsForUser instead */
-export const syncGoogleTasksForUser = syncGoogleItemsForUser;
+/** @deprecated Use syncCalendarForUser instead */
+export const syncGoogleTasksForUser = syncCalendarForUser;
 
 // ============================================================
 // Tool definition

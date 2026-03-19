@@ -53,7 +53,9 @@ function formatTask(t: Task, index: number): string {
 export default defineTool({
   name: "google_tasks",
   description:
-    "Low-level task list management. Add, list, complete, update, and delete tasks. Use add_many to create multiple tasks in one call. Prefer the 'tasks' tool for personal task management.",
+    "Admin-only low-level task list management. DO NOT use this for personal tasks — use the 'tasks' tool instead. " +
+    "This tool operates on raw list IDs and is only for debugging or bulk operations on specific lists. " +
+    "Actions: list, add, add_many, complete, update, delete, lists.",
 
   params: {
     action: param.enum(

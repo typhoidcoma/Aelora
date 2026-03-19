@@ -49,26 +49,52 @@ export async function syncGoogleTasksForUser(
   const taskListId = await resolveUserTaskList(config, discordUserId);
   const items = await listTasks(config, taskListId, "pending");
 
+  // Check which external_uids already exist (to preserve enrichment data)
+  const { data: existing } = await sb
+    .from("life_events")
+    .select("external_uid")
+    .eq("discord_user_id", discordUserId)
+    .eq("source", "google_tasks")
+    .not("external_uid", "is", null);
+
+  const existingUids = new Set(
+    (existing ?? []).map((r) => (r as { external_uid: string }).external_uid),
+  );
+
   for (const item of items) {
-    await upsertLifeEvent(sb, {
-      discord_user_id:   discordUserId,
-      title:             item.title,
-      description:       item.description ?? null,
-      category:          "tasks",
-      source:            "google_tasks",
-      external_uid:      item.uid,
-      priority:          item.priority,
-      due_date:          item.dueDate ?? null,
-      completed:         false,
-      completed_at:      null,
-      estimated_minutes: null,
-      size_label:        null,
-      impact_level:      null,
-      irreversible:      null,
-      affects_others:    null,
-      smeq_estimate:     null,
-      tags:              null,
-    });
+    if (existingUids.has(item.uid)) {
+      // Update title/description/due_date/priority only (preserve enrichment)
+      await sb
+        .from("life_events")
+        .update({
+          title:       item.title,
+          description: item.description ?? null,
+          due_date:    item.dueDate ?? null,
+          priority:    item.priority,
+        })
+        .eq("discord_user_id", discordUserId)
+        .eq("external_uid", item.uid);
+    } else {
+      await upsertLifeEvent(sb, {
+        discord_user_id:   discordUserId,
+        title:             item.title,
+        description:       item.description ?? null,
+        category:          "tasks",
+        source:            "google_tasks",
+        external_uid:      item.uid,
+        priority:          item.priority,
+        due_date:          item.dueDate ?? null,
+        completed:         false,
+        completed_at:      null,
+        estimated_minutes: null,
+        size_label:        null,
+        impact_level:      null,
+        irreversible:      null,
+        affects_others:    null,
+        smeq_estimate:     null,
+        tags:              null,
+      });
+    }
   }
 }
 

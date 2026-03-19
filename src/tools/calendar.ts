@@ -1,5 +1,6 @@
 import { defineTool, param } from "./types.js";
 import { extractGoogleConfig, resetGoogleToken, type GoogleConfig } from "./_google-auth.js";
+import { googleFetch } from "./_google-auth.js";
 import { getCachedSupabaseClient, ensureUserProfile, getCalendarId, setCalendarId } from "../supabase.js";
 import { getUser } from "../users.js";
 import {
@@ -12,6 +13,8 @@ import {
   type CalendarEvent,
 } from "./google-calendar.js";
 
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
+
 // ============================================================
 // Per-user calendar management
 // ============================================================
@@ -19,9 +22,23 @@ import {
 // In-memory cache: discordUserId → Promise<calendarId>
 const _calendarCache = new Map<string, Promise<string>>();
 
+/** Verify a calendar ID is still valid by hitting the API. */
+async function verifyCalendar(config: GoogleConfig, calendarId: string): Promise<boolean> {
+  try {
+    const res = await googleFetch(
+      `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}`,
+      config,
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve a user's Google Calendar ID.
  * If the user doesn't have one yet, creates a secondary calendar and stores the mapping.
+ * Validates stored IDs still exist — if not, clears and re-creates.
  * Cached per-process to prevent duplicate calendar creation.
  */
 export async function resolveUserCalendar(
@@ -41,6 +58,11 @@ export async function resolveUserCalendar(
   return promise;
 }
 
+/** Evict a user's cached calendar ID (forces re-resolve on next call). */
+export function evictCalendarCache(discordUserId: string): void {
+  _calendarCache.delete(discordUserId);
+}
+
 async function _resolveUserCalendarInner(
   config: GoogleConfig,
   discordUserId: string,
@@ -51,7 +73,20 @@ async function _resolveUserCalendarInner(
   if (sb) {
     await ensureUserProfile(sb, discordUserId);
     const existing = await getCalendarId(sb, discordUserId);
-    if (existing) return existing;
+    if (existing) {
+      // Verify the stored calendar still exists
+      const valid = await verifyCalendar(config, existing);
+      if (valid) {
+        console.log(`Calendar: verified existing calendar (${existing}) for user ${discordUserId}`);
+        return existing;
+      }
+      // Stale ID — clear it and create a new one
+      console.warn(`Calendar: stored ID (${existing}) is invalid/404 for user ${discordUserId}, re-creating`);
+      await sb
+        .from("user_profiles")
+        .update({ google_calendar_id: null })
+        .eq("discord_user_id", discordUserId);
+    }
   }
 
   // Create a new secondary calendar for this user

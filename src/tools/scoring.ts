@@ -2,6 +2,8 @@ import { defineTool, param } from "./types.js";
 import { getCachedSupabaseClient, getUserStats, getPendingLifeEvents, upsertLifeEvent, upsertCategoryStats, ensureUserProfile, type LifeEventRow } from "../supabase.js";
 import { scoreTask, emaUpdate, inferCategory, inferIrreversible, inferAffectsOthers, ACHIEVEMENTS, type LifeCategory, type ScoreInput } from "../scoring.js";
 import { listTasks, resolveUserTaskList } from "./tasks.js";
+import { listEvents } from "./google-calendar.js";
+import { resolveUserCalendar } from "./calendar.js";
 import { extractGoogleConfig } from "./_google-auth.js";
 
 // ============================================================
@@ -35,35 +37,34 @@ function scoreTierLabel(score: number): string {
 }
 
 // ============================================================
-// Google Tasks → Supabase sync helper (per-user)
+// Google Tasks + Calendar → Supabase sync helper (per-user)
 // ============================================================
 
-export async function syncGoogleTasksForUser(
+export async function syncGoogleItemsForUser(
   sb: NonNullable<ReturnType<typeof getCachedSupabaseClient>>,
   discordUserId: string,
   toolConfig: Record<string, unknown>,
 ): Promise<void> {
   const config = extractGoogleConfig(toolConfig);
-
   await ensureUserProfile(sb, discordUserId);
+
+  // ── Sync tasks ──────────────────────────────────────────
   const taskListId = await resolveUserTaskList(config, discordUserId);
   const items = await listTasks(config, taskListId, "pending");
 
-  // Check which external_uids already exist (to preserve enrichment data)
-  const { data: existing } = await sb
+  const { data: existingTasks } = await sb
     .from("life_events")
     .select("external_uid")
     .eq("discord_user_id", discordUserId)
     .eq("source", "google_tasks")
     .not("external_uid", "is", null);
 
-  const existingUids = new Set(
-    (existing ?? []).map((r) => (r as { external_uid: string }).external_uid),
+  const existingTaskUids = new Set(
+    (existingTasks ?? []).map((r) => (r as { external_uid: string }).external_uid),
   );
 
   for (const item of items) {
-    if (existingUids.has(item.uid)) {
-      // Update title/description/due_date/priority only (preserve enrichment)
+    if (existingTaskUids.has(item.uid)) {
       await sb
         .from("life_events")
         .update({
@@ -96,7 +97,74 @@ export async function syncGoogleTasksForUser(
       });
     }
   }
+
+  // ── Sync calendar events ────────────────────────────────
+  try {
+    const calendarId = await resolveUserCalendar(config, discordUserId);
+    const events = await listEvents(config, calendarId, { maxResults: 50, daysAhead: 30 });
+
+    const { data: existingCal } = await sb
+      .from("life_events")
+      .select("external_uid")
+      .eq("discord_user_id", discordUserId)
+      .eq("source", "google_calendar")
+      .not("external_uid", "is", null);
+
+    const existingCalUids = new Set(
+      (existingCal ?? []).map((r) => (r as { external_uid: string }).external_uid),
+    );
+
+    for (const event of events) {
+      const startStr = event.start.dateTime ?? event.start.date ?? null;
+      const dueDate = startStr ? startStr.slice(0, 10) : null;
+
+      let estimatedMinutes: number | null = null;
+      if (event.start.dateTime && event.end.dateTime) {
+        const dur = (new Date(event.end.dateTime).getTime() - new Date(event.start.dateTime).getTime()) / 60_000;
+        if (dur > 0 && dur < 1440) estimatedMinutes = Math.round(dur);
+      }
+
+      if (existingCalUids.has(event.id)) {
+        await sb
+          .from("life_events")
+          .update({
+            title:             event.summary ?? "Untitled event",
+            description:       event.description ?? null,
+            due_date:          dueDate,
+            estimated_minutes: estimatedMinutes,
+          })
+          .eq("discord_user_id", discordUserId)
+          .eq("external_uid", event.id);
+      } else {
+        await upsertLifeEvent(sb, {
+          discord_user_id:   discordUserId,
+          title:             event.summary ?? "Untitled event",
+          description:       event.description ?? null,
+          category:          "tasks",
+          source:            "google_calendar",
+          external_uid:      event.id,
+          priority:          "medium",
+          due_date:          dueDate,
+          completed:         false,
+          completed_at:      null,
+          estimated_minutes: estimatedMinutes,
+          size_label:        null,
+          impact_level:      null,
+          irreversible:      null,
+          affects_others:    null,
+          smeq_estimate:     null,
+          tags:              null,
+        });
+      }
+    }
+  } catch (err) {
+    // Calendar sync is optional — don't fail the whole sync if it errors
+    console.warn(`Scoring sync: calendar failed for user ${discordUserId}:`, err instanceof Error ? err.message : err);
+  }
 }
+
+/** @deprecated Use syncGoogleItemsForUser instead */
+export const syncGoogleTasksForUser = syncGoogleItemsForUser;
 
 // ============================================================
 // Tool definition

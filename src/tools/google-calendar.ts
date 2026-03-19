@@ -1,7 +1,20 @@
 import { defineTool, param } from "./types.js";
-import { googleFetch, extractGoogleConfig, resetGoogleToken } from "./_google-auth.js";
+import { googleFetch, extractGoogleConfig, resetGoogleToken, type GoogleConfig } from "./_google-auth.js";
 
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
+
+// ── Types ───────────────────────────────────────────────────
+
+export type CalendarEvent = {
+  id: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end: { dateTime?: string; date?: string; timeZone?: string };
+  htmlLink?: string;
+  status?: string;
+};
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -10,7 +23,7 @@ function getTimezone(): string {
 }
 
 /** Format a Google Calendar event datetime for display. */
-function formatEventTime(dt: { dateTime?: string; date?: string }): string {
+export function formatEventTime(dt: { dateTime?: string; date?: string }): string {
   if (dt.date) return dt.date; // all-day event
   if (!dt.dateTime) return "(unknown)";
   try {
@@ -28,23 +41,159 @@ function formatEventTime(dt: { dateTime?: string; date?: string }): string {
   }
 }
 
-type CalendarEvent = {
-  id: string;
-  summary?: string;
-  description?: string;
-  location?: string;
-  start: { dateTime?: string; date?: string; timeZone?: string };
-  end: { dateTime?: string; date?: string; timeZone?: string };
-  htmlLink?: string;
-  status?: string;
-};
+// ── Exported CRUD functions ─────────────────────────────────
+
+/** Create a new secondary Google Calendar and return its ID. */
+export async function createCalendar(
+  config: GoogleConfig,
+  summary: string,
+): Promise<string> {
+  const res = await googleFetch(
+    `${CALENDAR_BASE}/calendars`,
+    config,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ summary, timeZone: getTimezone() }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Calendar API error creating calendar (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { id: string };
+  return data.id;
+}
+
+export async function listEvents(
+  config: GoogleConfig,
+  calendarId: string,
+  opts: { maxResults?: number; daysAhead?: number } = {},
+): Promise<CalendarEvent[]> {
+  const max = opts.maxResults ?? 10;
+  const days = opts.daysAhead ?? 14;
+  const tz = getTimezone();
+
+  const now = new Date();
+  const future = new Date(now.getTime() + days * 86_400_000);
+
+  const params = new URLSearchParams({
+    timeMin: now.toISOString(),
+    timeMax: future.toISOString(),
+    maxResults: String(max),
+    singleEvents: "true",
+    orderBy: "startTime",
+    timeZone: tz,
+  });
+
+  const res = await googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    config,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Calendar API error (${res.status}): ${body.slice(0, 200)}`);
+  }
+
+  const data = (await res.json()) as { items?: CalendarEvent[] };
+  return data.items ?? [];
+}
+
+export async function createEvent(
+  config: GoogleConfig,
+  calendarId: string,
+  opts: {
+    summary: string;
+    description?: string;
+    location?: string;
+    startDateTime: string;
+    endDateTime: string;
+  },
+): Promise<CalendarEvent> {
+  const tz = getTimezone();
+  const event: Record<string, unknown> = {
+    summary: opts.summary,
+    start: { dateTime: opts.startDateTime, timeZone: tz },
+    end: { dateTime: opts.endDateTime, timeZone: tz },
+  };
+  if (opts.description) event.description = opts.description;
+  if (opts.location) event.location = opts.location;
+
+  const res = await googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events`,
+    config,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Calendar API error (${res.status}): ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as CalendarEvent;
+}
+
+export async function updateEvent(
+  config: GoogleConfig,
+  calendarId: string,
+  eventId: string,
+  updates: {
+    summary?: string;
+    description?: string;
+    location?: string;
+    startDateTime?: string;
+    endDateTime?: string;
+  },
+): Promise<CalendarEvent | null> {
+  const tz = getTimezone();
+  const patch: Record<string, unknown> = {};
+  if (updates.summary) patch.summary = updates.summary;
+  if (updates.description) patch.description = updates.description;
+  if (updates.location) patch.location = updates.location;
+  if (updates.startDateTime) patch.start = { dateTime: updates.startDateTime, timeZone: tz };
+  if (updates.endDateTime) patch.end = { dateTime: updates.endDateTime, timeZone: tz };
+
+  if (Object.keys(patch).length === 0) return null;
+
+  const res = await googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    config,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Calendar API error (${res.status})`);
+  return (await res.json()) as CalendarEvent;
+}
+
+export async function deleteEvent(
+  config: GoogleConfig,
+  calendarId: string,
+  eventId: string,
+): Promise<boolean> {
+  const res = await googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    config,
+    { method: "DELETE" },
+  );
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`Calendar API error (${res.status})`);
+  return true;
+}
 
 // ── Tool ─────────────────────────────────────────────────────
 
 export default defineTool({
   name: "google_calendar",
   description:
-    "Manage events on the user's Google Calendar. List upcoming events, create, update, or delete events, and list available calendars.",
+    "Admin-only low-level calendar management. DO NOT use this for personal events — use the 'calendar' tool instead. " +
+    "This tool operates on raw calendar IDs and is only for debugging or operations on specific calendars. " +
+    "Actions: list, create, update, delete, calendars.",
 
   params: {
     action: param.enum(
@@ -61,8 +210,8 @@ export default defineTool({
     endDateTime: param.string(
       "End time in ISO 8601 format in the user's local timezone. Do NOT append Z or a UTC offset. Required for create.",
     ),
-    eventId: param.string("Google Calendar event ID. Required for update and delete."),
-    calendarId: param.string("Calendar ID (default: 'primary'). Use 'calendars' action to list available calendars."),
+    eventId: param.string("Event ID. Required for update and delete."),
+    calendarId: param.string("Calendar ID. Required for all actions except 'calendars'. Use 'calendars' action to find IDs."),
     maxResults: param.number("Max events to return for list (1-50, default 10).", { minimum: 1, maximum: 50 }),
     daysAhead: param.number("Days ahead to search for list (1-365, default 14).", { minimum: 1, maximum: 365 }),
   },
@@ -74,33 +223,22 @@ export default defineTool({
     { toolConfig },
   ) => {
     const config = extractGoogleConfig(toolConfig);
+
+    // Never fall back to primary — require an explicit calendar ID (except for 'calendars' action)
+    if (!calendarId && action !== "calendars") {
+      return "Error: calendarId is required. Use the 'calendars' action to find available calendar IDs, or use the 'calendar' tool for personal event management.";
+    }
     const cal = calendarId || "primary";
-    const tz = getTimezone();
 
     try {
       switch (action) {
         // ── List ─────────────────────────────────────────────
         case "list": {
-          const max = maxResults ?? 10;
-          const days = daysAhead ?? 14;
-
-          const now = new Date();
-          const future = new Date(now.getTime() + days * 86_400_000);
-
-          const params = new URLSearchParams({
-            timeMin: now.toISOString(),
-            timeMax: future.toISOString(),
-            maxResults: String(max),
-            singleEvents: "true",
-            orderBy: "startTime",
-            timeZone: tz,
+          const events = await listEvents(config, cal, {
+            maxResults: maxResults ?? 10,
+            daysAhead: daysAhead ?? 14,
           });
-
-          const res = await googleFetch(`${CALENDAR_BASE}/calendars/${encodeURIComponent(cal)}/events?${params}`, config);
-          if (!res.ok) return `Error: failed to fetch events (${res.status}).`;
-
-          const data = (await res.json()) as { items?: CalendarEvent[]; summary?: string };
-          const events = data.items ?? [];
+          const days = daysAhead ?? 14;
 
           if (events.length === 0) {
             return { text: `No upcoming events in the next ${days} days.`, data: { action: "list" as const, count: 0, events: [] } };
@@ -125,30 +263,14 @@ export default defineTool({
           if (!startDateTime) return "Error: startDateTime is required for create.";
           if (!endDateTime) return "Error: endDateTime is required for create.";
 
-          const event: Record<string, unknown> = {
-            summary,
-            start: { dateTime: startDateTime, timeZone: tz },
-            end: { dateTime: endDateTime, timeZone: tz },
-          };
-          if (description) event.description = description;
-          if (location) event.location = location;
+          const created = await createEvent(config, cal, {
+            summary: summary as string,
+            description: description as string | undefined,
+            location: location as string | undefined,
+            startDateTime: startDateTime as string,
+            endDateTime: endDateTime as string,
+          });
 
-          const res = await googleFetch(
-            `${CALENDAR_BASE}/calendars/${encodeURIComponent(cal)}/events`,
-            config,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(event),
-            },
-          );
-
-          if (!res.ok) {
-            const err = await res.text();
-            return `Error: failed to create event (${res.status}): ${err.slice(0, 200)}`;
-          }
-
-          const created = (await res.json()) as CalendarEvent;
           let text = `Event created: ${created.summary}\n`;
           text += `When: ${formatEventTime(created.start)} → ${formatEventTime(created.end)}\n`;
           if (created.location) text += `Where: ${created.location}\n`;
@@ -162,33 +284,15 @@ export default defineTool({
         case "update": {
           if (!eventId) return "Error: eventId is required for update.";
 
-          const patch: Record<string, unknown> = {};
-          if (summary) patch.summary = summary;
-          if (description) patch.description = description;
-          if (location) patch.location = location;
-          if (startDateTime) patch.start = { dateTime: startDateTime, timeZone: tz };
-          if (endDateTime) patch.end = { dateTime: endDateTime, timeZone: tz };
+          const updated = await updateEvent(config, cal, eventId as string, {
+            summary: summary as string | undefined,
+            description: description as string | undefined,
+            location: location as string | undefined,
+            startDateTime: startDateTime as string | undefined,
+            endDateTime: endDateTime as string | undefined,
+          });
+          if (!updated) return `Error: event not found or no fields to update (ID: ${eventId}).`;
 
-          if (Object.keys(patch).length === 0) {
-            return "Error: provide at least one field to update (summary, description, location, startDateTime, endDateTime).";
-          }
-
-          const res = await googleFetch(
-            `${CALENDAR_BASE}/calendars/${encodeURIComponent(cal)}/events/${encodeURIComponent(eventId)}`,
-            config,
-            {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patch),
-            },
-          );
-
-          if (!res.ok) {
-            if (res.status === 404) return `Error: event not found (ID: ${eventId}).`;
-            return `Error: failed to update event (${res.status}).`;
-          }
-
-          const updated = (await res.json()) as CalendarEvent;
           let text = `Event updated: ${updated.summary}\n`;
           text += `When: ${formatEventTime(updated.start)} → ${formatEventTime(updated.end)}\n`;
           if (updated.location) text += `Where: ${updated.location}\n`;
@@ -201,16 +305,8 @@ export default defineTool({
         case "delete": {
           if (!eventId) return "Error: eventId is required for delete.";
 
-          const res = await googleFetch(
-            `${CALENDAR_BASE}/calendars/${encodeURIComponent(cal)}/events/${encodeURIComponent(eventId)}`,
-            config,
-            { method: "DELETE" },
-          );
-
-          if (!res.ok) {
-            if (res.status === 404) return `Error: event not found (ID: ${eventId}).`;
-            return `Error: failed to delete event (${res.status}).`;
-          }
+          const deleted = await deleteEvent(config, cal, eventId as string);
+          if (!deleted) return `Error: event not found (ID: ${eventId}).`;
 
           return { text: `Event deleted (ID: ${eventId}).`, data: { action: "delete" as const, eventId } };
         }
@@ -230,7 +326,7 @@ export default defineTool({
             }[];
           };
 
-          let text = "Available Google Calendars:\n";
+          let text = "Available calendars:\n";
           for (const c of data.items) {
             const primary = c.primary ? " (primary)" : "";
             text += `\n  ${c.summary}${primary}\n`;
@@ -246,7 +342,8 @@ export default defineTool({
       }
     } catch (err) {
       resetGoogleToken();
-      return `Error: Google Calendar operation failed: ${String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      return `Error: calendar operation failed: ${msg}`;
     }
   },
 });

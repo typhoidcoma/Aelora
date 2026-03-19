@@ -146,6 +146,32 @@ export async function setTaskListId(
     .eq("discord_user_id", discordUserId);
 }
 
+/** Get the user's Google Calendar ID (null if not yet created). */
+export async function getCalendarId(
+  sb: SupabaseClient,
+  discordUserId: string,
+): Promise<string | null> {
+  const { data, error } = await sb
+    .from("user_profiles")
+    .select("google_calendar_id")
+    .eq("discord_user_id", discordUserId)
+    .single();
+  if (error || !data) return null;
+  return (data as { google_calendar_id: string | null }).google_calendar_id;
+}
+
+/** Store the user's Google Calendar ID after creation. */
+export async function setCalendarId(
+  sb: SupabaseClient,
+  discordUserId: string,
+  calendarId: string,
+): Promise<void> {
+  await sb
+    .from("user_profiles")
+    .update({ google_calendar_id: calendarId })
+    .eq("discord_user_id", discordUserId);
+}
+
 /** Upsert a life event from an external source (e.g. Google Tasks sync). */
 export async function upsertLifeEvent(
   sb: SupabaseClient,

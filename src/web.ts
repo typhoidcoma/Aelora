@@ -39,6 +39,8 @@ import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
 import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTask, getGoogleConfig, resolveUserTaskList } from "./tools/tasks.js";
+import { listEvents } from "./tools/google-calendar.js";
+import { resolveUserCalendar } from "./tools/calendar.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
@@ -991,11 +993,17 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // --- Calendar (Google Calendar) ---
+  // --- Calendar (per-user, requires X-Discord-User-Id) ---
 
   app.get("/api/calendar/events", async (req, res) => {
-    if (!isToolEnabled("google_calendar")) {
-      res.status(404).json({ error: "Google Calendar tool is not enabled" });
+    if (!isToolEnabled("google_calendar") && !isToolEnabled("calendar")) {
+      res.status(404).json({ error: "Calendar tool is not enabled" });
+      return;
+    }
+
+    const discordUserId = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    if (!discordUserId) {
+      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for calendar" });
       return;
     }
 
@@ -1011,40 +1019,10 @@ export function startWeb(state: AppState): Server | null {
     const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
 
     try {
-      const now = new Date();
-      const end = new Date(now);
-      end.setDate(end.getDate() + daysAhead);
+      const calendarId = await resolveUserCalendar(googleConfig, discordUserId);
+      const events = await listEvents(googleConfig, calendarId, { maxResults, daysAhead });
 
-      const params = new URLSearchParams({
-        timeMin: now.toISOString(),
-        timeMax: end.toISOString(),
-        singleEvents: "true",
-        orderBy: "startTime",
-        maxResults: String(maxResults),
-      });
-
-      const gcalRes = await googleFetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-        googleConfig,
-      );
-
-      if (!gcalRes.ok) {
-        res.status(502).json({ error: `Google Calendar API error (${gcalRes.status})` });
-        return;
-      }
-
-      const data = (await gcalRes.json()) as {
-        items?: Array<{
-          id: string;
-          summary?: string;
-          description?: string;
-          location?: string;
-          start: { dateTime?: string; date?: string };
-          end:   { dateTime?: string; date?: string };
-        }>;
-      };
-
-      const events = (data.items ?? []).map((e) => ({
+      const mapped = events.map((e) => ({
         uid: e.id,
         summary: e.summary ?? "Untitled",
         description: e.description,
@@ -1053,9 +1031,9 @@ export function startWeb(state: AppState): Server | null {
         dtend: e.end.dateTime ?? e.end.date ?? "",
       }));
 
-      res.json({ events, count: events.length, daysAhead, maxResults });
-    } catch {
-      res.status(500).json({ error: "Calendar query failed" });
+      res.json({ events: mapped, count: mapped.length, daysAhead, maxResults });
+    } catch (err) {
+      res.status(500).json({ error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}` });
     }
   });
 

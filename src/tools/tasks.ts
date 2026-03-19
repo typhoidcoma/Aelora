@@ -98,11 +98,34 @@ export async function createTaskList(
   return data.id;
 }
 
+// In-memory cache: discordUserId → Promise<taskListId>
+// Prevents race conditions (concurrent calls get the same in-flight promise)
+// and avoids redundant Supabase queries after first resolution.
+const _taskListCache = new Map<string, Promise<string>>();
+
 /**
  * Resolve a user's Google Task list ID.
  * If the user doesn't have one yet, creates it and stores the mapping.
+ * Cached per-process to prevent duplicate list creation.
  */
 export async function resolveUserTaskList(
+  config: GoogleConfig,
+  discordUserId: string,
+  username?: string,
+): Promise<string> {
+  const cached = _taskListCache.get(discordUserId);
+  if (cached) return cached;
+
+  const promise = _resolveUserTaskListInner(config, discordUserId, username);
+  _taskListCache.set(discordUserId, promise);
+
+  // On failure, evict so next call can retry
+  promise.catch(() => _taskListCache.delete(discordUserId));
+
+  return promise;
+}
+
+async function _resolveUserTaskListInner(
   config: GoogleConfig,
   discordUserId: string,
   username?: string,

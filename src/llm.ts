@@ -504,7 +504,12 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
   {
     const [memoryBlock, kbResults] = await Promise.all([
       getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
-      conversationContext ? searchKnowledgeBase(conversationContext) : Promise.resolve([]),
+      conversationContext
+        ? searchKnowledgeBase(conversationContext).catch((err) => {
+            console.warn("KnowledgeBase: search failed during prompt build:", err instanceof Error ? err.message : err);
+            return [] as Awaited<ReturnType<typeof searchKnowledgeBase>>;
+          })
+        : Promise.resolve([]),
     ]);
 
     if (memoryBlock) sections.push("\n\n" + memoryBlock);

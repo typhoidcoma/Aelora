@@ -258,7 +258,25 @@ export async function semanticSearch(
     }
   }
 
-  const results = await index.queryItems(vec, query, topK, filter as any);
+  let results;
+  try {
+    results = await index.queryItems(vec, query, topK, filter as any);
+  } catch (err) {
+    // JSON corruption at runtime — rebuild the index
+    if (err instanceof SyntaxError && err.message.includes("JSON")) {
+      console.error("VectorStore: index corrupted at runtime, rebuilding...");
+      try {
+        rmSync(INDEX_PATH, { recursive: true, force: true });
+        index = new LocalIndex(INDEX_PATH);
+        await index.createIndex({ version: 1 });
+        console.log("VectorStore: recreated index after runtime corruption (vectors lost, will re-sync)");
+      } catch (rebuildErr) {
+        console.error("VectorStore: rebuild failed:", formatError(rebuildErr));
+        index = null;
+      }
+    }
+    return [];
+  }
 
   return results
     .filter((r) => r.score >= minScore)

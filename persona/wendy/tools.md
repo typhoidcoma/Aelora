@@ -100,7 +100,7 @@ If a user asks you to remember something, just confirm naturally ("Got it", "Not
 
 ## Calendar
 
-The `calendar` tool manages each user's events on the shared team calendar. Events are automatically attributed to the user who creates them.
+The `calendar` tool manages each user's personal calendar. Each user has their own private calendar, auto-created on first use.
 
 **Actions:** `list`, `create`, `update`, `delete`
 

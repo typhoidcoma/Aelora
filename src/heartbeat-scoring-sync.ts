@@ -1,9 +1,10 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js";
 import { getCachedSupabaseClient, ensureUserProfile, upsertLifeEvent } from "./supabase.js";
 import { listEvents } from "./tools/google-calendar.js";
-import { extractUserTag } from "./tools/calendar.js";
+import { resolveUserCalendar } from "./tools/calendar.js";
 import { extractGoogleConfig } from "./tools/_google-auth.js";
 import { getLLMClient, getAuxiliaryModel, stripThinkBlocks } from "./llm.js";
+import { getAllUsers } from "./users.js";
 import type OpenAI from "openai";
 
 // Sync every 5 minutes
@@ -175,23 +176,22 @@ const scoringSync: HeartbeatHandler = {
     let totalSynced = 0;
     const usersWithActivity = new Set<string>();
 
-    // ── Sync calendar events from primary calendar ──────────
-    try {
-      const events = await listEvents(googleConfig, "primary", { maxResults: 100, daysAhead: 30 });
+    // ── Sync each known user's personal calendar ──────────
+    const knownUsers = Object.keys(getAllUsers());
 
-      // Group events by user via the [user:ID] tag in description
-      const eventsByUser = new Map<string, typeof events>();
+    for (const discordUserId of knownUsers) {
+      try {
+        let calendarId: string;
+        try {
+          calendarId = await resolveUserCalendar(googleConfig, discordUserId);
+        } catch {
+          continue; // No calendar for this user yet — skip
+        }
 
-      for (const event of events) {
-        const { userId } = extractUserTag(event.description);
-        if (!userId) continue; // Skip untagged events
-
-        if (!eventsByUser.has(userId)) eventsByUser.set(userId, []);
-        eventsByUser.get(userId)!.push(event);
-      }
-
-      for (const [discordUserId, userEvents] of eventsByUser) {
         await ensureUserProfile(sb, discordUserId);
+
+        const userEvents = await listEvents(googleConfig, calendarId, { maxResults: 100, daysAhead: 30 });
+        if (userEvents.length === 0) continue;
 
         const { data: existing } = await sb
           .from("life_events")
@@ -214,7 +214,6 @@ const scoringSync: HeartbeatHandler = {
             if (dur > 0 && dur < 1440) estimatedMinutes = Math.round(dur);
           }
 
-          // Strip user tag from description before storing
           const cleanDesc = event.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || null;
 
           if (existingUids.has(event.id)) {
@@ -253,9 +252,9 @@ const scoringSync: HeartbeatHandler = {
         }
 
         usersWithActivity.add(discordUserId);
+      } catch (err) {
+        console.warn(`Scoring sync: calendar failed for user ${discordUserId}:`, err instanceof Error ? err.message : err);
       }
-    } catch (err) {
-      console.warn("Scoring sync: calendar failed:", err instanceof Error ? err.message : err);
     }
 
     // Auto-enrich un-enriched items for all active users

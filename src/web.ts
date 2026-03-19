@@ -40,7 +40,7 @@ import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
 import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTask, getGoogleConfig, resolveUserTaskList } from "./tools/tasks.js";
 import { listEvents } from "./tools/google-calendar.js";
-import { isUserEvent } from "./tools/calendar.js";
+import { resolveUserCalendar } from "./tools/calendar.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
@@ -1019,10 +1019,10 @@ export function startWeb(state: AppState): Server | null {
     const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
 
     try {
-      const allEvents = await listEvents(googleConfig, "primary", { maxResults, daysAhead });
-      const userEvents = allEvents.filter(e => isUserEvent(e.description, discordUserId));
+      const calendarId = await resolveUserCalendar(googleConfig, discordUserId);
+      const events = await listEvents(googleConfig, calendarId, { maxResults, daysAhead });
 
-      const mapped = userEvents.map((e) => ({
+      const mapped = events.map((e) => ({
         uid: e.id,
         summary: e.summary ?? "Untitled",
         description: e.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || undefined,

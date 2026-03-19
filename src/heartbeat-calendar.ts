@@ -2,6 +2,8 @@ import { registerHeartbeatHandler, type HeartbeatHandler } from "./heartbeat.js"
 import { loadCalendarNotified, saveCalendarNotified } from "./state.js";
 import { type GoogleConfig } from "./tools/_google-auth.js";
 import { listEvents, type CalendarEvent } from "./tools/google-calendar.js";
+import { resolveUserCalendar } from "./tools/calendar.js";
+import { getAllUsers } from "./users.js";
 
 const REMINDER_MINUTES = 15;
 
@@ -43,59 +45,67 @@ const calendarReminder: HeartbeatHandler = {
       refreshToken: google.refreshToken,
     };
 
-    // Check the primary calendar for upcoming events
-    let events: CalendarEvent[];
-    try {
-      events = await listEvents(googleConfig, "primary", {
-        maxResults: 10,
-        daysAhead: 1,
-      });
-    } catch {
-      return; // Google not reachable
-    }
-
-    if (events.length === 0) return;
-
     const guildId = ctx.config.discord.guildId;
     const now = Date.now();
     const reminded: string[] = [];
 
-    for (const event of events) {
-      if (notifiedEvents.has(event.id)) continue;
+    // Check each known user's personal calendar
+    const knownUsers = Object.keys(getAllUsers());
 
-      const startStr = event.start.dateTime ?? event.start.date;
-      if (!startStr) continue;
+    for (const userId of knownUsers) {
+      let calendarId: string;
+      try {
+        calendarId = await resolveUserCalendar(googleConfig, userId);
+      } catch {
+        continue; // No calendar for this user yet
+      }
 
-      const startTime = new Date(startStr).getTime();
-      const minutesUntil = (startTime - now) / 60_000;
+      let events: CalendarEvent[];
+      try {
+        events = await listEvents(googleConfig, calendarId, {
+          maxResults: 10,
+          daysAhead: 1,
+        });
+      } catch {
+        continue; // Calendar not reachable
+      }
 
-      if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
-        notifiedEvents.add(event.id);
-        saveCalendarNotified([...notifiedEvents]);
+      for (const event of events) {
+        if (notifiedEvents.has(event.id)) continue;
 
-        const mins = Math.round(minutesUntil);
-        const lines: string[] = [
-          `**Calendar Reminder**  -  in ${mins} minute${mins === 1 ? "" : "s"}`,
-          `**${event.summary ?? "Untitled event"}**`,
-          `Time: ${formatEventTime(event)}`,
-        ];
-        if (event.location) lines.push(`Location: ${event.location}`);
-        if (event.description) {
-          // Strip user tags from reminder display
-          const clean = event.description.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim();
-          if (clean) lines.push(`Notes: ${clean.slice(0, 200)}`);
-        }
+        const startStr = event.start.dateTime ?? event.start.date;
+        if (!startStr) continue;
 
-        if (guildId) {
-          const { discordClient } = await import("./discord.js");
-          const guild = discordClient?.guilds.cache.get(guildId);
-          if (guild) {
-            const channel = guild.channels.cache.find(
-              (ch) => ch.isTextBased() && "send" in ch,
-            );
-            if (channel && "send" in channel) {
-              await (channel as any).send(lines.join("\n"));
-              reminded.push(event.summary ?? event.id);
+        const startTime = new Date(startStr).getTime();
+        const minutesUntil = (startTime - now) / 60_000;
+
+        if (minutesUntil > 0 && minutesUntil <= REMINDER_MINUTES) {
+          notifiedEvents.add(event.id);
+          saveCalendarNotified([...notifiedEvents]);
+
+          const mins = Math.round(minutesUntil);
+          const lines: string[] = [
+            `**Calendar Reminder**  -  in ${mins} minute${mins === 1 ? "" : "s"}`,
+            `**${event.summary ?? "Untitled event"}**`,
+            `Time: ${formatEventTime(event)}`,
+          ];
+          if (event.location) lines.push(`Location: ${event.location}`);
+          if (event.description) {
+            const clean = event.description.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim();
+            if (clean) lines.push(`Notes: ${clean.slice(0, 200)}`);
+          }
+
+          if (guildId) {
+            const { discordClient } = await import("./discord.js");
+            const guild = discordClient?.guilds.cache.get(guildId);
+            if (guild) {
+              const channel = guild.channels.cache.find(
+                (ch) => ch.isTextBased() && "send" in ch,
+              );
+              if (channel && "send" in channel) {
+                await (channel as any).send(lines.join("\n"));
+                reminded.push(event.summary ?? event.id);
+              }
             }
           }
         }

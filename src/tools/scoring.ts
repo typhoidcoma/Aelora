@@ -2,7 +2,7 @@ import { defineTool, param } from "./types.js";
 import { getCachedSupabaseClient, getUserStats, getPendingLifeEvents, upsertLifeEvent, upsertCategoryStats, ensureUserProfile, type LifeEventRow } from "../supabase.js";
 import { scoreTask, emaUpdate, inferCategory, inferIrreversible, inferAffectsOthers, ACHIEVEMENTS, type LifeCategory, type ScoreInput } from "../scoring.js";
 import { listEvents } from "./google-calendar.js";
-import { extractUserTag } from "./calendar.js";
+import { resolveUserCalendar } from "./calendar.js";
 import { extractGoogleConfig } from "./_google-auth.js";
 
 // ============================================================
@@ -47,12 +47,9 @@ export async function syncCalendarForUser(
   const config = extractGoogleConfig(toolConfig);
   await ensureUserProfile(sb, discordUserId);
 
-  // Pull all events from primary calendar, filter to this user's tagged events
-  const allEvents = await listEvents(config, "primary", { maxResults: 100, daysAhead: 30 });
-  const userEvents = allEvents.filter(e => {
-    const { userId } = extractUserTag(e.description);
-    return userId === discordUserId;
-  });
+  // Pull events from the user's personal calendar
+  const calendarId = await resolveUserCalendar(config, discordUserId);
+  const userEvents = await listEvents(config, calendarId, { maxResults: 100, daysAhead: 30 });
 
   const { data: existing } = await sb
     .from("life_events")

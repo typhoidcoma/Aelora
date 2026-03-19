@@ -16,6 +16,7 @@ These features from prior roadmap versions are now live:
 | **Configurable Timezone** | Done | Global IANA timezone via `settings.yaml`. Affects cron, logs, and date formatting. |
 | **User Profiles** | Done | Per-user tracking (message count, channels, first/last seen), detail overlay in dashboard, cascading delete. Personality synthesis auto-builds a profile from accumulated facts and injects it into the system prompt. |
 | **Date Resolution** | Done | Natural language date parsing via `date` tool (chrono-node). LLM calls this before scheduling tasks or cron jobs to avoid date arithmetic errors. |
+| **Image Generation** | Done | DALL-E 3 or compatible API via `luminizer` tool (`src/tools/luminizer.ts`). Text-to-image with configurable style prompts, model, and base URL. |
 
 ---
 
@@ -290,51 +291,11 @@ No persistent storage needed -voice state is entirely in-memory.
 
 ---
 
-## 5. Image Generation
-
-### Overview
-
-Generate images from text prompts and send them as Discord attachments. Supports AI art for storytelling, worldbuilding illustrations, character portraits, or any creative request.
-
-### How It Fits
-
-| System | Role |
-|--------|------|
-| **Tool** | `image` tool -generate from prompt, with style/size options |
-| **Discord** | Send generated images as message attachments |
-| **Persona** | Prompt enhancement, Aelora can refine user prompts before generation |
-
-### Configuration
-
-```yaml
-tools:
-  image:
-    provider: "openai"           # openai, stability, local
-    apiKey: "sk-..."
-    model: "dall-e-3"
-    defaultSize: "1024x1024"
-    defaultQuality: "standard"   # standard, hd
-```
-
-### Implementation Sketch
-
-**Tool (`src/tools/image.ts`):**
-- Actions: `generate`
-- Params: `prompt` (required), `size`, `quality`, `style` (natural/vivid), `count`
-- Calls provider API (OpenAI images.generate, Stability API, or local ComfyUI)
-- Downloads generated image to temp file
-- Returns a message with the image URL/path for Discord to attach
-
-**Estimated complexity:** Medium. ~150 lines tool + ~50 lines provider abstraction.
-
----
-
 ## Priority Overview
 
 | Feature | Complexity | Dependencies | Priority |
 |---------|-----------|--------------|----------|
 | Mail | Low-medium | None | Short-term |
 | Quests | Medium-high | None | Medium-term |
-| Image Generation | Medium | External API key | Medium-term |
 | Storytelling Engine | High | None | Medium-term |
 | Voice Integration | High | ffmpeg, external TTS/STT APIs, @discordjs/voice | Long-term |

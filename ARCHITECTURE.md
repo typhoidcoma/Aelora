@@ -61,7 +61,7 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  mood · cron            google-calendar         stats · leaderboard║
   ║  ping                   google-tasks            achievements       ║
   ║  discord_history        google-docs             rate_effort        ║
-  ║                         todo (adapter)          set_metadata       ║
+  ║                         tasks (adapter)         set_metadata       ║
   ║                                                 add_event          ║
   ╚════════╤════════════════════╤════════════════════════╤═════════════╝
            │                    │                        │
@@ -569,7 +569,7 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
 | `mood` | Manual emotional state override (set_mood) | none |
-| `todo` | Task list adapter over Google Tasks (list/get/create/complete/update/delete) | `google.*` |
+| `tasks` | Per-user task list adapter over Google Tasks (list/get/create/complete/update/delete, auto-creates task list per Discord user) | `google.*` |
 | `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
 | `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
@@ -679,8 +679,8 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 - Guards with its own timestamp check independent of the heartbeat tick rate
 
 **Scoring Sync** (`heartbeat-scoring-sync.ts`):
-- Every 5 minutes: fetches all pending Google Tasks and upserts them into Supabase `life_events` for all known user profiles
-- Runs keyword inference on first insert to fill `category`, `irreversible`, `affects_others`
+- Every 5 minutes: for each known user profile with a `google_task_list_id`, resolves their per-user task list, fetches pending tasks, and upserts them into Supabase `life_events`
+- Runs LLM-powered metadata enrichment on un-enriched tasks (impact level, size label, estimated minutes, category, irreversible, affects others)
 - Silently skips if Google credentials or Supabase are not configured
 - Returns a summary log string (e.g. `synced 12 task(s) for 2 user(s)`)
 
@@ -723,7 +723,7 @@ Call `registerHeartbeatHandler()` before `startHeartbeat()` in [src/index.ts](sr
 
 ## Google Workspace Integration
 
-**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts), [src/tools/google-tasks.ts](src/tools/google-tasks.ts), [src/tools/todo.ts](src/tools/todo.ts)
+**Files:** [src/tools/_google-auth.ts](src/tools/_google-auth.ts), [src/tools/gmail.ts](src/tools/gmail.ts), [src/tools/google-calendar.ts](src/tools/google-calendar.ts), [src/tools/google-docs.ts](src/tools/google-docs.ts), [src/tools/google-tasks.ts](src/tools/google-tasks.ts), [src/tools/tasks.ts](src/tools/tasks.ts)
 
 Five tools provide access to the user's Google Workspace via OAuth2. All share a single set of credentials and a cached access token.
 
@@ -810,23 +810,23 @@ Document content is extracted by walking the Docs API structural elements (parag
 
 Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support). Tasks sync with Gmail and Google Calendar. The `add_many` action accepts a JSON string array and creates tasks sequentially, returning a summary of successes and failures.
 
-### Todo Adapter (`todo`)
+### Tasks Adapter (`tasks`)
 
-`src/tools/todo.ts` is a higher-level adapter over Google Tasks that exposes a normalized `TodoItem` interface used by the web dashboard and the scoring system.
+`src/tools/tasks.ts` is a higher-level adapter over Google Tasks that exposes a normalized `TaskItem` interface used by the web dashboard and the scoring system. Each Discord user gets their own Google Task list, auto-created on first use.
 
 ```typescript
-type TodoItem = {
+type TaskItem = {
   uid: string;           // Google Task id
   title: string;
   description?: string;  // Google Tasks "notes"
   completed: boolean;
-  priority: "low" | "medium" | "high";  // merged from Supabase life_events, default "medium"
+  priority: "low" | "medium" | "high";  // metadata only (Google Tasks has no priority field)
   dueDate?: string;      // ISO 8601 from Google Tasks RFC 3339 "due"
   updatedAt?: string;    // Google Tasks "updated"
 };
 ```
 
-Exported functions: `listTodos`, `getTodoByUid`, `createTodo`, `completeTodo`, `updateTodoItem`, `deleteTodoItem`. All accept a `GoogleConfig` param and call `googleFetch` internally. Priority is read from Supabase `life_events.priority` by `external_uid` when available; otherwise defaults to `"medium"`.
+Exported functions: `listTasks`, `getTaskByUid`, `createTask`, `completeTask`, `updateTask`, `deleteTask`, `createTaskList`, `resolveUserTaskList`. All CRUD functions accept a `GoogleConfig` and `taskListId` param. `resolveUserTaskList(config, discordUserId, username?)` checks `user_profiles.google_task_list_id` in Supabase; if null, creates a new Google Task list via the API and stores the mapping.
 
 ---
 
@@ -904,6 +904,8 @@ Full read/write access to Linear project management via the `@linear/sdk`. A sin
 
 Config: `linear.apiKey` in `settings.yaml`. The web dashboard exposes a full set of REST endpoints under `/api/linear/*` (15 routes) mirroring the tool actions.
 
+**Note:** Linear is used for project management only. It does not feed into the scoring pipeline. Scored tasks come exclusively from Google Tasks (per-user lists).
+
 ---
 
 ## Scoring System
@@ -935,7 +937,7 @@ Supabase life_events table       (source of truth for scoring metadata)
 
 | Table | Purpose |
 |-------|---------|
-| `user_profiles` | Per-user XP total, streak, longest streak, last completion date |
+| `user_profiles` | Per-user XP total, streak, longest streak, last completion date, `google_task_list_id` (per-user task list mapping) |
 | `life_events` | All trackable events: tasks, health, finance, social, work. Linked to Google Tasks via `external_uid` |
 | `scoring_events` | Immutable scoring history: each completion records all 4 dimension scores, points awarded, streak at time |
 | `category_stats` | EMA-based adaptive stats per user per category: avg score, avg hours to complete, avg SMEQ, personal bias |
@@ -1285,7 +1287,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (1), Todos (5), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Export (1) -~80 endpoints total.
+**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (1), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Export (1) -~80 endpoints total.
 
 ### Routing
 
@@ -1301,7 +1303,7 @@ When `activity.enabled` is false:
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard is organized into **6 tabs**: Home, Persona, Data, People, Automation, and System. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory, Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Todos (with score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
+Dashboard is organized into **6 tabs**: Home, Persona, Data, People, Automation, and System. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory, Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Tasks (with per-user lists, score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
 
 ---
 

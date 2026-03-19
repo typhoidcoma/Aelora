@@ -25,7 +25,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Gmail** - Read, send, search, label, and trash messages
 - **Google Docs** - Read, create, append, search documents
 - **Knowledge Base** - Sync a Google Drive folder to the vector index; files (Docs, PDFs, text, Sheets, images) are chunked, embedded, and auto-searched on every message
-- **Linear** - Issue tracking integration with priority and estimate sync into the scoring system
+- **Linear** - Issue tracking and project management (issues CRUD, projects, teams, search, comments, GraphQL)
 - **Scoring System** - Science-backed 0-100 task scoring with XP, streaks, achievements, and adaptive per-user learning (see below)
 - **Notes** - Persistent notes scoped to channels or global
 - **Date Resolution** - Natural language date parsing (chrono-node) for accurate scheduling ("next Friday", "in 2 hours")
@@ -42,7 +42,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Config Validation** - Zod-powered schema validation with clear startup errors
 - **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
-- **Web Dashboard** - 5-tab layout (Home, Persona, Data, Automation, System) with at-a-glance stat cards, achievements, calendar, scoring, live console, and full data management
+- **Web Dashboard** - 6-tab layout (Home, Persona, Data, People, Automation, System) with at-a-glance stat cards, achievements, calendar, scoring, live console, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
@@ -114,7 +114,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 <details>
 <summary><strong>Scoring System</strong></summary>
 
-Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: tasks sync from Google Tasks every 5 minutes, scores update continuously, and streaks and achievements are tracked without any user input required.
+Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: each Discord user gets their own Google Task list (auto-created on first use), tasks sync every 5 minutes with LLM-powered metadata enrichment, scores update continuously, and streaks and achievements are tracked without any user input required.
 
 ### Score Formula
 
@@ -182,7 +182,10 @@ After enough completions in a category, the system builds a personal baseline us
 ### Supabase Setup
 
 1. Create a free project at [supabase.com](https://supabase.com/)
-2. Run [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) in the SQL editor
+2. Run all migrations in order in the SQL editor:
+   - [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) — Core scoring tables
+   - [supabase/migrations/002_add_linear_source.sql](supabase/migrations/002_add_linear_source.sql) — Linear source type
+   - [supabase/migrations/003_user_task_lists.sql](supabase/migrations/003_user_task_lists.sql) — Per-user task lists
 3. Disable RLS on all 5 scoring tables (this is a private bot with server-side auth):
 
 ```sql
@@ -380,7 +383,7 @@ const agent: Agent = {
 export default agent;
 ```
 
-A `researcher` agent is included. It searches the web, synthesizes findings, and saves results as notes.
+Three agents are included: `researcher` (web research with synthesis and note saving), `sprint-planner` (sprint planning), and `standup` (standup reports).
 
 </details>
 
@@ -464,7 +467,7 @@ Access at `http://localhost:3000` (configurable via `web.port`). When Activity i
 - **LLM Test** - Send test prompts with streaming output
 - **Sessions** - Active conversations, session detail overlay, clear/delete
 - **Memory** - Facts by scope, delete individual or clear scopes
-- **Todos** - Google Tasks with score badges, sort by score/due/priority, XP stats bar
+- **Tasks** - Per-user Google Tasks with score badges, sort by score/due/priority, XP stats bar
 - **Scheduled Tasks** - Create, edit, toggle, trigger cron jobs with execution history
 - **Tools** - Enable/disable tools at runtime
 - **Agents** - Enable/disable agents at runtime
@@ -521,10 +524,10 @@ src/
 ├── tools/
 │   ├── types.ts                # defineTool(), param builders
 │   ├── scoring.ts              # Scoring viewer tool (stats, leaderboard, achievements)
-│   ├── todo.ts                 # Google Tasks adapter
+│   ├── tasks.ts                # Google Tasks adapter with per-user task lists
 │   ├── google-calendar.ts      # Google Calendar CRUD
 │   ├── gmail.ts                # Gmail operations
-│   ├── google-tasks.ts         # Google Tasks full CRUD
+│   ├── google-tasks.ts         # Google Tasks raw API tool
 │   ├── google-docs.ts          # Google Docs read/write/search
 │   ├── _google-auth.ts         # Shared OAuth2 helpers (skipped on load)
 │   ├── brave-search.ts         # Web search (Brave or OpenAI provider)
@@ -540,11 +543,15 @@ src/
 │   └── _example-*.ts           # Example templates (skipped on load)
 └── agents/
     ├── types.ts                # Agent type definitions
-    └── researcher.ts           # Web research agent
+    ├── researcher.ts           # Web research agent
+    ├── sprint-planner.ts       # Sprint planning agent
+    └── standup.ts              # Standup report agent
 
 supabase/
 └── migrations/
-    └── 001_scoring_system.sql  # DB schema (user_profiles, life_events, scoring_events, category_stats, achievements)
+    ├── 001_scoring_system.sql  # Core scoring tables (user_profiles, life_events, scoring_events, category_stats, achievements)
+    ├── 002_add_linear_source.sql # Linear source type for life_events
+    └── 003_user_task_lists.sql # Per-user Google Task list column on user_profiles
 
 activity/                       # Discord Activity (Unity WebGL)
 persona/                        # Personality files

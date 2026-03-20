@@ -10,6 +10,7 @@ import {
   formatEventTime,
 } from "./google-calendar.js";
 import { getCachedSupabaseClient, ensureUserProfile, getCalendarId, setCalendarId } from "../supabase.js";
+import { getAllUsers } from "../users.js";
 
 // ============================================================
 // Per-user calendars — each user gets their own Google Calendar.
@@ -161,28 +162,53 @@ export default defineTool({
   ) => {
     const config = extractGoogleConfig(toolConfig);
 
-    if (!userId) {
-      return "Error: Calendar requires a user context. Run this in a Discord channel or DM.";
-    }
-
     try {
-      const calendarId = await resolveUserCalendar(config, userId);
-
       switch (action) {
         case "list": {
-          const events = await listEvents(config, calendarId, {
-            maxResults: maxResults ?? 25,
-            daysAhead: daysAhead ?? 14,
-          });
-
           const days = daysAhead ?? 14;
+          type EventWithUser = { event: import("./google-calendar.js").CalendarEvent; owner?: string };
+          let merged: EventWithUser[] = [];
 
-          if (events.length === 0) {
+          if (userId) {
+            // User-scoped: single calendar
+            const calendarId = await resolveUserCalendar(config, userId);
+            const events = await listEvents(config, calendarId, {
+              maxResults: maxResults ?? 25,
+              daysAhead: days,
+            });
+            merged = events.map(e => ({ event: e }));
+          } else {
+            // No user context (cron): aggregate all users' calendars
+            const users = getAllUsers();
+            const userIds = Object.keys(users);
+            const results = await Promise.allSettled(
+              userIds.map(async (uid) => {
+                const calId = await resolveUserCalendar(config, uid);
+                const events = await listEvents(config, calId, { maxResults: 20, daysAhead: days });
+                const name = users[uid]?.username ?? uid;
+                return events.map(e => ({ event: e, owner: name }));
+              }),
+            );
+            for (const r of results) {
+              if (r.status === "fulfilled") merged.push(...r.value);
+            }
+            // Sort by start time
+            merged.sort((a, b) => {
+              const aStart = a.event.start.dateTime ?? a.event.start.date ?? "";
+              const bStart = b.event.start.dateTime ?? b.event.start.date ?? "";
+              return aStart > bStart ? 1 : aStart < bStart ? -1 : 0;
+            });
+            merged = merged.slice(0, maxResults ?? 25);
+          }
+
+          if (merged.length === 0) {
             return { text: `No upcoming events in the next ${days} days.`, data: { action: "list", count: 0, events: [] } };
           }
 
-          const lines = events.map((e, i) => {
+          const lines = merged.map((m, i) => {
+            const e = m.event;
             let line = `${i + 1}. ${e.summary ?? "(no title)"}`;
+            if (m.owner) line += ` (${m.owner})`;
             line += `\n   When: ${formatEventTime(e.start)} → ${formatEventTime(e.end)}`;
             if (e.location) line += `\n   Where: ${e.location}`;
             const desc = cleanDescription(e.description);
@@ -192,29 +218,32 @@ export default defineTool({
           });
 
           return {
-            text: `Events (${events.length}, next ${days} days):\n\n${lines.join("\n\n")}`,
+            text: `Events (${merged.length}, next ${days} days):\n\n${lines.join("\n\n")}`,
             data: {
               action: "list",
-              count: events.length,
-              events: events.map(e => ({
-                id: e.id,
-                summary: e.summary ?? null,
-                description: cleanDescription(e.description) ?? null,
-                location: e.location ?? null,
-                start: e.start,
-                end: e.end,
-                htmlLink: e.htmlLink ?? null,
+              count: merged.length,
+              events: merged.map(m => ({
+                id: m.event.id,
+                summary: m.event.summary ?? null,
+                description: cleanDescription(m.event.description) ?? null,
+                location: m.event.location ?? null,
+                start: m.event.start,
+                end: m.event.end,
+                htmlLink: m.event.htmlLink ?? null,
+                owner: m.owner ?? null,
               })),
             },
           };
         }
 
         case "create": {
+          if (!userId) return "Error: Calendar create requires a user context. Run this in a Discord channel or DM.";
           if (!summary) return "Error: summary is required for create.";
           if (!startDateTime) return "Error: startDateTime is required for create.";
           if (!endDateTime) return "Error: endDateTime is required for create.";
 
-          const created = await createEvent(config, calendarId, {
+          const createCalId = await resolveUserCalendar(config, userId);
+          const created = await createEvent(config, createCalId, {
             summary: summary as string,
             description: tagDescription(userId, description as string | undefined),
             location: location as string | undefined,
@@ -234,9 +263,11 @@ export default defineTool({
         }
 
         case "update": {
+          if (!userId) return "Error: Calendar update requires a user context. Run this in a Discord channel or DM.";
           if (!eventId) return "Error: eventId is required for update.";
 
-          const updated = await updateEvent(config, calendarId, eventId as string, {
+          const updateCalId = await resolveUserCalendar(config, userId);
+          const updated = await updateEvent(config, updateCalId, eventId as string, {
             summary: summary as string | undefined,
             description: description ? tagDescription(userId, description as string) : undefined,
             location: location as string | undefined,
@@ -257,8 +288,10 @@ export default defineTool({
         }
 
         case "delete": {
+          if (!userId) return "Error: Calendar delete requires a user context. Run this in a Discord channel or DM.";
           if (!eventId) return "Error: eventId is required for delete.";
-          const deleted = await deleteEvent(config, calendarId, eventId as string);
+          const deleteCalId = await resolveUserCalendar(config, userId);
+          const deleted = await deleteEvent(config, deleteCalId, eventId as string);
           if (!deleted) return `Error: event not found (ID: ${eventId}).`;
           return {
             text: `Event deleted (ID: ${eventId}).`,

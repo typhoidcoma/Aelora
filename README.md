@@ -19,7 +19,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
 - **Memory** - Per-user and per-channel fact storage with enriched metadata (category, confidence, source), semantic search via vector embeddings (Vectra + OpenAI), auto-extraction with contradiction detection, weighted ranking (semantic relevance + recency + access frequency), periodic consolidation of related facts, and automatic personality profile synthesis
-- **Web Search** - Brave Search or OpenAI Responses API (configurable provider)
+- **Web Search** - Configurable provider (Brave or OpenAI Responses API)
 - **Google Tasks** - Full task management: list, create, complete, update, delete
 - **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
 - **Gmail** - Read, send, search, label, and trash messages
@@ -530,7 +530,7 @@ src/
 │   ├── google-tasks.ts         # Google Tasks raw API tool
 │   ├── google-docs.ts          # Google Docs read/write/search
 │   ├── _google-auth.ts         # Shared OAuth2 helpers (skipped on load)
-│   ├── brave-search.ts         # Web search (Brave or OpenAI provider)
+│   ├── brave-search.ts         # Web search (configurable provider)
 │   ├── date.ts                 # Natural language date resolution (chrono-node)
 │   ├── cron.ts                 # Cron job management
 │   ├── memory.ts               # Memory save/list/forget

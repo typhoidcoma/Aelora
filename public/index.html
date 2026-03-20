@@ -426,11 +426,11 @@
 
       <!-- Tasks -->
       <section>
-        <div class="section-header" data-section="todos">
+        <div class="section-header" data-section="tasks">
           <span class="chevron">&#9660;</span>
           <h2>Tasks</h2>
           <div style="display:flex; gap:0.4rem; align-items:center; margin-left:auto;">
-            <select id="todo-sort" onchange="handleTodoSortChange()" style="font-size:0.75rem; padding:0.2rem 0.4rem;">
+            <select id="task-sort" onchange="handleTodoSortChange()" style="font-size:0.75rem; padding:0.2rem 0.4rem;">
               <option value="score">Sort: Score</option>
               <option value="due">Sort: Due Date</option>
               <option value="priority">Sort: Priority</option>
@@ -438,7 +438,7 @@
             <button class="btn btn-primary btn-xs" onclick="showTodoForm()">+ New</button>
           </div>
         </div>
-        <div class="section-body" data-section="todos">
+        <div class="section-body" data-section="tasks">
 
           <!-- Scoring stats bar (shown when discordUserId is set) -->
           <div id="scoring-stats-bar" class="scoring-stats-bar" style="display:none;">
@@ -467,19 +467,19 @@
           </div>
 
           <!-- Create form (hidden by default) -->
-          <div id="todo-form" class="card" style="display: none; margin-bottom: 0.5rem;">
+          <div id="task-form" class="card" style="display: none; margin-bottom: 0.5rem;">
             <div class="cron-form-grid">
               <div class="form-row">
                 <label>Title</label>
-                <input type="text" id="todo-f-title" placeholder="Buy groceries">
+                <input type="text" id="task-f-title" placeholder="Buy groceries">
               </div>
               <div class="form-row">
                 <label>Description</label>
-                <textarea id="todo-f-desc" rows="2" placeholder="Optional details..."></textarea>
+                <textarea id="task-f-desc" rows="2" placeholder="Optional details..."></textarea>
               </div>
               <div class="form-row">
                 <label>Priority</label>
-                <select id="todo-f-priority">
+                <select id="task-f-priority">
                   <option value="medium">Medium</option>
                   <option value="low">Low</option>
                   <option value="high">High</option>
@@ -487,7 +487,7 @@
               </div>
               <div class="form-row">
                 <label>Due Date</label>
-                <input type="date" id="todo-f-due">
+                <input type="date" id="task-f-due">
               </div>
             </div>
             <div class="cron-form-actions">
@@ -497,7 +497,7 @@
           </div>
 
           <!-- Todo list table -->
-          <table id="todo-table">
+          <table id="task-table">
             <thead>
               <tr>
                 <th></th>
@@ -508,7 +508,7 @@
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="todos-body">
+            <tbody id="tasks-body">
               <tr><td colspan="6" class="muted">Loading...</td></tr>
             </tbody>
           </table>

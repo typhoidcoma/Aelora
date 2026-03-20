@@ -1497,7 +1497,7 @@ async function fetchScoringStats() {
 
 async function fetchTasks() {
   if (!isToolActive("tasks")) {
-    document.getElementById("todos-body").innerHTML =
+    document.getElementById("tasks-body").innerHTML =
       '<tr><td colspan="6" class="muted">Tasks tool is disabled</td></tr>';
     return;
   }
@@ -1518,7 +1518,7 @@ async function fetchTasks() {
     prompt.style.display   = "";
   }
 
-  const sortMode = document.getElementById("todo-sort")?.value || "score";
+  const sortMode = document.getElementById("task-sort")?.value || "score";
 
   try {
     // Score-sorted leaderboard (requires uid) or plain list
@@ -1542,12 +1542,12 @@ async function fetchTasks() {
       if (uid) headers["X-Discord-User-Id"] = uid;
       const res = await apiFetch("/api/tasks", { headers });
       if (res.status === 503) {
-        document.getElementById("todos-body").innerHTML =
+        document.getElementById("tasks-body").innerHTML =
           '<tr><td colspan="6" class="muted">Google Tasks not configured</td></tr>';
         return;
       }
       if (res.status === 400) {
-        document.getElementById("todos-body").innerHTML =
+        document.getElementById("tasks-body").innerHTML =
           '<tr><td colspan="6" class="muted">Set Discord User ID to view tasks</td></tr>';
         return;
       }
@@ -1555,7 +1555,7 @@ async function fetchTasks() {
       tasks = data.tasks || [];
     }
 
-    const tbody = document.getElementById("todos-body");
+    const tbody = document.getElementById("tasks-body");
     if (tasks.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" class="muted">No tasks</td></tr>';
       return;
@@ -1617,16 +1617,16 @@ function formatTodoDate(iso) {
 }
 
 function showTodoForm() {
-  document.getElementById("todo-form").style.display = "";
-  document.getElementById("todo-f-title").value = "";
-  document.getElementById("todo-f-desc").value = "";
-  document.getElementById("todo-f-priority").value = "medium";
-  document.getElementById("todo-f-due").value = "";
-  document.getElementById("todo-f-title").focus();
+  document.getElementById("task-form").style.display = "";
+  document.getElementById("task-f-title").value = "";
+  document.getElementById("task-f-desc").value = "";
+  document.getElementById("task-f-priority").value = "medium";
+  document.getElementById("task-f-due").value = "";
+  document.getElementById("task-f-title").focus();
 }
 
 function hideTodoForm() {
-  document.getElementById("todo-form").style.display = "none";
+  document.getElementById("task-form").style.display = "none";
 }
 
 function taskHeaders(extra = {}) {
@@ -1637,7 +1637,7 @@ function taskHeaders(extra = {}) {
 }
 
 async function submitTodo() {
-  const title = document.getElementById("todo-f-title").value.trim();
+  const title = document.getElementById("task-f-title").value.trim();
   if (!title) {
     showToast("Title is required", "error");
     return;
@@ -1645,9 +1645,9 @@ async function submitTodo() {
 
   const body = {
     title,
-    description: document.getElementById("todo-f-desc").value.trim() || undefined,
-    priority: document.getElementById("todo-f-priority").value,
-    dueDate: document.getElementById("todo-f-due").value || undefined,
+    description: document.getElementById("task-f-desc").value.trim() || undefined,
+    priority: document.getElementById("task-f-priority").value,
+    dueDate: document.getElementById("task-f-due").value || undefined,
   };
 
   try {

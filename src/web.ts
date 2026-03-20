@@ -996,7 +996,7 @@ export function startWeb(state: AppState): Server | null {
   // --- Calendar (per-user, requires X-Discord-User-Id) ---
 
   app.get("/api/calendar/events", async (req, res) => {
-    if (!isToolEnabled("google_calendar") && !isToolEnabled("calendar")) {
+    if (!isToolEnabled("calendar")) {
       res.status(404).json({ error: "Calendar tool is not enabled" });
       return;
     }
@@ -1039,7 +1039,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Aggregate calendar: all users' events merged (for Home tab)
   app.get("/api/calendar/all-events", async (req, res) => {
-    if (!isToolEnabled("google_calendar") && !isToolEnabled("calendar")) {
+    if (!isToolEnabled("calendar")) {
       res.status(404).json({ error: "Calendar tool is not enabled" });
       return;
     }
@@ -1186,7 +1186,7 @@ export function startWeb(state: AppState): Server | null {
               title:             item.title,
               description:       item.description ?? null,
               category:          inferCategory({ title: item.title, description: item.description }) as LifeCategory,
-              source:            "google_tasks",
+              source:            "google_calendar",
               external_uid:      item.uid,
               priority:          item.priority,
               due_date:          item.dueDate ?? null,

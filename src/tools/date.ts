@@ -1,7 +1,7 @@
 /**
  * Date resolution tool  -  converts natural language date expressions to ISO 8601.
  *
- * ALWAYS call this before passing dates to todo, calendar, or cron tools.
+ * ALWAYS call this before passing dates to calendar or cron tools.
  * Eliminates LLM date arithmetic errors by delegating to chrono-node.
  */
 
@@ -62,7 +62,7 @@ export default defineTool({
   name: "date",
   description:
     "Resolve natural language date/time expressions to ISO 8601. " +
-    "Use this BEFORE passing dates to todo, calendar, or cron tools  -  never compute dates yourself. " +
+    "Use this BEFORE passing dates to calendar or cron tools  -  never compute dates yourself. " +
     "Actions: 'resolve' (expression → ISO 8601 date/datetime), 'now' (current datetime).",
 
   params: {

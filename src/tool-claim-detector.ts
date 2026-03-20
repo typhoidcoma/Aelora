@@ -44,13 +44,13 @@ const CLAIM_PATTERNS: ClaimPattern[] = [
     action: "managed a scheduled task",
   },
   {
-    tools: ["calendar", "google_calendar"],
+    tools: ["calendar"],
     pattern:
       /\b(added to (the |your )?calendar|created (the |a |an )?event|removed (the |a |an )?event|deleted (the |a |an )?event|updated (the |a |an )?event|scheduled (the |a |an )?event)\b/i,
     action: "managed a calendar event",
   },
   {
-    tools: ["todo", "google_tasks"],
+    tools: ["tasks", "google_tasks"],
     pattern:
       /\b(added (a |the )?to-?do|created (a |the )?task|completed (the |a )?task|marked .* (as )?(done|complete)|deleted (the |a )?to-?do)\b/i,
     action: "managed a todo/task",

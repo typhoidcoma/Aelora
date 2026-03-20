@@ -72,7 +72,7 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  memory.json    ║  └──────────────────┘   │  scoring_events        │
   ║  sessions.json  ║                         │  category_stats        │
   ║  users.json     ║  ┌──────────────────┐   │  achievements          │
-  ║  notes.json     ║  │   Brave Search   │   └────────────────────────┘
+  ║  notes.json     ║  │   Web Search     │   └────────────────────────┘
   ║  cron-jobs.json ║  │   API            │
   ║  mood.json      ║  └──────────────────┘
   ║  toggle-state   ║
@@ -155,7 +155,7 @@ Persona loading is wrapped in try-catch -if the active persona fails to load, th
    /tools            → getAllTools() + getAllAgents() → buildToolListEmbed()
    /ping             → latency measurement → buildSuccessEmbed()
    /clear            → clearHistory(channelId) → buildSuccessEmbed()
-   /websearch [query]→ executeTool("brave-search") → buildResponseEmbed()
+   /websearch [query]→ executeTool("web_search") → buildResponseEmbed()
    /reboot           → reply embed → setTimeout(500ms) → reboot()
    /play             → embed + Link button → discord.com/activities/{appId}
 ```
@@ -565,7 +565,7 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 |------|-------------|--------|
 | `ping` | Responds with pong + server time | none |
 | `notes` | Persistent note storage (save/get/list/delete) | none |
-| `brave-search` | Web search via Brave Search API | `brave.apiKey` |
+| `web_search` | Web search (configurable: Brave or OpenAI provider) | `brave.apiKey` or `search.provider` |
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
 | `mood` | Manual emotional state override (set_mood) | none |
@@ -1247,7 +1247,7 @@ Slash commands registered on startup:
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
 | `/new` | Start a fresh session (clears history, summary, and context) |
-| `/websearch [query] [count]` | Search the web via Brave Search (1-10 results, default 5) |
+| `/websearch [query] [count]` | Search the web (1-10 results, default 5) |
 | `/memory [view/add/clear]` | View, add, or clear per-user memory facts |
 | `/mood` | Show the bot's current emotional state |
 | `/note [list/get/save/delete]` | Manage scoped notes |

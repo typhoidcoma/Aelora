@@ -332,16 +332,22 @@ persona/
 │   └── lore.md                 # Shared Lumie lore and Covenant (order 6)
 ├── aelora/
 │   ├── soul.md                 # Behavioral core (order 10, botName: "Aelora")
+│   ├── execution.md            # Execution protocol (order 15)
 │   ├── skills.md               # Character skills (order 50)
 │   ├── tools.md                # Tool usage instructions (order 80)
 │   └── templates/user.md       # Per-user preferences (placeholder)
-├── wendy/                      # soul, backstory, skills, tools
-├── arlo/                       # soul, skills, tools
+├── wendy/
+│   ├── soul.md                 # Behavioral core (order 10, botName: "Wendy")
+│   ├── backstory.md            # Wendy-specific lore anchors (order 12)
+│   ├── skills.md               # Character skills (order 50)
+│   └── tools.md                # Tool usage instructions (order 80)
+├── arlo/                       # soul, skills, tools, templates
 ├── tyler/                      # soul, skills, tools
 └── patyna/
     ├── bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
     ├── soul.md
-    └── skills.md
+    ├── skills.md
+    └── tools.md
 ```
 
 Each persona's `soul.md` follows the SOUL Authoring Blueprint -a 10-section behavioral contract covering identity, decision biases, cognitive lens, tone constraints, caring protocol, stress matrix, refusal architecture, compression rules, multi-agent alignment, and drift indicators.

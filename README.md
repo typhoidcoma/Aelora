@@ -321,20 +321,22 @@ persona/
 │   └── lore.md                 # Shared Lumie lore and Covenant (order 6)
 ├── aelora/
 │   ├── soul.md                 # Behavioral core (order 10)
+│   ├── execution.md            # Execution protocol (order 15)
 │   ├── skills.md               # Character skills (order 50)
 │   ├── tools.md                # Tool usage and scoring instructions (order 80)
 │   └── templates/user.md       # Per-user preferences
 ├── wendy/
-│   ├── soul.md
+│   ├── soul.md                 # Behavioral core (order 10)
 │   ├── backstory.md            # Wendy-specific lore anchors (order 12)
-│   ├── skills.md
-│   └── tools.md
-├── arlo/
-├── tyler/
+│   ├── skills.md               # Character skills (order 50)
+│   └── tools.md                # Tool usage instructions (order 80)
+├── arlo/                       # soul, skills, tools, templates
+├── tyler/                      # soul, skills, tools
 └── patyna/
-    ├── bootstrap.md            # Overrides _shared/bootstrap.md
+    ├── bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
     ├── soul.md
-    └── skills.md
+    ├── skills.md
+    └── tools.md
 ```
 
 </details>

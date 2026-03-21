@@ -91,7 +91,7 @@ persona:
   enabled: true
   dir: "persona"            # Path to persona directory (relative to project root)
   botName: "Aelora"         # Substituted into {{botName}} placeholders
-  activePersona: "aelora"   # Which subfolder to load (e.g. aelora, wendy, batperson)
+  activePersona: "aelora"   # Which subfolder to load (e.g. aelora, wendy, patyna)
 
 # --- Tools ---
 # API keys and config for tools. Each tool declares what it needs.

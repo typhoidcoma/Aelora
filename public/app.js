@@ -35,6 +35,17 @@ function switchTab(tabName) {
     btn.classList.toggle("active", btn.dataset.tab === tabName);
   });
   localStorage.setItem("dashboard-tab", tabName);
+
+  // Refresh data for the active tab
+  const tabRefreshMap = {
+    home: () => fetchHomeData(),
+    persona: () => { fetchPersonas(); fetchPersona(); },
+    data: () => { fetchMemory(); fetchNotes(); fetchKnowledgeBase(); },
+    people: () => { fetchSessions(); fetchUsers(); },
+    automation: () => { fetchCalendarEvents(); fetchCron(); fetchTasks(); },
+    system: () => { fetchTools(); fetchAgents(); },
+  };
+  if (tabRefreshMap[tabName]) tabRefreshMap[tabName]();
 }
 
 // Restore saved tab on load
@@ -158,8 +169,8 @@ async function fetchStatus() {
     document.getElementById("guild-count").textContent = data.guildCount ?? "--";
     startUptimeTicker(data.uptime);
     updateTimestamp();
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchStatus:", err);
   }
 }
 
@@ -168,8 +179,8 @@ async function fetchConfig() {
     const res = await apiFetch("/api/config");
     const cfg = await res.json();
     document.getElementById("model-name").textContent = cfg.llm?.model ?? "--";
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchConfig:", err);
   }
 }
 
@@ -184,8 +195,8 @@ async function fetchHeartbeat() {
     } else {
       el.innerHTML = '<span class="error">stopped</span>';
     }
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchHeartbeat:", err);
   }
 }
 
@@ -227,8 +238,8 @@ async function fetchSessions() {
           </div>`;
       })
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchSessions:", err);
   }
 }
 
@@ -363,8 +374,8 @@ async function fetchMemory() {
     memoryData = await res.json();
     updateMemoryScopeFilter();
     renderMemoryFiltered();
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchMemory:", err);
   }
 }
 
@@ -1005,8 +1016,8 @@ async function fetchTools() {
       </tr>`,
       )
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchTools:", err);
   }
 }
 
@@ -1056,8 +1067,8 @@ async function fetchUsers() {
       </tr>`,
       )
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchUsers:", err);
   }
 }
 
@@ -1226,8 +1237,8 @@ async function fetchNotes() {
           </div>`;
       })
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchNotes:", err);
   }
 }
 
@@ -1278,6 +1289,9 @@ async function submitNote() {
     return;
   }
 
+  const submitBtn = document.getElementById("note-f-submit-btn");
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving..."; }
+
   try {
     const res = await apiFetch(`/api/notes/${encodeURIComponent(scope)}/${encodeURIComponent(title)}`, {
       method: "PUT",
@@ -1295,6 +1309,8 @@ async function submitNote() {
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, "error");
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Save"; }
   }
 }
 
@@ -1600,8 +1616,8 @@ async function fetchTasks() {
       </tr>`;
       })
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchTasks:", err);
   }
 }
 
@@ -1643,6 +1659,9 @@ async function submitTodo() {
     return;
   }
 
+  const submitBtn = document.querySelector("#task-form .btn-primary");
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Creating..."; }
+
   const body = {
     title,
     description: document.getElementById("task-f-desc").value.trim() || undefined,
@@ -1667,6 +1686,8 @@ async function submitTodo() {
     }
   } catch (err) {
     showToast(`Error: ${err.message}`, "error");
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Create"; }
   }
 }
 
@@ -1743,8 +1764,8 @@ async function fetchAgents() {
       </tr>`,
       )
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchAgents:", err);
   }
 }
 
@@ -1833,11 +1854,14 @@ async function initConsole() {
     for (const entry of logs) {
       appendLogLine(entry);
     }
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("initConsole:", err);
   }
 
+  // Close any previous EventSource
+  if (window._logSource) { window._logSource.close(); }
   const evtSource = apiEventSource("/api/logs/stream");
+  window._logSource = evtSource;
   evtSource.onmessage = (event) => {
     try {
       const entry = JSON.parse(event.data);
@@ -2052,8 +2076,8 @@ async function fetchCron() {
           </tr>`;
       })
       .join("");
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("fetchCron:", err);
   }
 }
 
@@ -2479,6 +2503,9 @@ async function ceSubmit() {
 
   document.getElementById("ce-error").style.display = "none";
 
+  const ceSubmitBtn = document.getElementById("ce-submit");
+  if (ceSubmitBtn) { ceSubmitBtn.disabled = true; ceSubmitBtn.textContent = "Saving..."; }
+
   const isEdit = ceEditingName !== null;
   const channelEl = document.getElementById("ce-channel");
   const silent = document.getElementById("ce-silent").checked;
@@ -2517,6 +2544,8 @@ async function ceSubmit() {
     }
   } catch (err) {
     ceShowError(err.message);
+  } finally {
+    if (ceSubmitBtn) { ceSubmitBtn.disabled = false; ceSubmitBtn.textContent = "Save"; }
   }
 }
 
@@ -3052,3 +3081,8 @@ fetchHomeData();
 fetchCalendarEvents();
 initConsole();
 startPolling();
+
+// Cleanup EventSource on page unload
+window.addEventListener("beforeunload", () => {
+  if (window._logSource) window._logSource.close();
+});

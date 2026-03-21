@@ -83,7 +83,7 @@
       </div>
 
       <!-- Achievements -->
-      <div class="home-widget" style="margin-top: 0.75rem;">
+      <div class="home-widget mt-md">
         <h3>Achievements</h3>
         <div id="home-achievements" class="achievement-strip"><span class="muted">Loading...</span></div>
       </div>
@@ -130,7 +130,7 @@
           </div>
 
           <!-- Persona Status -->
-          <div id="persona-status" class="card" style="margin-top: 0.75rem;">Loading...</div>
+          <div id="persona-status" class="card mt-md">Loading...</div>
 
           <!-- File Editor (hidden) -->
           <div id="persona-editor" class="card" style="display: none; margin-top: 0.75rem;">
@@ -171,16 +171,16 @@
             <div class="persona-editor-actions">
               <button class="btn btn-primary" id="editor-save-btn" onclick="savePersonaFile()">Save</button>
               <button class="btn" onclick="hidePersonaEditor()">Cancel</button>
-              <button class="btn btn-danger btn-xs" id="editor-delete-btn" onclick="deletePersonaFile()" style="margin-left: auto;">Delete File</button>
+              <button class="btn btn-danger btn-xs ml-auto" id="editor-delete-btn" onclick="deletePersonaFile()">Delete File</button>
             </div>
           </div>
 
           <!-- File Table -->
-          <div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="margin: 0;">Files (active persona)</h3>
+          <div class="mt-md flex-row">
+            <h3>Files (active persona)</h3>
             <button class="btn btn-primary btn-xs" onclick="showNewFileForm()">+ New File</button>
           </div>
-          <table id="persona-table" style="margin-top: 0.5rem;">
+          <table id="persona-table" class="mt-sm">
             <thead>
               <tr>
                 <th>File</th>
@@ -228,12 +228,12 @@
           <h2>Memory</h2>
         </div>
         <div class="section-body" data-section="memory">
-          <div class="card" style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label style="font-size:0.85em;">Filter:</label>
-            <select id="memory-scope-filter" onchange="renderMemoryFiltered()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font-size:0.85em;">
+          <div class="card memory-filter-bar">
+            <label>Filter:</label>
+            <select id="memory-scope-filter" class="memory-filter-select" onchange="renderMemoryFiltered()">
               <option value="__all__">All scopes</option>
             </select>
-            <span id="memory-total-count" class="muted" style="font-size:0.8em;"></span>
+            <span id="memory-total-count" class="muted memory-filter-count"></span>
           </div>
           <div id="memory-content" class="card"><span class="muted">Loading...</span></div>
         </div>
@@ -282,10 +282,10 @@
         </div>
         <div class="section-body" data-section="knowledge">
           <!-- Stats bar -->
-          <div class="card" style="margin-bottom:8px;display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap;">
-            <div><span class="muted" style="font-size:0.8em;">Files</span><br><strong id="kb-file-count">0</strong></div>
-            <div><span class="muted" style="font-size:0.8em;">Total Chunks</span><br><strong id="kb-chunk-count">0</strong></div>
-            <div><span class="muted" style="font-size:0.8em;">Last Sync</span><br><span id="kb-last-sync" class="muted">--</span></div>
+          <div class="card kb-stats-bar">
+            <div><span class="muted text-sm">Files</span><br><strong id="kb-file-count">0</strong></div>
+            <div><span class="muted text-sm">Total Chunks</span><br><strong id="kb-chunk-count">0</strong></div>
+            <div><span class="muted text-sm">Last Sync</span><br><span id="kb-last-sync" class="muted">--</span></div>
           </div>
           <!-- File table -->
           <table>
@@ -429,8 +429,8 @@
         <div class="section-header" data-section="tasks">
           <span class="chevron">&#9660;</span>
           <h2>Tasks</h2>
-          <div style="display:flex; gap:0.4rem; align-items:center; margin-left:auto;">
-            <select id="task-sort" onchange="handleTodoSortChange()" style="font-size:0.75rem; padding:0.2rem 0.4rem;">
+          <div class="flex-row ml-auto">
+            <select id="task-sort" class="task-sort-select" onchange="handleTodoSortChange()">
               <option value="score">Sort: Score</option>
               <option value="due">Sort: Due Date</option>
               <option value="priority">Sort: Priority</option>
@@ -454,16 +454,16 @@
               <span class="scoring-stat-label">Achievements</span>
               <span class="scoring-stat-value" id="stat-achievements">--</span>
             </div>
-            <div class="scoring-stat" style="margin-left:auto;">
-              <label style="font-size:0.7rem; opacity:0.7;">Discord User ID</label>
-              <input type="text" id="discord-user-id-input" placeholder="your Discord ID" style="font-size:0.72rem; padding:0.15rem 0.35rem; width:160px;" oninput="onDiscordUserIdChange()" />
+            <div class="scoring-stat ml-auto">
+              <label class="scoring-id-label">Discord User ID</label>
+              <input type="text" id="discord-user-id-input" class="scoring-id-input" placeholder="your Discord ID" oninput="onDiscordUserIdChange()" />
             </div>
           </div>
 
           <!-- Discord ID prompt when scoring is available but no ID set -->
           <div id="scoring-prompt" class="scoring-prompt" style="display:none;">
             <span>Enter your Discord User ID to see task scores:</span>
-            <input type="text" id="discord-user-id-prompt" placeholder="Discord User ID" style="font-size:0.8rem;" oninput="onDiscordUserIdPromptChange()" />
+            <input type="text" id="discord-user-id-prompt" class="scoring-id-input" placeholder="Discord User ID" oninput="onDiscordUserIdPromptChange()" />
           </div>
 
           <!-- Create form (hidden by default) -->
@@ -575,9 +575,9 @@
           <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
         </div>
         <div class="section-body" data-section="activity-preview">
-          <p class="muted" style="margin: 0.5rem 0;">Test your Unity WebGL build without Discord. Uses stub user data.</p>
+          <p class="muted activity-desc">Test your Unity WebGL build without Discord. Uses stub user data.</p>
           <div id="activity-frame-wrap" style="display: none;">
-            <iframe id="activity-frame" src="" style="width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 6px; background: #0c0c0e;"></iframe>
+            <iframe id="activity-frame" src="" class="activity-iframe"></iframe>
           </div>
         </div>
       </section>

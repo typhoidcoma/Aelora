@@ -146,6 +146,12 @@ The dashboard will be at `https://<machine>.<tailnet>.ts.net/aelora/dashboard`.
 | **Use case** | Private dashboard | Public webhooks / API access |
 
 > **Security:** If using Funnel, set `web.apiKey` in `settings.yaml` and authenticate with `Authorization: Bearer <key>`. Query-token auth is deprecated and intended only as a temporary compatibility fallback.
+>
+> **Migration guidance (compatibility now, stricter later):**
+> 1. Keep compatibility defaults on (`web.auth.allowQueryToken: true`, `web.auth.allowWsQueryToken: true`) while clients migrate.
+> 2. Update HTTP and WebSocket clients to send bearer auth headers.
+> 3. Disable query-token fallbacks after migration by setting both flags to `false`.
+> 4. If `web.apiKey` is unset, sensitive routes remain local-only (`/api/reboot`, `/api/export`, persona file mutation routes).
 
 ## Updating
 

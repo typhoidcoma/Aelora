@@ -1,4 +1,4 @@
-# Aelora
+﻿# Aelora
 
 <p align="center">
   <img src="assets/aelora_art_04.png" alt="Aelora" width="320" />
@@ -42,8 +42,11 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Config Validation** - Zod-powered schema validation with clear startup errors
 - **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
+- **Security Hardening (Compat Mode)** - Bearer-first auth with deprecated query-token fallback and sensitive-route protection
 - **Web Dashboard** - 6-tab layout (Home, Persona, Data, People, Automation, System) with at-a-glance stat cards, achievements, calendar, scoring, live console, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
+- **Async Persistence Queue** - Debounced/coalesced async writes with bounded flush and graceful shutdown draining
+- **Connection Guards** - SSE/WS client caps and payload-size limits for stream/export endpoints
 - **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
 </details>
@@ -103,7 +106,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `memory` | Max facts per scope, max fact length, TTL, vector search, embedding config, consolidation |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
-| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix), auth compatibility flags |
+| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix), auth compatibility flags, sensitive-route policy |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 | `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
 
@@ -183,9 +186,9 @@ After enough completions in a category, the system builds a personal baseline us
 
 1. Create a free project at [supabase.com](https://supabase.com/)
 2. Run all migrations in order in the SQL editor:
-   - [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) — Core scoring tables
-   - [supabase/migrations/002_add_linear_source.sql](supabase/migrations/002_add_linear_source.sql) — Linear source type
-   - [supabase/migrations/003_user_task_lists.sql](supabase/migrations/003_user_task_lists.sql) — Per-user task lists
+  - [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) - Core scoring tables
+  - [supabase/migrations/002_add_linear_source.sql](supabase/migrations/002_add_linear_source.sql) - Linear source type
+  - [supabase/migrations/003_user_task_lists.sql](supabase/migrations/003_user_task_lists.sql) - Per-user task lists
 3. Disable RLS on all 5 scoring tables (this is a private bot with server-side auth):
 
 ```sql
@@ -316,27 +319,27 @@ Files are sorted by `order`, concatenated, and injected as the system prompt. Va
 
 ```
 persona/
-├── _shared/
-│   ├── bootstrap.md            # Shared response format and rules (order 5)
-│   └── lore.md                 # Shared Lumie lore and Covenant (order 6)
-├── aelora/
-│   ├── soul.md                 # Behavioral core (order 10)
-│   ├── execution.md            # Execution protocol (order 15)
-│   ├── skills.md               # Character skills (order 50)
-│   ├── tools.md                # Tool usage and scoring instructions (order 80)
-│   └── templates/user.md       # Per-user preferences
-├── wendy/
-│   ├── soul.md                 # Behavioral core (order 10)
-│   ├── backstory.md            # Wendy-specific lore anchors (order 12)
-│   ├── skills.md               # Character skills (order 50)
-│   └── tools.md                # Tool usage instructions (order 80)
-├── arlo/                       # soul, skills, tools, templates
-├── tyler/                      # soul, skills, tools
-└── patyna/
-    ├── bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
-    ├── soul.md
-    ├── skills.md
-    └── tools.md
+â”œâ”€â”€ _shared/
+â”‚   â”œâ”€â”€ bootstrap.md            # Shared response format and rules (order 5)
+â”‚   â””â”€â”€ lore.md                 # Shared Lumie lore and Covenant (order 6)
+â”œâ”€â”€ aelora/
+â”‚   â”œâ”€â”€ soul.md                 # Behavioral core (order 10)
+â”‚   â”œâ”€â”€ execution.md            # Execution protocol (order 15)
+â”‚   â”œâ”€â”€ skills.md               # Character skills (order 50)
+â”‚   â”œâ”€â”€ tools.md                # Tool usage and scoring instructions (order 80)
+â”‚   â””â”€â”€ templates/user.md       # Per-user preferences
+â”œâ”€â”€ wendy/
+â”‚   â”œâ”€â”€ soul.md                 # Behavioral core (order 10)
+â”‚   â”œâ”€â”€ backstory.md            # Wendy-specific lore anchors (order 12)
+â”‚   â”œâ”€â”€ skills.md               # Character skills (order 50)
+â”‚   â””â”€â”€ tools.md                # Tool usage instructions (order 80)
+â”œâ”€â”€ arlo/                       # soul, skills, tools, templates
+â”œâ”€â”€ tyler/                      # soul, skills, tools
+â””â”€â”€ patyna/
+    â”œâ”€â”€ bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
+    â”œâ”€â”€ soul.md
+    â”œâ”€â”€ skills.md
+    â””â”€â”€ tools.md
 ```
 
 </details>
@@ -470,7 +473,9 @@ Pre-compressed (gzip) build files are served with correct `Content-Encoding` hea
 
 Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard is at `/dashboard`.
 
-For internet-facing deployments, set `web.apiKey` and use `Authorization: Bearer <key>`. Query-token auth (`?token=`) is still supported for compatibility but is deprecated and can be disabled via `web.auth.allowQueryToken` / `web.auth.allowWsQueryToken`.
+For internet-facing deployments, set `web.apiKey` and use `Authorization: Bearer <key>`. Query-token auth (`?token=`) remains available for compatibility but is deprecated and can be disabled via `web.auth.allowQueryToken` / `web.auth.allowWsQueryToken`.
+
+When `web.apiKey` is not configured, public routes stay open and sensitive routes are restricted to local requests only (for example `/api/reboot`, `/api/export`, and persona file mutation endpoints).
 
 - **Status** - Discord connection, uptime, guild count, heartbeat
 - **Persona** - Character switching, file editor, prompt size, hot-reload
@@ -495,77 +500,28 @@ For internet-facing deployments, set `web.apiKey` and use `Authorization: Bearer
 <details>
 <summary><strong>Project Structure</strong></summary>
 
-```
+```text
 src/
-├── index.ts                    # Startup orchestration
-├── boot.ts                     # Process wrapper (auto-restart)
-├── config.ts                   # YAML config + Zod validation
-├── llm.ts                      # LLM client, history, streaming, tool loop
-├── persona.ts                  # Persona file discovery and composition
-├── tool-registry.ts            # Tool auto-discovery and execution
-├── agent-registry.ts           # Agent auto-discovery and execution
-├── scoring.ts                  # Pure scoring engine (no I/O)
-├── supabase.ts                 # Supabase client singleton and typed helpers
-├── cron.ts                     # Cron scheduler (file-based, atomic writes)
-├── sessions.ts                 # Session tracking and persistence
-├── memory.ts                   # Per-user/channel fact store with enriched metadata + ranking
-├── vector-store.ts             # Semantic search via Vectra + OpenAI embeddings
-├── fact-extractor.ts           # Auto-extract facts with contradiction detection + personality synthesis
-├── knowledge-base.ts           # Google Drive knowledge base (sync, chunk, search)
-├── daily-log.ts                # Daily activity logging
-├── users.ts                    # User profile tracking
-├── mood.ts                     # Emotion state (Plutchik's wheel)
-├── web.ts                      # Express dashboard + REST API
-├── ws.ts                       # WebSocket chat server
-├── heartbeat.ts                # Periodic handler system
-├── heartbeat-calendar.ts       # Google Calendar reminders
-├── heartbeat-scoring-sync.ts   # Google Calendar -> Supabase scoring sync
-├── heartbeat-memory.ts         # Memory compaction
-├── heartbeat-cleanup.ts        # Data pruning
-├── heartbeat-reply-check.ts    # Missed reply detection
-├── heartbeat-alive.ts          # Status channel heartbeat
-├── heartbeat-consolidation.ts  # Fact consolidation (LLM merge pass)
-├── heartbeat-knowledge-sync.ts # Google Drive knowledge base sync
-├── heartbeat-conversations.ts  # Conversation persistence
-├── state.ts                    # Persisted bot state
-├── lifecycle.ts                # Graceful reboot
-├── logger.ts                   # Console capture + SSE/WS broadcast + file logging
-├── utils.ts                    # Shared utilities
-├── tools/
-│   ├── types.ts                # defineTool(), param builders
-│   ├── scoring.ts              # Scoring viewer tool (stats, leaderboard, achievements)
-│   ├── tasks.ts                # Google Tasks adapter with per-user task lists
-│   ├── google-calendar.ts      # Google Calendar CRUD
-│   ├── gmail.ts                # Gmail operations
-│   ├── google-tasks.ts         # Google Tasks raw API tool
-│   ├── google-docs.ts          # Google Docs read/write/search
-│   ├── _google-auth.ts         # Shared OAuth2 helpers (skipped on load)
-│   ├── brave-search.ts         # Web search (configurable provider)
-│   ├── date.ts                 # Natural language date resolution (chrono-node)
-│   ├── cron.ts                 # Cron job management
-│   ├── memory.ts               # Memory save/list/forget
-│   ├── mood.ts                 # Emotion override
-│   ├── notes.ts                # Persistent notes
-│   ├── linear.ts               # Linear project management (issues, projects, teams, search)
-│   ├── luminizer.ts            # Image generation (DALL-E 3 / compatible API)
-│   ├── discord-history.ts      # Discord channel message history
-│   ├── ping.ts                 # Test tool
-│   └── _example-*.ts           # Example templates (skipped on load)
-└── agents/
-    ├── types.ts                # Agent type definitions
-    ├── researcher.ts           # Web research agent
-    ├── sprint-planner.ts       # Sprint planning agent
-    └── standup.ts              # Standup report agent
+|-- index.ts                    # Startup orchestration
+|-- boot.ts                     # Process wrapper (auto-restart)
+|-- config.ts                   # YAML config + Zod validation
+|-- async-write-queue.ts        # Debounced/coalesced async file writes + flush control
+|-- llm.ts                      # LLM client, history, streaming, tool loop
+|-- persona.ts                  # Persona file discovery and composition
+|-- tool-registry.ts            # Tool auto-discovery and execution
+|-- agent-registry.ts           # Agent auto-discovery and execution
+|-- cron.ts                     # Cron scheduler with cached state + queued persistence
+|-- sessions.ts                 # Session tracking and persistence
+|-- memory.ts                   # Fact store with semantic search + ranked injection
+|-- logger.ts                   # Console capture + SSE/WS broadcast + bounded clients
+|-- web.ts                      # Express dashboard + REST API
+|-- ws.ts                       # WebSocket chat server (bearer-first auth)
+|-- heartbeat.ts                # Periodic handler system with startup jitter
+|-- heartbeat-reply-check.ts    # Missed reply detection with fetch budgets/timeouts
+|-- lifecycle.ts                # Graceful reboot
+|-- tools/                      # Runtime tool modules
+`-- agents/                     # Sub-agent modules
 
-supabase/
-└── migrations/
-    ├── 001_scoring_system.sql  # Core scoring tables (user_profiles, life_events, scoring_events, category_stats, achievements)
-    ├── 002_add_linear_source.sql # Linear source type for life_events
-    └── 003_user_task_lists.sql # Per-user Google Task list column on user_profiles
-
-activity/                       # Discord Activity (Unity WebGL)
-persona/                        # Personality files
-public/                         # Dashboard frontend (HTML/JS/CSS)
 data/                           # Runtime data (gitignored)
 settings.yaml                   # Your config (gitignored)
 settings.example.yaml           # Config template
@@ -585,6 +541,9 @@ start.bat                       # Windows launcher
 | `npm run dev` | Start with tsx (TypeScript direct execution + auto-restart) |
 | `npm run dev:watch` | Start with file watching (no boot wrapper) |
 | `npm run build` | Compile TypeScript to `dist/` |
+| `npm run lint` | Type-check without emitting build artifacts |
+| `npm run test` | Run scoring engine unit tests |
+| `npm run check` | Full validation (`build && lint && test`) |
 | `npm start` | Run compiled production build |
 
 </details>
@@ -599,3 +558,4 @@ start.bat                       # Windows launcher
 - [openapi.yaml](openapi.yaml) - REST API spec (also at `/api/docs` when running)
 
 </details>
+

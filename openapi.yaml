@@ -1,4 +1,4 @@
-openapi: 3.1.0
+﻿openapi: 3.1.0
 info:
   title: Aelora API
   version: 1.0.0
@@ -8,20 +8,22 @@ info:
 
     ## Authentication
 
-    When `web.apiKey` is set in `settings.yaml`, all routes (except those marked Public)
-    require a bearer token:
+    When `web.apiKey` is set in `settings.yaml`, non-public routes require:
 
     ```
     Authorization: Bearer <your-api-key>
     ```
 
-    For SSE endpoints (EventSource can't set headers), use a query parameter instead:
+    Query-token auth (`?token=<key>`) is still supported for compatibility and for
+    EventSource clients that cannot set headers, but it is deprecated.
 
     ```
     GET /api/logs/stream?token=<your-api-key>
     ```
 
-    When no API key is configured, all routes are open.
+    If no API key is configured, public routes stay open and sensitive routes are
+    restricted to local requests only (for example `/api/reboot`, `/api/export`,
+    and persona file mutation routes).
 
     ## Rate Limiting
 
@@ -77,17 +79,18 @@ tags:
     description: |
       Real-time bidirectional chat via WebSocket at `ws://host:port/ws`.
 
-      **Connection:** `ws://host:port/ws?token=API_KEY` (token required if `web.apiKey` is set).
+      **Connection:** prefer bearer auth (if the client supports headers).
+      Query-token (`?token=...`) remains available for compatibility and can be
+      disabled with `web.auth.allowWsQueryToken`.
 
       **Protocol (JSON):**
-
-      Client → Server:
+      Client -> Server:
       - `{ "type": "init", "sessionId": "...", "userId?": "...", "username?": "..." }` - bind session
       - `{ "type": "message", "content": "..." }` - send chat message
       - `{ "type": "clear" }` - start new session (clears history, summary, context, and session stats)
       - `{ "type": "presence", "status": "online|idle|offline" }` - report user presence (updates activity tracking)
 
-      Server → Client:
+      Server -> Client:
       - `{ "type": "ready", "sessionId": "..." }` - session bound
       - `{ "type": "token", "content": "..." }` - streamed response chunk
       - `{ "type": "done", "reply": "..." }` - full response
@@ -136,6 +139,17 @@ components:
           description: Seconds since boot
         authRequired:
           type: boolean
+        liveClients:
+          type: object
+          properties:
+            sseClients:
+              type: integer
+            wsClients:
+              type: integer
+            maxSseClients:
+              type: integer
+            maxWsClients:
+              type: integer
 
     CronJob:
       type: object
@@ -421,7 +435,7 @@ security:
   - BearerAuth: []
 
 paths:
-  # ── Docs ───────────────────────────────────────────────
+  # â”€â”€ Docs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/docs:
     get:
       tags: [Status]
@@ -450,7 +464,7 @@ paths:
               schema:
                 type: string
 
-  # ── Status ──────────────────────────────────────────────
+  # â”€â”€ Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/status:
     get:
       tags: [Status]
@@ -465,7 +479,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Status"
 
-  # ── Config ──────────────────────────────────────────────
+  # â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/config:
     get:
       tags: [Config]
@@ -485,7 +499,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Persona ─────────────────────────────────────────────
+  # â”€â”€ Persona â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/persona:
     get:
       tags: [Persona]
@@ -712,6 +726,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+        "403":
+          description: Sensitive route blocked when API key is unset and request is non-local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     put:
       tags: [Persona]
       summary: Update a persona file
@@ -736,6 +756,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+        "403":
+          description: Sensitive route blocked when API key is unset and request is non-local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
       tags: [Persona]
       summary: Delete a persona file
@@ -764,8 +790,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+        "403":
+          description: Sensitive route blocked when API key is unset and request is non-local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  # ── Chat ─────────────────────────────────────────────────
+  # â”€â”€ Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/chat:
     post:
       tags: [Chat]
@@ -847,6 +879,12 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        "413":
+          description: Message too large (max server-side length exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/chat/{sessionId}:
     delete:
@@ -871,7 +909,7 @@ paths:
                   success:
                     type: boolean
 
-  # ── Cron ────────────────────────────────────────────────
+  # â”€â”€ Cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/cron:
     get:
       tags: [Cron]
@@ -1059,7 +1097,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Sessions ────────────────────────────────────────────
+  # â”€â”€ Sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/sessions:
     get:
       tags: [Sessions]
@@ -1145,7 +1183,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Memory ──────────────────────────────────────────────
+  # â”€â”€ Memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/memory:
     get:
       tags: [Memory]
@@ -1315,7 +1353,7 @@ paths:
                       type: string
                       format: date-time
 
-  # ── Notes ───────────────────────────────────────────────
+  # â”€â”€ Notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/notes:
     get:
       tags: [Notes]
@@ -1499,7 +1537,7 @@ paths:
                   error:
                     type: string
 
-  # ── Calendar ────────────────────────────────────────────
+  # â”€â”€ Calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/calendar/events:
     get:
       tags: [Calendar]
@@ -1559,7 +1597,7 @@ paths:
                   error:
                     type: string
 
-  # ── Todos (Google Tasks) ────────────────────────────────
+  # â”€â”€ Todos (Google Tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/todos:
     get:
       tags: [Todos]
@@ -1729,7 +1767,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Users ───────────────────────────────────────────────
+  # â”€â”€ Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/users:
     get:
       tags: [Users]
@@ -1811,7 +1849,7 @@ paths:
                   error:
                     type: string
 
-  # ── Tools ───────────────────────────────────────────────
+  # â”€â”€ Tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/tools:
     get:
       tags: [Tools]
@@ -1943,7 +1981,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Agents ──────────────────────────────────────────────
+  # â”€â”€ Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/agents:
     get:
       tags: [Agents]
@@ -1987,7 +2025,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── System ──────────────────────────────────────────────
+  # â”€â”€ System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/heartbeat:
     get:
       tags: [System]
@@ -2151,8 +2189,10 @@ paths:
       description: |
         Server-Sent Events stream of log entries in real time.
         Each event is `data: {"ts": "...", "level": "log", "message": "..."}`.
-        Use `?token=<key>` for auth (EventSource can't set headers).
+        Prefer bearer auth when possible. Query-token (`?token=<key>`) remains
+        supported for compatibility but is deprecated.
       security:
+        - BearerAuth: []
         - QueryToken: []
       responses:
         "200":
@@ -2179,8 +2219,14 @@ paths:
                     type: boolean
                   message:
                     type: string
+        "403":
+          description: Sensitive route blocked when API key is unset and request is non-local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  # ── Export ─────────────────────────────────────────────
+  # â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/export:
     get:
       tags: [Export]
@@ -2189,6 +2235,7 @@ paths:
         Returns a JSON bundle of all bot data. Use the `sections` query parameter to
         selectively export specific sections. Response includes a Content-Disposition
         header for browser download.
+        Export is rejected with 413 if payload exceeds server size limits.
       parameters:
         - name: sections
           in: query
@@ -2229,8 +2276,20 @@ paths:
                   personas:
                     type: array
                     description: All persona descriptions
+        "403":
+          description: Sensitive route blocked when API key is unset and request is non-local
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Export payload exceeded server size limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  # ── Activity ────────────────────────────────────────────
+  # â”€â”€ Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/activity/config:
     get:
       tags: [Activity]
@@ -2283,7 +2342,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  # ── Scoring ──────────────────────────────────────────────
+  # â”€â”€ Scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /api/scoring/stats:
     get:
@@ -2475,7 +2534,7 @@ paths:
         "503":
           description: Supabase not configured
 
-  # ── Linear ──────────────────────────────────────────────
+  # â”€â”€ Linear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /api/linear/teams:
     get:
@@ -2857,3 +2916,4 @@ paths:
           description: Missing q parameter
         "503":
           description: Linear not configured
+

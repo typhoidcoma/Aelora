@@ -153,8 +153,9 @@ web:
   port: 3000
 
   # API key for authenticating dashboard/API requests.
-  # When set, /api/* routes (except /api/status) require
-  # an Authorization: Bearer <key> header.
+  # When set, non-public /api/* routes require auth.
+  # Preferred: Authorization: Bearer <key>
+  # Compatibility fallback: ?token=<key> (deprecated; controlled by auth flags below).
   # apiKey: "your-secret-api-key"
 
   # Base path for reverse proxy deployments (e.g. Tailscale Funnel, nginx).
@@ -167,6 +168,9 @@ web:
   auth:
     allowQueryToken: true     # HTTP: permit ?token=... fallback when no bearer header
     allowWsQueryToken: true   # WS: permit ?token=... fallback when no bearer header
+
+  # If apiKey is omitted, public routes stay open and sensitive routes are local-only.
+  # Sensitive routes: /api/reboot, /api/export, and persona file mutation endpoints.
 
 # --- Memory ---
 # Controls per-user/channel fact storage behavior.

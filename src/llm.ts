@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import type { Config } from "./config.js";
 import {
   getToolDefinitionsForOpenAI,
@@ -12,6 +12,7 @@ import { buildMoodPromptSection } from "./mood.js";
 import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
 import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
+import { queueTextWrite } from "./async-write-queue.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -160,6 +161,10 @@ let config: Config;
 
 // Per-channel conversation history
 const conversations = new Map<string, ChatMessage[]>();
+const conversationLastUsed = new Map<string, number>();
+const MAX_CONVERSATION_CHANNELS = 500;
+const CONVERSATION_IDLE_MS = 6 * 60 * 60 * 1000;
+let pruneTicker: ReturnType<typeof setInterval> | null = null;
 
 // --- Conversation summaries (compacted history) ---
 
@@ -182,9 +187,7 @@ function loadSummaries(): void {
 
 function saveSummaries(): void {
   try {
-    const dir = "data/memory";
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(SUMMARIES_FILE, JSON.stringify(summaries, null, 2), "utf-8");
+    queueTextWrite(SUMMARIES_FILE, JSON.stringify(summaries, null, 2), { debounceMs: 250, atomic: true });
   } catch (err) {
     console.error("LLM: failed to save summaries:", err);
   }
@@ -197,16 +200,13 @@ const CONVERSATIONS_FILE = "data/memory/conversations.json";
 /** Persist all active conversations to disk. Synchronous for use in signal handlers. */
 export function saveConversations(): void {
   try {
-    const dir = "data/memory";
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
     const data: { channelId: string; messages: ChatMessage[]; savedAt: string }[] = [];
     for (const [channelId, messages] of conversations.entries()) {
       if (messages.length === 0) continue;
       data.push({ channelId, messages, savedAt: new Date().toISOString() });
     }
 
-    writeFileSync(CONVERSATIONS_FILE, JSON.stringify(data, null, 2), "utf-8");
+    queueTextWrite(CONVERSATIONS_FILE, JSON.stringify(data, null, 2), { debounceMs: 250, atomic: true });
     console.log(`LLM: saved ${data.length} conversation(s) to disk`);
   } catch (err) {
     console.error("LLM: failed to save conversations:", err);
@@ -228,6 +228,7 @@ function loadConversations(): void {
         totalSanitized += cleaned;
         if (entry.messages.length > 0) {
           conversations.set(entry.channelId, entry.messages);
+          conversationLastUsed.set(entry.channelId, Date.now());
           loaded++;
         }
       }
@@ -250,6 +251,10 @@ export function initLLM(cfg: Config): void {
   });
   loadSummaries();
   loadConversations();
+  if (pruneTicker) clearInterval(pruneTicker);
+  pruneTicker = setInterval(() => {
+    pruneInactiveConversations();
+  }, 10 * 60 * 1000);
 }
 
 /** Expose the initialized OpenAI client for lightweight direct calls (e.g. mood classification). */
@@ -261,6 +266,7 @@ export function getDisableThinking(): boolean { return config.llm.disableThinkin
 /** Full session reset: clears history, summary, and compaction queue for a channel. */
 export function clearSession(channelId: string): void {
   conversations.delete(channelId);
+  conversationLastUsed.delete(channelId);
   compactionQueue.delete(channelId);
   if (summaries[channelId]) {
     delete summaries[channelId];
@@ -272,7 +278,34 @@ function getHistory(channelId: string): ChatMessage[] {
   if (!conversations.has(channelId)) {
     conversations.set(channelId, []);
   }
+  conversationLastUsed.set(channelId, Date.now());
+  if (conversations.size > MAX_CONVERSATION_CHANNELS) {
+    pruneInactiveConversations();
+  }
   return conversations.get(channelId)!;
+}
+
+function pruneInactiveConversations(): void {
+  const now = Date.now();
+
+  for (const [channelId, lastUsedAt] of conversationLastUsed.entries()) {
+    if (now - lastUsedAt < CONVERSATION_IDLE_MS) continue;
+    conversations.delete(channelId);
+    compactionQueue.delete(channelId);
+    conversationLastUsed.delete(channelId);
+  }
+
+  if (conversations.size <= MAX_CONVERSATION_CHANNELS) return;
+
+  const ordered = [...conversationLastUsed.entries()]
+    .sort((a, b) => a[1] - b[1]);
+  const overflow = conversations.size - MAX_CONVERSATION_CHANNELS;
+  for (let i = 0; i < overflow && i < ordered.length; i++) {
+    const channelId = ordered[i][0];
+    conversations.delete(channelId);
+    compactionQueue.delete(channelId);
+    conversationLastUsed.delete(channelId);
+  }
 }
 
 /**

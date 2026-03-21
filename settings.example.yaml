@@ -162,6 +162,12 @@ web:
   # so the server strips the prefix from incoming requests.
   # basePath: "/aelora"
 
+  # Auth compatibility toggles (non-breaking migration path).
+  # Query token auth is deprecated and will be removed in a future release.
+  auth:
+    allowQueryToken: true     # HTTP: permit ?token=... fallback when no bearer header
+    allowWsQueryToken: true   # WS: permit ?token=... fallback when no bearer header
+
 # --- Memory ---
 # Controls per-user/channel fact storage behavior.
 

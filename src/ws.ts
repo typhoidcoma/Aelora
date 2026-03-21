@@ -51,6 +51,8 @@ function send(ws: WebSocket, msg: ServerMessage): void {
 const clients = new Set<WebSocket>();
 
 const PING_INTERVAL = 30_000;
+const MAX_WS_CONNECTIONS = 150;
+let lastWsQueryTokenWarningAt = 0;
 
 export function startWebSocket(server: Server, config: Config): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -70,14 +72,27 @@ export function startWebSocket(server: Server, config: Config): void {
   wss.on("close", () => clearInterval(interval));
 
   wss.on("connection", (ws, req) => {
+    if (clients.size >= MAX_WS_CONNECTIONS) {
+      send(ws, { type: "error", error: "Too many concurrent websocket connections." });
+      ws.close(1013, "Server busy");
+      return;
+    }
+
     // Auth check
     if (config.web.apiKey) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-      const token = url.searchParams.get("token");
+      const authHeader = req.headers.authorization;
+      const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+      const queryToken = config.web.auth.allowWsQueryToken ? url.searchParams.get("token") : null;
+      const token = bearer ?? queryToken;
       if (token !== config.web.apiKey) {
-        send(ws, { type: "error", error: "Unauthorized. Connect with ?token=API_KEY." });
+        send(ws, { type: "error", error: "Unauthorized. Provide Authorization: Bearer <key> header." });
         ws.close(4001, "Unauthorized");
         return;
+      }
+      if (!bearer && !!queryToken && Date.now() - lastWsQueryTokenWarningAt > 60_000) {
+        console.warn("WS: query-token auth used; migrate websocket clients to Authorization header");
+        lastWsQueryTokenWarningAt = Date.now();
       }
     }
 

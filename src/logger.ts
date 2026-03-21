@@ -1,7 +1,8 @@
-import { appendFileSync, mkdirSync, existsSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdirSync, existsSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { Response } from "express";
 import type { WebSocket } from "ws";
+import { queueTextAppend } from "./async-write-queue.js";
 
 type LogEntry = {
   ts: string;
@@ -30,6 +31,8 @@ export function configureLogger(opts: { maxBuffer?: number; fileEnabled?: boolea
 
 const sseClients = new Set<Response>();
 const wsClients = new Set<WebSocket>();
+const MAX_SSE_CLIENTS = 150;
+const MAX_WS_CLIENTS = 150;
 
 // Store originals
 const origLog = console.log;
@@ -51,7 +54,7 @@ function writeToFile(entry: LogEntry): void {
   if (!fileEnabled) return;
   try {
     const line = `[${entry.ts}] [${LEVEL_TAG[entry.level]}] ${entry.message}\n`;
-    appendFileSync(getLogFilePath(), line, "utf-8");
+    queueTextAppend(getLogFilePath(), line, { debounceMs: 300 });
   } catch {
     // Don't recurse into console.error  -  use origError
     origError("Logger: failed to write to log file");
@@ -121,12 +124,24 @@ export function getRecentLogs(): LogEntry[] {
 
 /** Register an SSE client response. */
 export function addSSEClient(res: Response): void {
+  if (sseClients.size >= MAX_SSE_CLIENTS) {
+    try {
+      res.status(503).end();
+    } catch {
+      // ignore
+    }
+    return;
+  }
   sseClients.add(res);
   res.on("close", () => sseClients.delete(res));
 }
 
 /** Register a WebSocket client for live event broadcasts. */
 export function addWSClient(ws: WebSocket): void {
+  if (wsClients.size >= MAX_WS_CLIENTS) {
+    ws.close(1013, "Server busy");
+    return;
+  }
   wsClients.add(ws);
   ws.on("close", () => wsClients.delete(ws));
 }
@@ -150,4 +165,18 @@ export function broadcastEvent(event: string, data: unknown): void {
       wsClients.delete(ws);
     }
   }
+}
+
+export function getLiveClientMetrics(): {
+  sseClients: number;
+  wsClients: number;
+  maxSseClients: number;
+  maxWsClients: number;
+} {
+  return {
+    sseClients: sseClients.size,
+    wsClients: wsClients.size,
+    maxSseClients: MAX_SSE_CLIENTS,
+    maxWsClients: MAX_WS_CLIENTS,
+  };
 }

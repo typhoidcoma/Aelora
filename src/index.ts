@@ -25,6 +25,7 @@ import { configureMemory } from "./memory.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
 import { tryGetSupabaseClient } from "./supabase.js";
+import { flushAllQueuedWrites } from "./async-write-queue.js";
 
 // Install logger first so all console output is captured
 installLogger();
@@ -167,41 +168,44 @@ async function main(): Promise<void> {
   console.log(`\nAelora 🦋 is ready (boot: ${Date.now() - bootStart}ms)\n`);
 }
 
-process.on("SIGINT", () => {
-  console.log("\nShutting down...");
+let isShuttingDown = false;
+
+function shutdown(reason: "clean" | "crash" | "fatal", code: number, error?: string): void {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   saveConversations();
-  saveState("clean");
+  saveState(reason, error);
   stopHeartbeat();
   stopCron();
-  process.exit(0);
+
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+  void Promise.race([flushAllQueuedWrites(), timeout]).finally(() => {
+    process.exit(code);
+  });
+}
+
+process.on("SIGINT", () => {
+  console.log("\nShutting down...");
+  shutdown("clean", 0);
 });
 
 process.on("SIGTERM", () => {
   console.log("Received SIGTERM, shutting down...");
-  saveConversations();
-  saveState("clean");
-  stopHeartbeat();
-  stopCron();
-  process.exit(0);
+  shutdown("clean", 0);
 });
 
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
-  saveConversations();
-  saveState("crash", err?.stack ?? String(err));
-  process.exit(1);
+  shutdown("crash", 1, err?.stack ?? String(err));
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
-  saveConversations();
-  saveState("crash", reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason));
-  process.exit(1);
+  shutdown("crash", 1, reason instanceof Error ? (reason.stack ?? String(reason)) : String(reason));
 });
 
 main().catch((err) => {
   console.error("Fatal error:", err);
-  saveConversations();
-  saveState("fatal", err?.stack ?? String(err));
-  process.exit(1);
+  shutdown("fatal", 1, err?.stack ?? String(err));
 });

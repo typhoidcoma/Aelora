@@ -20,7 +20,10 @@
     "dev": "tsx src/boot.ts",
     "dev:watch": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/boot.js"
+    "start": "node dist/boot.js",
+    "lint": "tsc --noEmit",
+    "test": "tsx src/scoring.test.ts",
+    "check": "npm run build && npm run lint && npm run test"
   },
   "dependencies": {
     "@linear/sdk": "^76.0.0",
@@ -29,7 +32,7 @@
     "croner": "^10.0.1",
     "discord.js": "^14.18.0",
     "express": "^5.1.0",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.3.1",
     "openai": "^4.77.0",
     "pdf-parse": "^2.4.5",
     "vectra": "^0.12.3",

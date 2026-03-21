@@ -145,7 +145,7 @@ The dashboard will be at `https://<machine>.<tailnet>.ts.net/aelora/dashboard`.
 | **HTTPS** | Auto certs | Auto certs |
 | **Use case** | Private dashboard | Public webhooks / API access |
 
-> **Security:** If using Funnel, set `web.apiKey` in `settings.yaml` to require authentication on all dashboard and API routes.
+> **Security:** If using Funnel, set `web.apiKey` in `settings.yaml` and authenticate with `Authorization: Bearer <key>`. Query-token auth is deprecated and intended only as a temporary compatibility fallback.
 
 ## Updating
 

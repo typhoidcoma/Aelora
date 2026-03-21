@@ -1,7 +1,8 @@
 import { Cron } from "croner";
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { getLLMOneShot } from "./llm.js";
 import { sendToChannel } from "./discord.js";
+import { queueTextWrite } from "./async-write-queue.js";
 
 // --- Types ---
 
@@ -45,10 +46,10 @@ export type CronJobInfo = {
 // --- Constants ---
 
 const CRON_JOBS_FILE = "data/cron-jobs.json";
-const CRON_JOBS_TMP = "data/cron-jobs.tmp.json";
 let maxHistory = 10;
 let defaultTimezone: string | undefined;
 const OUTPUT_PREVIEW_LENGTH = 300;
+let jobsCache: PersistedCronJob[] | null = null;
 
 /** Apply config overrides. Call after config is loaded. */
 export function configureCron(opts: { maxHistory?: number; defaultTimezone?: string }): void {
@@ -71,21 +72,23 @@ const schedulers = new Map<string, SchedulerEntry>();
 // --- File I/O ---
 
 function loadJobs(): PersistedCronJob[] {
+  if (jobsCache) return jobsCache;
   try {
     if (existsSync(CRON_JOBS_FILE)) {
-      return JSON.parse(readFileSync(CRON_JOBS_FILE, "utf-8"));
+      jobsCache = JSON.parse(readFileSync(CRON_JOBS_FILE, "utf-8"));
+      return jobsCache ?? [];
     }
   } catch {
     console.warn("Cron: failed to read jobs file, starting fresh");
   }
-  return [];
+  jobsCache = [];
+  return jobsCache;
 }
 
 function saveJobs(jobs: PersistedCronJob[]): void {
   try {
-    if (!existsSync("data")) mkdirSync("data", { recursive: true });
-    writeFileSync(CRON_JOBS_TMP, JSON.stringify(jobs, null, 2), "utf-8");
-    renameSync(CRON_JOBS_TMP, CRON_JOBS_FILE);
+    jobsCache = jobs;
+    queueTextWrite(CRON_JOBS_FILE, JSON.stringify(jobs, null, 2), { debounceMs: 200, atomic: true });
   } catch (err) {
     console.error("Cron: failed to save jobs:", err);
   }

@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { queueTextWrite } from "./async-write-queue.js";
 
 const SESSIONS_FILE = "data/sessions.json";
 
@@ -33,8 +34,7 @@ function load(): void {
 
 function save(): void {
   try {
-    mkdirSync("data", { recursive: true });
-    writeFileSync(SESSIONS_FILE, JSON.stringify(store, null, 2));
+    queueTextWrite(SESSIONS_FILE, JSON.stringify(store, null, 2), { debounceMs: 150, atomic: true });
   } catch (err) {
     console.error("Sessions: failed to save:", err);
   }

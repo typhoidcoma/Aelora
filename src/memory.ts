@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import * as vectorStore from "./vector-store.js";
 import { formatError } from "./vector-store.js";
 import type { VectorStoreConfig } from "./vector-store.js";
+import { queueTextWrite } from "./async-write-queue.js";
 
 const MEMORY_FILE = "data/memory.json";
 
@@ -97,8 +98,7 @@ function load(): void {
 
 function save(): void {
   try {
-    if (!existsSync("data")) mkdirSync("data", { recursive: true });
-    writeFileSync(MEMORY_FILE, JSON.stringify(store, null, 2), "utf-8");
+    queueTextWrite(MEMORY_FILE, JSON.stringify(store, null, 2), { debounceMs: 200, atomic: true });
   } catch (err) {
     console.error("Memory: failed to save:", err);
   }

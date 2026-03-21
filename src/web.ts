@@ -29,7 +29,7 @@ import {
   triggerCronJob,
   deleteCronJob,
 } from "./cron.js";
-import { getRecentLogs, addSSEClient } from "./logger.js";
+import { getRecentLogs, addSSEClient, getLiveClientMetrics } from "./logger.js";
 import { reboot } from "./lifecycle.js";
 import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMessage } from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
@@ -88,6 +88,8 @@ export function startWeb(state: AppState): Server | null {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "..", "public");
   const basePath = config.web.basePath || "";
+  const MAX_STREAM_MESSAGE_CHARS = 12_000;
+  const MAX_EXPORT_BYTES = 5 * 1024 * 1024;
 
   // Strip basePath prefix so routes match without it (e.g. /aelora/api/status -> /api/status)
   if (basePath) {
@@ -190,29 +192,92 @@ export function startWeb(state: AppState): Server | null {
     "/api/docs",
     "/api/docs/openapi.yaml",
   ];
+  const isSensitiveRequest = (req: express.Request): boolean => {
+    if (req.path === "/api/reboot" || req.path === "/api/export") return true;
+    if (req.path === "/api/persona/file" && ["PUT", "POST", "DELETE"].includes(req.method)) return true;
+    return false;
+  };
+  let lastQueryTokenWarningAt = 0;
+
+  const isLocalRequest = (ip: string | undefined): boolean => {
+    if (!ip) return false;
+    return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+  };
+
+  const readAuth = (
+    req: express.Request,
+    opts?: { allowQueryToken?: boolean; requireSensitive?: boolean },
+  ): { ok: boolean; usedQueryToken: boolean; error?: string } => {
+    const allowQueryToken = opts?.allowQueryToken ?? config.web.auth.allowQueryToken;
+    const authHeader = req.headers.authorization;
+    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    const queryToken = allowQueryToken ? (req.query.token as string | undefined) : undefined;
+
+    if (config.web.apiKey) {
+      const token = bearer ?? queryToken;
+      if (token === config.web.apiKey) {
+        return { ok: true, usedQueryToken: !bearer && !!queryToken };
+      }
+      return { ok: false, usedQueryToken: false, error: "Unauthorized. Provide Authorization: Bearer <key> header." };
+    }
+
+    if (opts?.requireSensitive && !isLocalRequest(req.ip)) {
+      return { ok: false, usedQueryToken: false, error: "Sensitive route requires local request or API key auth." };
+    }
+
+    return { ok: true, usedQueryToken: false };
+  };
+
+  const addQueryTokenDeprecationHeaders = (res: express.Response): void => {
+    res.setHeader("Warning", "299 - Query token auth is deprecated; use Authorization: Bearer");
+    res.setHeader("Deprecation", "true");
+  };
+
+  app.use("/api", (req, res, next) => {
+    if (PUBLIC_ROUTES.includes(req.path)) {
+      next();
+      return;
+    }
+
+    const auth = readAuth(req);
+    if (!auth.ok) {
+      res.status(401).json({ error: auth.error });
+      return;
+    }
+
+    if (auth.usedQueryToken) {
+      addQueryTokenDeprecationHeaders(res);
+      if (Date.now() - lastQueryTokenWarningAt > 60_000) {
+        console.warn("Web: query-token auth used; migrate clients to Authorization header");
+        lastQueryTokenWarningAt = Date.now();
+      }
+    }
+    next();
+  });
+
+  app.use("/api", (req, res, next) => {
+    if (!isSensitiveRequest(req)) {
+      next();
+      return;
+    }
+
+    const auth = readAuth(req, { requireSensitive: true });
+    if (!auth.ok) {
+      const status = config.web.apiKey ? 401 : 403;
+      res.status(status).json({ error: auth.error });
+      return;
+    }
+
+    if (auth.usedQueryToken) {
+      addQueryTokenDeprecationHeaders(res);
+    }
+    next();
+  });
 
   if (config.web.apiKey) {
-    app.use("/api", (req, res, next) => {
-      if (PUBLIC_ROUTES.includes(req.path)) {
-        next();
-        return;
-      }
-
-      const authHeader = req.headers.authorization;
-      const queryToken = req.query.token as string | undefined;
-      const token = authHeader?.startsWith("Bearer ")
-        ? authHeader.slice(7)
-        : queryToken;
-
-      if (token === config.web.apiKey) {
-        next();
-        return;
-      }
-
-      res.status(401).json({ error: "Unauthorized. Provide Authorization: Bearer <key> header." });
-    });
-
     console.log("Web: API key authentication enabled");
+  } else {
+    console.warn("Web: API key not set; sensitive routes restricted to local requests");
   }
 
   // --- API docs (public) ---
@@ -238,6 +303,7 @@ export function startWeb(state: AppState): Server | null {
 
   // Bot status (public  -  also tells dashboard if auth is required)
   app.get("/api/status", (_req, res) => {
+    const liveClients = getLiveClientMetrics();
     res.json({
       connected: discordClient?.isReady() ?? false,
       username: discordClient?.user?.tag ?? null,
@@ -245,6 +311,7 @@ export function startWeb(state: AppState): Server | null {
       guildCount: discordClient?.guilds.cache.size ?? 0,
       uptime: process.uptime(),
       authRequired: !!config.web.apiKey,
+      liveClients,
     });
   });
 
@@ -640,6 +707,10 @@ export function startWeb(state: AppState): Server | null {
     }
     if (!sessionId || typeof sessionId !== "string") {
       res.status(400).json({ error: "sessionId is required" });
+      return;
+    }
+    if (message.length > MAX_STREAM_MESSAGE_CHARS) {
+      res.status(413).json({ error: `message too large (max ${MAX_STREAM_MESSAGE_CHARS} chars)` });
       return;
     }
 
@@ -2148,9 +2219,18 @@ export function startWeb(state: AppState): Server | null {
     if (include("mood")) bundle.mood = loadMood();
     if (include("personas")) bundle.personas = getPersonaDescriptions(config.persona.dir);
 
+    const payload = JSON.stringify(bundle);
+    const payloadBytes = Buffer.byteLength(payload, "utf-8");
+    if (payloadBytes > MAX_EXPORT_BYTES) {
+      res.status(413).json({
+        error: `Export payload too large (${payloadBytes} bytes). Limit is ${MAX_EXPORT_BYTES} bytes.`,
+      });
+      return;
+    }
+
     const date = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Disposition", `attachment; filename=aelora-export-${date}.json`);
-    res.json(bundle);
+    res.type("application/json").send(payload);
   });
 
   const server = createServer(app);

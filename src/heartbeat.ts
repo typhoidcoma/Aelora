@@ -23,6 +23,7 @@ export type HeartbeatState = {
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
 const state: HeartbeatState = {
   running: false,
@@ -42,7 +43,7 @@ export function registerHeartbeatHandler(handler: HeartbeatHandler): void {
 }
 
 export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
-  if (timer) {
+  if (timer || startupTimer) {
     console.warn("Heartbeat: already running");
     return;
   }
@@ -55,7 +56,7 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
     `Heartbeat: starting (${state.intervalMs / 1000}s interval, ${state.handlers.length} handler(s))`,
   );
 
-  timer = setInterval(async () => {
+  const runTick = async (): Promise<void> => {
     state.lastTick = new Date();
     state.tickCount++;
 
@@ -73,10 +74,24 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
         console.error(`Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`, err);
       }
     }
-  }, state.intervalMs);
+  };
+
+  const jitterMs = Math.min(Math.floor(state.intervalMs / 4), 30_000);
+  const initialDelay = jitterMs > 0 ? Math.floor(Math.random() * jitterMs) : 0;
+  startupTimer = setTimeout(() => {
+    startupTimer = null;
+    void runTick();
+    timer = setInterval(() => {
+      void runTick();
+    }, state.intervalMs);
+  }, initialDelay);
 }
 
 export function stopHeartbeat(): void {
+  if (startupTimer) {
+    clearTimeout(startupTimer);
+    startupTimer = null;
+  }
   if (timer) {
     clearInterval(timer);
     timer = null;

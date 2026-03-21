@@ -103,7 +103,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `memory` | Max facts per scope, max fact length, TTL, vector search, embedding config, consolidation |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
-| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix) |
+| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix), auth compatibility flags |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 | `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
 
@@ -469,6 +469,8 @@ Pre-compressed (gzip) build files are served with correct `Content-Encoding` hea
 <summary><strong>Web Dashboard</strong></summary>
 
 Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard is at `/dashboard`.
+
+For internet-facing deployments, set `web.apiKey` and use `Authorization: Bearer <key>`. Query-token auth (`?token=`) is still supported for compatibility but is deprecated and can be disabled via `web.auth.allowQueryToken` / `web.auth.allowWsQueryToken`.
 
 - **Status** - Discord connection, uptime, guild count, heartbeat
 - **Persona** - Character switching, file editor, prompt size, hot-reload

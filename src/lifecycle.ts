@@ -8,6 +8,7 @@ import { stopHeartbeat } from "./heartbeat.js";
 import { stopCron } from "./cron.js";
 import { saveState } from "./state.js";
 import { saveConversations } from "./llm.js";
+import { flushAllQueuedWrites } from "./async-write-queue.js";
 
 const REBOOT_CODE = 100;
 
@@ -18,6 +19,9 @@ export function reboot(): void {
   saveState("reboot");
   stopHeartbeat();
   stopCron();
-  // The boot wrapper sees exit code 100 and restarts the process
-  process.exit(REBOOT_CODE);
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2_000));
+  void Promise.race([flushAllQueuedWrites(), timeout]).finally(() => {
+    // The boot wrapper sees exit code 100 and restarts the process
+    process.exit(REBOOT_CODE);
+  });
 }

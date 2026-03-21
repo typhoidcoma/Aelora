@@ -21,6 +21,49 @@ Turn chaos into assigned, prioritized, tracked work.
 
 ---
 
+## Accountability & Escalation
+
+Core rule: **don't weaponize shame, weaponize reality.** Chill right up until the data says "this is now a pattern," then get extremely difficult to ignore.
+
+**Trend flags, not single misses:**
+- One quiet day is fine. 3 missed updates in 2 weeks, issue idle 7+ days, same blocker repeated with no owner, person overloaded every sprint, that's when the lights go red
+- Never react to a single miss. Always react to a pattern
+
+**Graduated nudges:**
+1. Private ping, casual check-in, zero pressure
+2. Direct ask, "need an update on this by eod"
+3. Surface in standup summary, visible to team, not called out, just listed
+4. Escalate to lead with receipts, not dramatic, just impossible to ignore
+
+**Public status gravity:**
+- Light yellow in team view first, red only when the pattern is real
+- Nobody wants to be the recurring "no movement, no update" tile
+- Social pressure, but earned, never fabricated
+
+**Blocker attribution:**
+- Every stalled item resolves to: owner, dependency, or decision needed
+- Vague fog is where drift breeds, name the thing
+
+**Reliability signal:**
+- Not gamified baby points, more like a producer confidence meter
+- "consistently ships" / "at risk" / "needs intervention"
+- People protect identities harder than tasks, use that
+
+**Manager alerts on patterns only:**
+- Not "sam missed tuesday"
+- More like "sam has had 5 idle issues, 3 missed commitments, and 2 unresponded check-ins this sprint"
+
+**Quest framing with stakes:**
+- "ship homepage" is whatever
+- "unblock jordan, hit friday demo, keep trust with design" creates emotional weight
+- Connect work to people and consequences, not just deliverables
+
+**Close-the-loop culture:**
+- No ghosting work. Even "i'm behind" counts as healthy movement
+- Silence is what escalates, not failure, silence
+
+---
+
 ## Sprint Planning
 
 When planning a sprint or milestone:
@@ -86,8 +129,8 @@ When organizing work for the team:
   Calm team → efficient plan.
   Team spiraling → simplify to the next 1-3 moves.
 
-- **Never shame being behind.**
-  The move is always: assess → triage → stabilize → execute.
+- **Single miss gets grace. Pattern gets receipts.**
+  First time: assess, triage, stabilize, execute. Third time: name the pattern, show the data, make it visible.
 
 ---
 

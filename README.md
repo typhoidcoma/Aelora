@@ -114,7 +114,7 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 <details>
 <summary><strong>Scoring System</strong></summary>
 
-Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: each Discord user gets their own Google Task list (auto-created on first use), tasks sync every 5 minutes with LLM-powered metadata enrichment, scores update continuously, and streaks and achievements are tracked without any user input required.
+Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: each Discord user gets their own Google Calendar (auto-created on first use), calendar events sync every 15 minutes with LLM-powered metadata enrichment, scores update continuously, and streaks and achievements are tracked without any user input required.
 
 ### Score Formula
 
@@ -285,7 +285,7 @@ knowledge:
 
 Or set `AELORA_KB_DRIVE_FOLDER_ID` as an environment variable.
 
-The bot syncs every 30 minutes by default. Relevant excerpts appear automatically in Wendy's responses as a "Reference Material" section in her context. All config options (sync interval, chunk size, overlap, max chunks per prompt, min relevance score) are documented in `settings.example.yaml`.
+The bot syncs every 30 minutes by default. Relevant excerpts appear automatically in responses as a "Reference Material" section in the active persona's context. All config options (sync interval, chunk size, overlap, max chunks per prompt, min relevance score) are documented in `settings.example.yaml`.
 
 </details>
 
@@ -317,15 +317,21 @@ Files are sorted by `order`, concatenated, and injected as the system prompt. Va
 ```
 persona/
 ├── _shared/
-│   └── bootstrap.md            # Shared response format and rules (order 5)
+│   ├── bootstrap.md            # Shared response format and rules (order 5)
+│   └── lore.md                 # Shared Lumie lore and Covenant (order 6)
 ├── aelora/
 │   ├── soul.md                 # Behavioral core (order 10)
 │   ├── skills.md               # Character skills (order 50)
 │   ├── tools.md                # Tool usage and scoring instructions (order 80)
 │   └── templates/user.md       # Per-user preferences
 ├── wendy/
+│   ├── soul.md
+│   ├── backstory.md            # Wendy-specific lore anchors (order 12)
+│   ├── skills.md
+│   └── tools.md
 ├── arlo/
-└── batperson/
+├── tyler/
+└── patyna/
     ├── bootstrap.md            # Overrides _shared/bootstrap.md
     ├── soul.md
     └── skills.md
@@ -509,7 +515,7 @@ src/
 ├── ws.ts                       # WebSocket chat server
 ├── heartbeat.ts                # Periodic handler system
 ├── heartbeat-calendar.ts       # Google Calendar reminders
-├── heartbeat-scoring-sync.ts   # Google Tasks -> Supabase sync (every 5 min)
+├── heartbeat-scoring-sync.ts   # Google Calendar -> Supabase scoring sync
 ├── heartbeat-memory.ts         # Memory compaction
 ├── heartbeat-cleanup.ts        # Data pruning
 ├── heartbeat-reply-check.ts    # Missed reply detection

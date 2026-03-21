@@ -328,17 +328,19 @@ Connection management: ping/pong heartbeat every 30s, automatic cleanup on disco
 ```
 persona/
 ├── _shared/
-│   └── bootstrap.md            # Response format rules (order 5, shared by all)
+│   ├── bootstrap.md            # Response format rules (order 5, shared by all)
+│   └── lore.md                 # Shared Lumie lore and Covenant (order 6)
 ├── aelora/
 │   ├── soul.md                 # Behavioral core (order 10, botName: "Aelora")
 │   ├── skills.md               # Character skills (order 50)
 │   ├── tools.md                # Tool usage instructions (order 80)
 │   └── templates/user.md       # Per-user preferences (placeholder)
-├── wendy/                      # soul, skills, tools, templates
-├── arlo/                       # soul, skills, tools, templates
-└── batperson/
-    ├── bootstrap.md            # Overrides _shared/bootstrap.md
-    ├── soul.md                 # Absurdist hero (botName: "BatPerson")
+├── wendy/                      # soul, backstory, skills, tools
+├── arlo/                       # soul, skills, tools
+├── tyler/                      # soul, skills, tools
+└── patyna/
+    ├── bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
+    ├── soul.md
     └── skills.md
 ```
 
@@ -1497,7 +1499,7 @@ After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence pers
 |------|---------|-------------------|
 | Conversation history | In-memory Map + periodic disk save (`data/memory/conversations.json`) | Yes (saved every 5 min by heartbeat) |
 | Notes | `data/notes.json` (disk) | Yes |
-| Tasks / todos | Google Tasks API (primary) | Yes |
+| Tasks | Google Tasks API (per-user lists) | Yes |
 | Tool/agent enabled state | `data/toggle-state.json` (disk) | Yes |
 | Cron jobs + execution history | `data/cron-jobs.json` (disk, atomic writes) | Yes |
 | Memory facts | `data/memory.json` (disk) | Yes |

@@ -307,6 +307,29 @@ export function searchFactsKeyword(
   return results;
 }
 
+/** Human-readable relative time from an ISO timestamp. */
+function timeAgo(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime();
+  const hours = ms / (1000 * 60 * 60);
+  if (hours < 24) return "today";
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks <= 3) return weeks === 1 ? "last week" : `${weeks} weeks ago`;
+  const months = Math.floor(days / 30);
+  return months <= 1 ? "last month" : `${months} months ago`;
+}
+
+/** Format a fact line with confidence and age metadata for prompt injection. */
+function formatFactLine(fact: string, scope: string): string {
+  const scopeFacts = store[scope] ?? [];
+  const factObj = scopeFacts.find((f) => f.fact === fact);
+  if (!factObj) return `- ${fact}`;
+  const conf = factObj.confidence === "stated" ? "stated" : "inferred";
+  return `- ${fact} (${conf}, ${timeAgo(factObj.savedAt)})`;
+}
+
 /**
  * Build a formatted memory block for system prompt injection.
  * When vector search is available and conversationContext is provided,
@@ -341,33 +364,33 @@ export async function getMemoryForPrompt(
           return { ...r, rank };
         }).sort((a, b) => b.rank - a.rank);
 
-        // Group by scope type
-        const global: string[] = [];
-        const user: string[] = [];
-        const channel: string[] = [];
+        // Group by scope type, keeping scope for metadata formatting
+        const global: { fact: string; scope: string }[] = [];
+        const user: { fact: string; scope: string }[] = [];
+        const channel: { fact: string; scope: string }[] = [];
 
         for (const r of ranked) {
           if (r.scope === "global" && global.length < MAX_GLOBAL_INJECTED) {
-            global.push(r.fact);
+            global.push({ fact: r.fact, scope: r.scope });
           } else if (r.scope.startsWith("user:") && user.length < MAX_SCOPED_INJECTED) {
-            user.push(r.fact);
+            user.push({ fact: r.fact, scope: r.scope });
           } else if (r.scope.startsWith("channel:") && channel.length < MAX_SCOPED_INJECTED) {
-            channel.push(r.fact);
+            channel.push({ fact: r.fact, scope: r.scope });
           }
         }
 
         // Track access for injected facts
         ensureAccessFlushTimer();
+        const allSelected = [...global, ...user, ...channel];
         for (const r of ranked) {
-          const selected = [...global, ...user, ...channel];
-          if (selected.includes(r.fact)) {
+          if (allSelected.some((s) => s.fact === r.fact)) {
             trackAccess(r.scope, r.fact);
           }
         }
 
         if (global.length > 0) {
           sections.push("### General knowledge");
-          for (const f of global) sections.push(`- ${f}`);
+          for (const f of global) sections.push(formatFactLine(f.fact, f.scope));
           const totalGlobal = store["global"]?.length ?? 0;
           if (totalGlobal > global.length) {
             sections.push(`_(${totalGlobal - global.length} more global facts available via memory search)_`);
@@ -375,7 +398,7 @@ export async function getMemoryForPrompt(
         }
         if (user.length > 0) {
           sections.push("### About this user");
-          for (const f of user) sections.push(`- ${f}`);
+          for (const f of user) sections.push(formatFactLine(f.fact, f.scope));
           const totalUser = userId ? (store[`user:${userId}`]?.length ?? 0) : 0;
           if (totalUser > user.length) {
             sections.push(`_(${totalUser - user.length} more user facts available via memory search)_`);
@@ -383,7 +406,7 @@ export async function getMemoryForPrompt(
         }
         if (channel.length > 0) {
           sections.push("### About this channel");
-          for (const f of channel) sections.push(`- ${f}`);
+          for (const f of channel) sections.push(formatFactLine(f.fact, f.scope));
           const totalChannel = channelId ? (store[`channel:${channelId}`]?.length ?? 0) : 0;
           if (totalChannel > channel.length) {
             sections.push(`_(${totalChannel - channel.length} more channel facts available via memory search)_`);
@@ -391,7 +414,7 @@ export async function getMemoryForPrompt(
         }
 
         if (sections.length > 0) {
-          return "\n\n## Memory\n" + sections.join("\n");
+          return "\n\n## Memory\nThings you know from past conversations. Reference these naturally when relevant, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed. The \"(stated/inferred, time)\" tags tell you how confident you should be and how to phrase it.\n" + sections.join("\n");
         }
       }
     } catch (err) {
@@ -411,18 +434,19 @@ function getMemoryForPromptRecency(userId: string | null, channelId: string | nu
   if (globalFacts && globalFacts.length > 0) {
     sections.push("### General knowledge");
     const recent = globalFacts.slice(-MAX_GLOBAL_INJECTED);
-    for (const f of recent) sections.push(`- ${f.fact}`);
+    for (const f of recent) sections.push(formatFactLine(f.fact, "global"));
     if (globalFacts.length > MAX_GLOBAL_INJECTED) {
       sections.push(`_(${globalFacts.length - MAX_GLOBAL_INJECTED} more global facts available via memory search)_`);
     }
   }
 
   if (userId) {
-    const userFacts = store[`user:${userId}`];
+    const scope = `user:${userId}`;
+    const userFacts = store[scope];
     if (userFacts && userFacts.length > 0) {
       sections.push("### About this user");
       const recent = userFacts.slice(-MAX_SCOPED_INJECTED);
-      for (const f of recent) sections.push(`- ${f.fact}`);
+      for (const f of recent) sections.push(formatFactLine(f.fact, scope));
       if (userFacts.length > MAX_SCOPED_INJECTED) {
         sections.push(`_(${userFacts.length - MAX_SCOPED_INJECTED} more user facts available via memory search)_`);
       }
@@ -430,11 +454,12 @@ function getMemoryForPromptRecency(userId: string | null, channelId: string | nu
   }
 
   if (channelId) {
-    const channelFacts = store[`channel:${channelId}`];
+    const scope = `channel:${channelId}`;
+    const channelFacts = store[scope];
     if (channelFacts && channelFacts.length > 0) {
       sections.push("### About this channel");
       const recent = channelFacts.slice(-MAX_SCOPED_INJECTED);
-      for (const f of recent) sections.push(`- ${f.fact}`);
+      for (const f of recent) sections.push(formatFactLine(f.fact, scope));
       if (channelFacts.length > MAX_SCOPED_INJECTED) {
         sections.push(`_(${channelFacts.length - MAX_SCOPED_INJECTED} more channel facts available via memory search)_`);
       }
@@ -442,7 +467,7 @@ function getMemoryForPromptRecency(userId: string | null, channelId: string | nu
   }
 
   if (sections.length === 0) return "";
-  return "\n\n## Memory\n" + sections.join("\n");
+  return "\n\n## Memory\nThings you know from past conversations. Reference these naturally when relevant, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed. The \"(stated/inferred, time)\" tags tell you how confident you should be and how to phrase it.\n" + sections.join("\n");
 }
 
 /**

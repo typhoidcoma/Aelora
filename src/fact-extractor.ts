@@ -9,6 +9,7 @@ import { saveFact, getFacts, deleteFact, searchFactsKeyword } from "./memory.js"
 import type { FactCategory, FactConfidence } from "./memory.js";
 import { isDuplicateSemantic, isReady as isVectorReady, formatError } from "./vector-store.js";
 import { getUser, updateUserSynthesis } from "./users.js";
+import { broadcastEvent } from "./logger.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
 
@@ -257,6 +258,21 @@ export async function extractFacts(
 
     if (saved > 0) {
       console.log(`FactExtractor: saved ${saved} fact(s) from channel ${channelId}`);
+      const allSavedFacts: string[] = [];
+      for (const arr of [parsed.user_facts, parsed.personality_facts, parsed.channel_facts, parsed.global_facts]) {
+        if (Array.isArray(arr)) {
+          for (const e of arr) {
+            const t = typeof e === "string" ? e : e?.fact;
+            if (t) allSavedFacts.push(t.slice(0, 80));
+          }
+        }
+      }
+      broadcastEvent("mindmap", {
+        type: "fact:extracted", conversationId: channelId,
+        count: saved, facts: allSavedFacts.slice(0, 8),
+        contradictions: Array.isArray(parsed.contradictions) ? parsed.contradictions.length : 0,
+        timestamp: new Date().toISOString(),
+      });
     }
 
     // Trigger personality synthesis if enough new facts have accumulated

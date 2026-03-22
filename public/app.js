@@ -21,6 +21,13 @@ let pollTimer = null;
 const pollLastRun = new Map();
 let consolePollInterval = null;
 
+// Mindmap state (declared early to avoid TDZ when restoreTab runs)
+let _cy = null;
+const _mindmapConvos = new Map();
+let _mindmapNodeCount = 0;
+const MINDMAP_MAX_NODES = 200;
+let _layoutDebounce = null;
+
 function buildUrl(url) {
   if (!url) return NORMALIZED_BASE_PATH || "/";
   if (/^https?:\/\//i.test(url)) return url;
@@ -76,6 +83,7 @@ function switchTab(tabName) {
     people: () => runTask("tab-people", async () => { await fetchSessions(); await fetchUsers(); }),
     automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchTasks(); }),
     system: () => runTask("tab-system", async () => { await fetchTools(); await fetchAgents(); }),
+    mindmap: () => initMindmap(),
   };
   if (tabRefreshMap[tabName]) tabRefreshMap[tabName]();
   closeMobileSidebar();
@@ -2017,6 +2025,14 @@ async function initConsole() {
     }
   });
 
+  evtSource.addEventListener("mindmap", (event) => {
+    try {
+      handleMindmapEvent(JSON.parse(event.data));
+    } catch {
+      /* ignore */
+    }
+  });
+
   evtSource.onerror = () => {
     if (window._logSource) {
       window._logSource.close();
@@ -3234,6 +3250,295 @@ document.addEventListener("visibilitychange", () => {
     startPolling();
   }
 });
+
+// ── Mindmap Visualizer ──────────────────────────────────────────
+
+function initMindmap() {
+  if (_cy) return;
+  if (typeof cytoscape === "undefined") {
+    console.warn("Mindmap: Cytoscape.js not loaded yet");
+    return;
+  }
+  if (typeof cytoscapeDagre !== "undefined") cytoscape.use(cytoscapeDagre);
+
+  _cy = cytoscape({
+    container: document.getElementById("mindmap-container"),
+    style: [
+      { selector: "node", style: {
+        label: "data(label)", "text-wrap": "wrap", "text-max-width": "140px",
+        "font-size": "11px", color: "#e0e0e0", "text-valign": "center", "text-halign": "center",
+        width: "label", height: "label", padding: "10px",
+        "border-width": 2, "border-color": "#555",
+      }},
+      { selector: "edge", style: {
+        width: 2, "line-color": "#555", "target-arrow-color": "#555",
+        "target-arrow-shape": "triangle", "curve-style": "bezier",
+        label: "data(label)", "font-size": "9px", color: "#888",
+        "text-rotation": "autorotate", "text-margin-y": -8,
+      }},
+      { selector: ".conv", style: { shape: "round-rectangle", "background-color": "#7c3aed", "border-color": "#a78bfa" }},
+      { selector: ".conv-done", style: { "background-color": "#5b21b6", "border-color": "#7c3aed" }},
+      { selector: ".msg-user", style: { shape: "round-rectangle", "background-color": "#1e40af", "border-color": "#3b82f6" }},
+      { selector: ".msg-assistant", style: { shape: "round-rectangle", "background-color": "#92400e", "border-color": "#d4a843" }},
+      { selector: ".memory", style: { shape: "ellipse", "background-color": "#065f46", "border-color": "#10b981" }},
+      { selector: ".kb", style: { shape: "ellipse", "background-color": "#115e59", "border-color": "#14b8a6" }},
+      { selector: ".tool", style: { shape: "diamond", "background-color": "#78350f", "border-color": "#f59e0b" }},
+      { selector: ".tool-ok", style: { "border-color": "#22c55e" }},
+      { selector: ".tool-fail", style: { "border-color": "#ef4444" }},
+      { selector: ".fact", style: { shape: "hexagon", "background-color": "#831843", "border-color": "#ec4899" }},
+      { selector: ".mood", style: { shape: "ellipse", "background-color": "#3730a3", "border-color": "#818cf8" }},
+      { selector: ".iteration", style: { shape: "round-rectangle", "background-color": "#374151", "border-color": "#6b7280" }},
+      { selector: ":selected", style: { "border-width": 3, "border-color": "#fad46d" }},
+    ],
+    layout: { name: "preset" },
+    minZoom: 0.15,
+    maxZoom: 3,
+  });
+
+  _cy.on("tap", "node", (evt) => showMindmapDetail(evt.target));
+  _cy.on("tap", (evt) => { if (evt.target === _cy) hideMindmapDetail(); });
+}
+
+function _nextNodeId() { return "mn-" + (++_mindmapNodeCount); }
+
+function _addNode(id, label, cls, conversationId, data) {
+  if (!_cy) initMindmap();
+  if (!_cy) return;
+  _cy.add({ data: { id, label, conversationId, ...data }, classes: cls });
+  _evictIfNeeded();
+  _scheduleLayout();
+  document.getElementById("mindmap-node-count").textContent = _cy.nodes().length + " nodes";
+}
+
+function _addEdge(source, target, label) {
+  if (!_cy || !_cy.getElementById(source).length || !_cy.getElementById(target).length) return;
+  _cy.add({ data: { source, target, label: label || "" } });
+}
+
+function _scheduleLayout() {
+  if (_layoutDebounce) clearTimeout(_layoutDebounce);
+  _layoutDebounce = setTimeout(() => {
+    if (!_cy || _cy.nodes().length === 0) return;
+    _cy.layout({
+      name: "dagre",
+      rankDir: "TB",
+      nodeSep: 40,
+      rankSep: 50,
+      animate: true,
+      animationDuration: 300,
+      fit: document.getElementById("mindmap-auto-follow")?.checked ?? true,
+      padding: 30,
+    }).run();
+  }, 500);
+}
+
+function _evictIfNeeded() {
+  if (!_cy || _cy.nodes().length <= MINDMAP_MAX_NODES) return;
+  // Find oldest conversation and remove all its nodes
+  let oldest = null;
+  let oldestTs = Infinity;
+  for (const [cid, info] of _mindmapConvos) {
+    if (info.createdAt < oldestTs) { oldestTs = info.createdAt; oldest = cid; }
+  }
+  if (oldest) {
+    _cy.nodes().filter((n) => n.data("conversationId") === oldest).remove();
+    _mindmapConvos.delete(oldest);
+    // Remove from filter dropdown
+    const opt = document.querySelector(`#mindmap-conversation-filter option[value="${oldest}"]`);
+    if (opt) opt.remove();
+  }
+}
+
+function _getConvo(conversationId) {
+  if (!_mindmapConvos.has(conversationId)) {
+    _mindmapConvos.set(conversationId, { rootId: null, lastIterationId: null, lastMsgId: null, createdAt: Date.now() });
+  }
+  return _mindmapConvos.get(conversationId);
+}
+
+function handleMindmapEvent(data) {
+  if (!data || !data.type) return;
+  const cid = data.conversationId || "unknown";
+  const convo = _getConvo(cid);
+
+  switch (data.type) {
+    case "conversation:start": {
+      // Reuse existing root node for the same conversation/channel
+      if (convo.rootId && _cy && _cy.getElementById(convo.rootId).length) {
+        // Reset per-turn tracking but keep the same root
+        convo.lastIterationId = null;
+        break;
+      }
+      const id = _nextNodeId();
+      const shortCid = cid.length > 12 ? "..." + cid.slice(-8) : cid;
+      _addNode(id, "Conv: " + shortCid, "conv", cid, { eventType: "conversation:start", userId: data.userId, source: data.source });
+      convo.rootId = id;
+      convo.lastMsgId = id;
+      // Add to filter dropdown
+      const select = document.getElementById("mindmap-conversation-filter");
+      if (select && !select.querySelector(`option[value="${cid}"]`)) {
+        const opt = document.createElement("option");
+        opt.value = cid;
+        opt.textContent = shortCid;
+        select.appendChild(opt);
+      }
+      break;
+    }
+
+    case "conversation:message": {
+      const id = _nextNodeId();
+      const cls = data.role === "user" ? "msg-user" : "msg-assistant";
+      const label = (data.role === "user" ? "User" : "Bot") + ": " + (data.preview || "").slice(0, 60);
+      _addNode(id, label, cls, cid, { eventType: "conversation:message", role: data.role, preview: data.preview });
+      const parentId = convo.lastIterationId || convo.lastMsgId || convo.rootId;
+      if (parentId) _addEdge(parentId, id);
+      convo.lastMsgId = id;
+      if (data.role === "user") convo.lastIterationId = null; // reset for new turn
+      break;
+    }
+
+    case "llm:iteration": {
+      const id = _nextNodeId();
+      _addNode(id, "Iter " + data.iteration + "\n" + data.durationMs + "ms", "iteration", cid, { eventType: "llm:iteration", iteration: data.iteration, durationMs: data.durationMs });
+      const parentId = convo.lastMsgId || convo.rootId;
+      if (parentId && !convo.lastIterationId) _addEdge(parentId, id);
+      if (convo.lastIterationId) _addEdge(convo.lastIterationId, id, "next");
+      convo.lastIterationId = id;
+      break;
+    }
+
+    case "memory:search": {
+      const id = _nextNodeId();
+      const label = "Memory\n" + data.resultCount + " facts";
+      _addNode(id, label, "memory", cid, { eventType: "memory:search", resultCount: data.resultCount, topFacts: data.topFacts });
+      const parentId = convo.lastIterationId || convo.lastMsgId;
+      if (parentId) _addEdge(parentId, id, "recall");
+      break;
+    }
+
+    case "kb:search": {
+      const id = _nextNodeId();
+      const label = "KB\n" + data.resultCount + " docs";
+      _addNode(id, label, "kb", cid, { eventType: "kb:search", resultCount: data.resultCount, fileNames: data.fileNames });
+      const parentId = convo.lastIterationId || convo.lastMsgId;
+      if (parentId) _addEdge(parentId, id, "reference");
+      break;
+    }
+
+    case "tool:start": {
+      const id = _nextNodeId();
+      _addNode(id, "Tool: " + data.toolName, "tool", cid, { eventType: "tool:start", toolName: data.toolName, args: data.args, _toolNodeId: id });
+      const parentId = convo.lastIterationId || convo.lastMsgId;
+      if (parentId) _addEdge(parentId, id, "invoke");
+      convo._lastToolId = id;
+      break;
+    }
+
+    case "tool:end": {
+      // Update the existing tool node with result status
+      const toolId = convo._lastToolId;
+      if (toolId && _cy) {
+        const node = _cy.getElementById(toolId);
+        if (node.length) {
+          node.addClass(data.success ? "tool-ok" : "tool-fail");
+          node.data("label", "Tool: " + data.toolName + "\n" + data.durationMs + "ms" + (data.success ? "" : " FAIL"));
+          node.data("preview", data.preview);
+          node.data("success", data.success);
+        }
+      }
+      break;
+    }
+
+    case "fact:extracted": {
+      const id = _nextNodeId();
+      const label = "Facts\n+" + data.count + (data.contradictions > 0 ? " (-" + data.contradictions + ")" : "");
+      _addNode(id, label, "fact", cid, { eventType: "fact:extracted", count: data.count, facts: data.facts, contradictions: data.contradictions });
+      const parentId = convo.lastMsgId || convo.lastIterationId;
+      if (parentId) _addEdge(parentId, id, "learn");
+      break;
+    }
+
+    case "mood:classified": {
+      const id = _nextNodeId();
+      _addNode(id, "Mood: " + data.label, "mood", cid, { eventType: "mood:classified", emotion: data.emotion, intensity: data.intensity, label: data.label });
+      const parentId = convo.lastMsgId || convo.lastIterationId;
+      if (parentId) _addEdge(parentId, id, "feel");
+      break;
+    }
+
+    case "conversation:end": {
+      // Reset per-turn tracking so the next message in this channel branches from the last assistant reply
+      convo.lastIterationId = null;
+      break;
+    }
+  }
+}
+
+function showMindmapDetail(node) {
+  const panel = document.getElementById("mindmap-detail-panel");
+  if (!panel) return;
+  const d = node.data();
+  let html = `<button class="close-btn" onclick="hideMindmapDetail()">&times;</button>`;
+  html += `<h4>${d.eventType || "Node"}</h4>`;
+
+  if (d.preview) html += `<p>${esc(d.preview)}</p>`;
+  if (d.topFacts && d.topFacts.length > 0) {
+    html += `<p><strong>Top facts:</strong></p><ul>${d.topFacts.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
+  }
+  if (d.facts && d.facts.length > 0) {
+    html += `<p><strong>Extracted:</strong></p><ul>${d.facts.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
+  }
+  if (d.fileNames && d.fileNames.length > 0) {
+    html += `<p><strong>Files:</strong> ${d.fileNames.map(escapeHtml).join(", ")}</p>`;
+  }
+  if (d.args) {
+    html += `<p><strong>Args:</strong></p><pre>${esc(JSON.stringify(d.args, null, 2))}</pre>`;
+  }
+  if (d.durationMs !== undefined) html += `<p><strong>Duration:</strong> ${d.durationMs}ms</p>`;
+  if (d.success !== undefined) html += `<p><strong>Success:</strong> ${d.success}</p>`;
+  if (d.contradictions !== undefined) html += `<p><strong>Contradictions:</strong> ${d.contradictions}</p>`;
+  if (d.conversationId) html += `<p class="muted" style="font-size:0.7rem;">Conv: ${esc(d.conversationId)}</p>`;
+
+  panel.innerHTML = html;
+  panel.style.display = "block";
+}
+
+function hideMindmapDetail() {
+  const panel = document.getElementById("mindmap-detail-panel");
+  if (panel) panel.style.display = "none";
+}
+
+function clearMindmap() {
+  if (_cy) _cy.elements().remove();
+  _mindmapConvos.clear();
+  _mindmapNodeCount = 0;
+  const select = document.getElementById("mindmap-conversation-filter");
+  if (select) select.innerHTML = '<option value="all">All Conversations</option>';
+  document.getElementById("mindmap-node-count").textContent = "0 nodes";
+  hideMindmapDetail();
+}
+
+function fitMindmap() {
+  if (_cy && _cy.nodes().length > 0) _cy.fit(_cy.elements(), 30);
+}
+
+function filterMindmapConversation(value) {
+  if (!_cy) return;
+  if (value === "all") {
+    _cy.nodes().show();
+    _cy.edges().show();
+  } else {
+    _cy.nodes().forEach((n) => {
+      if (n.data("conversationId") === value) { n.show(); } else { n.hide(); }
+    });
+    _cy.edges().forEach((e) => {
+      const src = e.source();
+      const tgt = e.target();
+      if (src.visible() && tgt.visible()) { e.show(); } else { e.hide(); }
+    });
+  }
+  fitMindmap();
+}
 
 // --- Init ---
 checkAuth();

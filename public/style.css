@@ -2011,3 +2011,85 @@ body.mobile-sidebar-open .mobile-sidebar-backdrop {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Mindmap Tab ─────────────────────────────── */
+
+.mindmap-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mindmap-controls select {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+.mindmap-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+#mindmap-container {
+  width: 100%;
+  height: calc(100vh - 180px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  position: relative;
+}
+
+.mindmap-detail {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  max-width: 420px;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+.mindmap-detail h4 {
+  margin: 0 0 0.4rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.mindmap-detail pre {
+  background: var(--bg);
+  padding: 0.4rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mindmap-detail .close-btn {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 1rem;
+  background: none;
+  border: none;
+}

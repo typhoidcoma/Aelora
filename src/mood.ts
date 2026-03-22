@@ -109,7 +109,7 @@ export function buildMoodPromptSection(): string {
  * Makes a lightweight direct LLM call (no tools, no persona).
  * Skips if mood was updated less than CLASSIFY_COOLDOWN_MS ago.
  */
-export async function classifyMood(botResponse: string, userMessage: string): Promise<void> {
+export async function classifyMood(botResponse: string, userMessage: string, channelId?: string): Promise<void> {
   // Throttle: skip if classified very recently (prevents API spam during rapid-fire messages)
   const current = loadMood();
   if (current) {
@@ -177,4 +177,13 @@ export async function classifyMood(botResponse: string, userMessage: string): Pr
   };
 
   saveMood(mood);
+
+  if (channelId) {
+    broadcastEvent("mindmap", {
+      type: "mood:classified", conversationId: channelId,
+      emotion: mood.emotion, intensity: mood.intensity,
+      label: resolveLabel(mood),
+      timestamp: new Date().toISOString(),
+    });
+  }
 }

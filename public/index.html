@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Aelora 🦋 Dashboard</title>
   <link rel="stylesheet" href="style.css">
+  <script defer src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+  <script defer src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script defer src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 </head>
 <body>
   <!-- Top bar -->
@@ -34,6 +37,7 @@
         <button class="tab-btn" data-tab="people" onclick="switchTab('people')">People</button>
         <button class="tab-btn" data-tab="automation" onclick="switchTab('automation')">Automation</button>
         <button class="tab-btn" data-tab="system" onclick="switchTab('system')">System</button>
+        <button class="tab-btn" data-tab="mindmap" onclick="switchTab('mindmap')">Mindmap</button>
       </nav>
 
       <!-- Tab: Home -->
@@ -584,6 +588,23 @@
       </section>
 
       </div><!-- /tab: system -->
+
+      <!-- Tab: Mindmap -->
+      <div class="tab-pane" data-tab="mindmap">
+        <div class="mindmap-controls">
+          <select id="mindmap-conversation-filter" onchange="filterMindmapConversation(this.value)">
+            <option value="all">All Conversations</option>
+          </select>
+          <button class="btn btn-xs" onclick="clearMindmap()">Clear</button>
+          <button class="btn btn-xs" onclick="fitMindmap()">Fit View</button>
+          <label class="mindmap-toggle">
+            <input type="checkbox" id="mindmap-auto-follow" checked> Auto-follow
+          </label>
+          <span class="muted" id="mindmap-node-count">0 nodes</span>
+        </div>
+        <div id="mindmap-container"></div>
+        <div id="mindmap-detail-panel" class="mindmap-detail" style="display:none;"></div>
+      </div><!-- /tab: mindmap -->
 
     </main>
 

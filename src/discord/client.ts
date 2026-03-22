@@ -421,7 +421,7 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
 
     // Auto-classify mood from the response (async, best-effort)
     const userText = typeof userContent === "string" ? userContent : content;
-    classifyMood(text, userText).catch((err) => console.warn("Mood classify failed:", err));
+    classifyMood(text, userText, message.channelId).catch((err) => console.warn("Mood classify failed:", err));
 
     // Auto-extract facts from the conversation (async, best-effort)
     if (config.memory.autoExtract !== false) {

@@ -13,6 +13,7 @@ import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
 import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
 import { queueTextWrite } from "./async-write-queue.js";
+import { broadcastEvent } from "./logger.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -20,6 +21,12 @@ type UserContent = string | ContentPart[];
 
 /** Called for each text token during streaming. */
 export type OnTokenCallback = (token: string) => void;
+
+/** Truncate text for mindmap event previews. */
+function truncatePreview(text: string | ContentPart[], maxLen = 80): string {
+  const str = typeof text === "string" ? text : text.map((p) => ("text" in p ? p.text : "[media]")).join(" ");
+  return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+}
 
 /** Called when the LLM is about to execute tool(s). Names of tools being called are passed. */
 export type OnToolCallCallback = (toolNames: string[]) => void;
@@ -365,6 +372,10 @@ export async function getLLMResponse(
   userId?: string,
   onToolCall?: OnToolCallCallback,
 ): Promise<string> {
+  const llmStartTime = Date.now();
+  broadcastEvent("mindmap", { type: "conversation:start", conversationId: channelId, userId, source: "discord", timestamp: new Date().toISOString() });
+  broadcastEvent("mindmap", { type: "conversation:message", conversationId: channelId, role: "user", preview: truncatePreview(userMessage), timestamp: new Date().toISOString() });
+
   const history = getHistory(channelId);
 
   // Sanitize any poisoned entries from previous sessions or crashed requests
@@ -404,10 +415,13 @@ export async function getLLMResponse(
       history.pop();
     }
 
+    broadcastEvent("mindmap", { type: "conversation:message", conversationId: channelId, role: "assistant", preview: truncatePreview(result), timestamp: new Date().toISOString() });
+    broadcastEvent("mindmap", { type: "conversation:end", conversationId: channelId, totalDurationMs: Date.now() - llmStartTime, timestamp: new Date().toISOString() });
     return result;
   } catch (err) {
     // Remove the failed user message so history stays clean
     history.pop();
+    broadcastEvent("mindmap", { type: "conversation:end", conversationId: channelId, totalDurationMs: Date.now() - llmStartTime, error: true, timestamp: new Date().toISOString() });
     throw err;
   }
 }
@@ -545,9 +559,24 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
         : Promise.resolve([]),
     ]);
 
-    if (memoryBlock) sections.push("\n\n" + memoryBlock);
+    if (memoryBlock) {
+      sections.push("\n\n" + memoryBlock);
+      const factLines = memoryBlock.split("\n").filter((l) => l.startsWith("- "));
+      broadcastEvent("mindmap", {
+        type: "memory:search", conversationId: channelId ?? "unknown",
+        resultCount: factLines.length,
+        topFacts: factLines.slice(0, 5).map((l) => l.slice(2, 82)),
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     if (kbResults.length > 0) {
+      broadcastEvent("mindmap", {
+        type: "kb:search", conversationId: channelId ?? "unknown",
+        resultCount: kbResults.length,
+        fileNames: kbResults.map((r) => r.fileName),
+        timestamp: new Date().toISOString(),
+      });
       const kbLines = kbResults.map(
         (r) => `**${r.fileName}** (excerpt):\n> ${r.chunk.replace(/\n/g, "\n> ")}`,
       );
@@ -927,7 +956,9 @@ async function runCompletionLoop(
       }
 
       thinkFilter.flush();
-      console.log(`LLM: stream complete ${Date.now() - apiStart}ms`);
+      const streamMs = Date.now() - apiStart;
+      console.log(`LLM: stream complete ${streamMs}ms`);
+      broadcastEvent("mindmap", { type: "llm:iteration", conversationId: channelId ?? "unknown", iteration: i + 1, durationMs: streamMs, timestamp: new Date().toISOString() });
 
       content = stripThinkBlocks(contentAccum) || null;
 
@@ -978,6 +1009,7 @@ async function runCompletionLoop(
       } else {
         console.log(`LLM: response ${apiMs}ms`);
       }
+      broadcastEvent("mindmap", { type: "llm:iteration", conversationId: channelId ?? "unknown", iteration: i + 1, durationMs: apiMs, timestamp: new Date().toISOString() });
 
       content = choice.message.content ? stripThinkBlocks(choice.message.content) || null : null;
       toolCalls = choice.message.tool_calls ?? undefined;
@@ -1006,13 +1038,27 @@ async function runCompletionLoop(
         const isAgent = allowAgentDispatch && agentRegistryCache?.isAgent(toolCall.function.name);
         console.log(`LLM: calling ${isAgent ? "agent" : "tool"} "${toolCall.function.name}"`);
 
+        broadcastEvent("mindmap", {
+          type: "tool:start", conversationId: channelId ?? "unknown",
+          toolName: toolCall.function.name, args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 200) : v])),
+          timestamp: new Date().toISOString(),
+        });
+
         // Dispatch: agent or tool?
+        const toolStart = Date.now();
         let result: string;
         if (isAgent) {
           result = await agentRegistryCache!.executeAgent(toolCall.function.name, args, channelId);
         } else {
           result = await executeToolText(toolCall.function.name, args, channelId, userId);
         }
+
+        broadcastEvent("mindmap", {
+          type: "tool:end", conversationId: channelId ?? "unknown",
+          toolName: toolCall.function.name, success: !result.startsWith("Error:"),
+          preview: result.slice(0, 120), durationMs: Date.now() - toolStart,
+          timestamp: new Date().toISOString(),
+        });
 
         toolResults.push({ name: toolCall.function.name, result });
       }

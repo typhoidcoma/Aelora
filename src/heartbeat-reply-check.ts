@@ -220,7 +220,7 @@ const replyCheck: HeartbeatHandler = {
             }
 
             const userText = typeof userContent === "string" ? userContent : content;
-            classifyMood(text, userText).catch(() => {});
+            classifyMood(text, userText, msg.channelId).catch(() => {});
           }
         } catch (err) {
           console.error(`Reply-check: failed to reply to message ${msg.id}:`, err);

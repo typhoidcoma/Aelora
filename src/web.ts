@@ -683,7 +683,7 @@ export function startWeb(state: AppState): Server | null {
 
       // Side effects (async, best-effort)
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
+      classifyMood(reply, message, sessionId).catch((err) => console.warn("Mood classify failed:", err));
       if (config.memory.autoExtract !== false) {
         extractFacts(message, reply, sessionId, userId ?? undefined)
           .catch((err) => console.warn("Fact extraction failed:", err));
@@ -741,7 +741,7 @@ export function startWeb(state: AppState): Server | null {
       }
 
       appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message).catch((err) => console.warn("Mood classify failed:", err));
+      classifyMood(reply, message, sessionId).catch((err) => console.warn("Mood classify failed:", err));
       if (config.memory.autoExtract !== false) {
         extractFacts(message, reply, sessionId, userId ?? undefined)
           .catch((err) => console.warn("Fact extraction failed:", err));

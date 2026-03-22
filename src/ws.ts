@@ -115,7 +115,8 @@ export function startWebSocket(server: Server, config: Config): void {
       clients.delete(ws);
     });
 
-    ws.on("error", () => {
+    ws.on("error", (err) => {
+      console.warn("WebSocket client error:", err.message);
       clients.delete(ws);
     });
 

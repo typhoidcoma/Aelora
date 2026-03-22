@@ -43,7 +43,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
 - **Security Hardening (Compat Mode)** - Bearer-first auth with deprecated query-token fallback and sensitive-route protection
-- **Web Dashboard** - 6-tab layout (Home, Persona, Data, People, Automation, System) with at-a-glance stat cards, achievements, calendar, scoring, live console, and full data management
+- **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with at-a-glance stat cards, achievements, calendar, scoring, live console, real-time LLM conversation visualization, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Async Persistence Queue** - Debounced/coalesced async writes with bounded flush and graceful shutdown draining
 - **Connection Guards** - SSE/WS client caps and payload-size limits for stream/export endpoints
@@ -189,6 +189,7 @@ After enough completions in a category, the system builds a personal baseline us
   - [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) - Core scoring tables
   - [supabase/migrations/002_add_linear_source.sql](supabase/migrations/002_add_linear_source.sql) - Linear source type
   - [supabase/migrations/003_user_task_lists.sql](supabase/migrations/003_user_task_lists.sql) - Per-user task lists
+  - [supabase/migrations/004_user_calendar.sql](supabase/migrations/004_user_calendar.sql) - Per-user calendar mapping
 3. Disable RLS on all 5 scoring tables (this is a private bot with server-side auth):
 
 ```sql

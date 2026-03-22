@@ -43,7 +43,7 @@ let config: VectorStoreConfig | null = null;
 
 // Simple LRU cache for recent embeddings to avoid redundant API calls
 const embeddingCache = new Map<string, number[]>();
-const CACHE_MAX = 100;
+const CACHE_MAX = 500;
 
 // ── Initialisation ───────────────────────────────────────
 

@@ -626,12 +626,14 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 | Agent | Description | Tools |
 |-------|-------------|-------|
 | `researcher` | Multi-step web research with synthesis and optional note saving | `web_search`, `notes` |
+| `sprint_planner` | Sprint planning via Linear backlog analysis, capacity review, and prioritized plan with assignments | `linear` |
+| `standup` | Team standup report from Linear — completed, in-progress, blocked, and at-risk issues | `linear` |
 
 ---
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts), [src/heartbeat-consolidation.ts](src/heartbeat-consolidation.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts), [src/heartbeat-consolidation.ts](src/heartbeat-consolidation.ts), [src/heartbeat-knowledge-sync.ts](src/heartbeat-knowledge-sync.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 15 minutes).
 
@@ -1311,7 +1313,7 @@ When `activity.enabled` is false:
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard is organized into **6 tabs**: Home, Persona, Data, People, Automation, and System. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory, Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Tasks (with per-user lists, score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
+Dashboard is organized into **7 tabs**: Home, Persona, Data, People, Automation, System, and Mindmap. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory, Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Tasks (with per-user lists, score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). The **Mindmap tab** provides a real-time visualization of LLM conversation processing using Cytoscape.js with a dagre (top-down) layout — showing conversation flow, memory lookups, KB searches, tool calls, fact extraction, and mood classification as an interactive graph. Events are broadcast via the existing SSE `broadcastEvent("mindmap", ...)` system from `src/llm.ts`, `src/fact-extractor.ts`, and `src/mood.ts`. A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
 
 ---
 

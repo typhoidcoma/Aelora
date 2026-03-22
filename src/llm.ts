@@ -551,7 +551,7 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
   {
     const [memoryBlock, kbResults] = await Promise.all([
       getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
-      conversationContext
+      conversationContext && conversationContext.length >= 20
         ? searchKnowledgeBase(conversationContext).catch((err) => {
             console.warn("KnowledgeBase: search failed during prompt build:", err instanceof Error ? err.message : err);
             return [] as Awaited<ReturnType<typeof searchKnowledgeBase>>;
@@ -1022,45 +1022,70 @@ async function runCompletionLoop(
         onToolCall(toolCalls.map((tc) => tc.function.name));
       }
 
-      // Collect tool names and results for flattened format
-      const toolResults: { name: string; result: string }[] = [];
-
-      for (const toolCall of toolCalls) {
+      // Parse all tool call args up front and classify as agent vs tool
+      const parsed = toolCalls.map((tc) => {
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(safeToolArgs(toolCall.function.arguments));
+          args = JSON.parse(safeToolArgs(tc.function.arguments));
         } catch {
-          console.warn(
-            `LLM: invalid JSON in tool call args for ${toolCall.function.name}: ${(toolCall.function.arguments || "").slice(0, 300)}`,
-          );
+          console.warn(`LLM: invalid JSON in tool call args for ${tc.function.name}: ${(tc.function.arguments || "").slice(0, 300)}`);
         }
+        const isAgent = allowAgentDispatch && agentRegistryCache?.isAgent(tc.function.name);
+        return { tc, args, isAgent };
+      });
 
-        const isAgent = allowAgentDispatch && agentRegistryCache?.isAgent(toolCall.function.name);
-        console.log(`LLM: calling ${isAgent ? "agent" : "tool"} "${toolCall.function.name}"`);
+      // Execute tool calls — tools run in parallel, agents run sequentially
+      const toolResults: { name: string; result: string }[] = new Array(parsed.length);
 
+      // Run all non-agent tool calls in parallel
+      const toolPromises = parsed.map(async ({ tc, args, isAgent }, idx) => {
+        if (isAgent) return; // agents handled below
+
+        console.log(`LLM: calling tool "${tc.function.name}"`);
         broadcastEvent("mindmap", {
           type: "tool:start", conversationId: channelId ?? "unknown",
-          toolName: toolCall.function.name, args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 200) : v])),
+          toolName: tc.function.name, args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 200) : v])),
           timestamp: new Date().toISOString(),
         });
 
-        // Dispatch: agent or tool?
         const toolStart = Date.now();
-        let result: string;
-        if (isAgent) {
-          result = await agentRegistryCache!.executeAgent(toolCall.function.name, args, channelId);
-        } else {
-          result = await executeToolText(toolCall.function.name, args, channelId, userId);
-        }
+        const result = await executeToolText(tc.function.name, args, channelId, userId);
 
         broadcastEvent("mindmap", {
           type: "tool:end", conversationId: channelId ?? "unknown",
-          toolName: toolCall.function.name, success: !result.startsWith("Error:"),
+          toolName: tc.function.name, success: !result.startsWith("Error:"),
           preview: result.slice(0, 120), durationMs: Date.now() - toolStart,
           timestamp: new Date().toISOString(),
         });
 
-        toolResults.push({ name: toolCall.function.name, result });
+        toolResults[idx] = { name: tc.function.name, result };
+      });
+
+      await Promise.all(toolPromises);
+
+      // Run agent calls sequentially (heavyweight sub-loops, may have ordering dependencies)
+      for (let idx = 0; idx < parsed.length; idx++) {
+        const { tc, args, isAgent } = parsed[idx];
+        if (!isAgent) continue;
+
+        console.log(`LLM: calling agent "${tc.function.name}"`);
+        broadcastEvent("mindmap", {
+          type: "tool:start", conversationId: channelId ?? "unknown",
+          toolName: tc.function.name, args: Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" ? v.slice(0, 200) : v])),
+          timestamp: new Date().toISOString(),
+        });
+
+        const toolStart = Date.now();
+        const result = await agentRegistryCache!.executeAgent(tc.function.name, args, channelId);
+
+        broadcastEvent("mindmap", {
+          type: "tool:end", conversationId: channelId ?? "unknown",
+          toolName: tc.function.name, success: !result.startsWith("Error:"),
+          preview: result.slice(0, 120), durationMs: Date.now() - toolStart,
+          timestamp: new Date().toISOString(),
+        });
+
+        toolResults[idx] = { name: tc.function.name, result };
       }
 
       // Track tool records for post-response verification

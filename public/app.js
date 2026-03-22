@@ -7,10 +7,41 @@ const BASE_PATH = (() => {
   const idx = path.indexOf("/dashboard");
   return idx > 0 ? path.slice(0, idx) : "";
 })();
+const NORMALIZED_BASE_PATH = BASE_PATH.endsWith("/") ? BASE_PATH.slice(0, -1) : BASE_PATH;
 
 // --- State ---
 let uptimeSeconds = 0;
 let uptimeInterval = null;
+let activeTab = "home";
+let queryTokenDeprecationShown = false;
+let sseQueryTokenNoticeShown = false;
+const inFlightFetchControllers = new Map();
+const runningTasks = new Set();
+let pollTimer = null;
+const pollLastRun = new Map();
+let consolePollInterval = null;
+
+function buildUrl(url) {
+  if (!url) return NORMALIZED_BASE_PATH || "/";
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/")) return `${NORMALIZED_BASE_PATH}${url}` || "/";
+  return `${NORMALIZED_BASE_PATH}/${url}` || `/${url}`;
+}
+
+function getActiveTab() {
+  const active = document.querySelector(".tab-pane.active");
+  return active?.dataset?.tab || activeTab || "home";
+}
+
+async function runTask(taskKey, taskFn) {
+  if (runningTasks.has(taskKey)) return;
+  runningTasks.add(taskKey);
+  try {
+    await taskFn();
+  } finally {
+    runningTasks.delete(taskKey);
+  }
+}
 
 // --- Toast system ---
 function showToast(message, type = "success") {
@@ -28,6 +59,7 @@ function showToast(message, type = "success") {
 
 // --- Tab navigation ---
 function switchTab(tabName) {
+  activeTab = tabName;
   document.querySelectorAll(".tab-pane").forEach((pane) => {
     pane.classList.toggle("active", pane.dataset.tab === tabName);
   });
@@ -38,14 +70,15 @@ function switchTab(tabName) {
 
   // Refresh data for the active tab
   const tabRefreshMap = {
-    home: () => fetchHomeData(),
-    persona: () => { fetchPersonas(); fetchPersona(); },
-    data: () => { fetchMemory(); fetchNotes(); fetchKnowledgeBase(); },
-    people: () => { fetchSessions(); fetchUsers(); },
-    automation: () => { fetchCalendarEvents(); fetchCron(); fetchTasks(); },
-    system: () => { fetchTools(); fetchAgents(); },
+    home: () => runTask("tab-home", () => fetchHomeData()),
+    persona: () => runTask("tab-persona", async () => { await fetchPersonas(); await fetchPersona(); }),
+    data: () => runTask("tab-data", async () => { await fetchMemory(); await fetchNotes(); await fetchKnowledgeBase(); }),
+    people: () => runTask("tab-people", async () => { await fetchSessions(); await fetchUsers(); }),
+    automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchTasks(); }),
+    system: () => runTask("tab-system", async () => { await fetchTools(); await fetchAgents(); }),
   };
   if (tabRefreshMap[tabName]) tabRefreshMap[tabName]();
+  closeMobileSidebar();
 }
 
 // Restore saved tab on load
@@ -60,6 +93,7 @@ function switchTab(tabName) {
 document.querySelectorAll(".section-header").forEach((header) => {
   const section = header.dataset.section;
   const body = document.querySelector(`.section-body[data-section="${section}"]`);
+  if (!body) return;
 
   // Restore saved state
   const saved = localStorage.getItem(`section-${section}`);
@@ -67,12 +101,24 @@ document.querySelectorAll(".section-header").forEach((header) => {
     body.classList.add("hidden");
     header.classList.add("collapsed");
   }
+  header.setAttribute("role", "button");
+  header.setAttribute("tabindex", "0");
+  header.setAttribute("aria-expanded", String(!body.classList.contains("hidden")));
 
-  header.addEventListener("click", (e) => {
+  const toggleSection = (e) => {
     if (e.target.closest(".btn, select, input")) return;
     const isHidden = body.classList.toggle("hidden");
     header.classList.toggle("collapsed", isHidden);
+    header.setAttribute("aria-expanded", String(!isHidden));
     localStorage.setItem(`section-${section}`, isHidden ? "collapsed" : "open");
+  };
+
+  header.addEventListener("click", toggleSection);
+  header.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleSection(e);
+    }
   });
 });
 
@@ -110,29 +156,84 @@ function clearApiKey() {
 }
 
 async function apiFetch(url, options = {}) {
+  const { resourceKey, ...fetchOptions } = options;
   const key = getApiKey();
+  const headers = { ...(fetchOptions.headers || {}) };
   if (key) {
-    options.headers = { ...options.headers, Authorization: `Bearer ${key}` };
+    headers.Authorization = `Bearer ${key}`;
   }
-  const res = await window.fetch(BASE_PATH + url, options);
+
+  let controller = null;
+  if (resourceKey) {
+    const previous = inFlightFetchControllers.get(resourceKey);
+    if (previous) previous.abort();
+    controller = new AbortController();
+    inFlightFetchControllers.set(resourceKey, controller);
+  }
+
+  let res;
+  try {
+    res = await window.fetch(buildUrl(url), {
+      ...fetchOptions,
+      headers,
+      signal: controller ? controller.signal : fetchOptions.signal,
+    });
+  } finally {
+    if (resourceKey && inFlightFetchControllers.get(resourceKey) === controller) {
+      inFlightFetchControllers.delete(resourceKey);
+    }
+  }
+
+  const warningHeader = res.headers.get("Warning");
+  if (!queryTokenDeprecationShown && warningHeader && /query token auth is deprecated/i.test(warningHeader)) {
+    queryTokenDeprecationShown = true;
+    showToast("Query-token auth is deprecated. Migrate clients to Authorization: Bearer.", "error");
+  }
+
   if (res.status === 401) {
     promptForApiKey();
     throw new Error("Unauthorized");
+  }
+  if (res.status === 403) {
+    let reason = "Access denied. Check API key or route policy.";
+    try {
+      const body = await res.clone().json();
+      if (body?.error) reason = body.error;
+    } catch {
+      // ignore parse failure
+    }
+    showToast(reason, "error");
+    throw new Error(reason);
+  }
+  if (res.status === 413) {
+    let reason = "Request or response payload too large.";
+    try {
+      const body = await res.clone().json();
+      if (body?.error) reason = body.error;
+    } catch {
+      // ignore parse failure
+    }
+    showToast(reason, "error");
+    throw new Error(reason);
   }
   return res;
 }
 
 function apiEventSource(url) {
   const key = getApiKey();
-  const fullUrl = BASE_PATH + url;
+  const fullUrl = buildUrl(url);
   const separator = fullUrl.includes("?") ? "&" : "?";
   const finalUrl = key ? `${fullUrl}${separator}token=${encodeURIComponent(key)}` : fullUrl;
+  if (key && !sseQueryTokenNoticeShown) {
+    sseQueryTokenNoticeShown = true;
+    showToast("Console stream currently uses query-token auth. Prefer Bearer auth for custom clients.", "error");
+  }
   return new EventSource(finalUrl);
 }
 
 async function checkAuth() {
   try {
-    const res = await window.fetch(BASE_PATH + "/api/status");
+    const res = await window.fetch(buildUrl("/api/status"));
     const data = await res.json();
     if (data.authRequired) {
       if (!getApiKey()) {
@@ -159,7 +260,7 @@ function promptForApiKey() {
 
 async function fetchStatus() {
   try {
-    const res = await apiFetch("/api/status");
+    const res = await apiFetch("/api/status", { resourceKey: "status" });
     const data = await res.json();
 
     const badge = document.getElementById("status-badge");
@@ -169,6 +270,11 @@ async function fetchStatus() {
     document.getElementById("guild-count").textContent = data.guildCount ?? "--";
     startUptimeTicker(data.uptime);
     updateTimestamp();
+    const live = data.liveClients || {};
+    const sseHealth = document.getElementById("health-sse");
+    const wsHealth = document.getElementById("health-ws");
+    if (sseHealth) sseHealth.textContent = `${live.sseClients ?? 0}/${live.maxSseClients ?? "--"}`;
+    if (wsHealth) wsHealth.textContent = `${live.wsClients ?? 0}/${live.maxWsClients ?? "--"}`;
   } catch (err) {
     console.error("fetchStatus:", err);
   }
@@ -186,7 +292,7 @@ async function fetchConfig() {
 
 async function fetchHeartbeat() {
   try {
-    const res = await apiFetch("/api/heartbeat");
+    const res = await apiFetch("/api/heartbeat", { resourceKey: "heartbeat" });
     const data = await res.json();
     const el = document.getElementById("heartbeat-status-badge");
 
@@ -204,7 +310,7 @@ async function fetchHeartbeat() {
 
 async function fetchSessions() {
   try {
-    const res = await apiFetch("/api/sessions");
+    const res = await apiFetch("/api/sessions", { resourceKey: "sessions" });
     const sessions = await res.json();
     const container = document.getElementById("sessions-content");
 
@@ -234,7 +340,7 @@ async function fetchSessions() {
             </div>
             <div class="session-users">${userList}</div>
             <div class="session-time">Last active ${ago}</div>
-            <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteSession('${esc(s.channelId)}')">&times;</button>
+            <button class="btn btn-danger btn-xs" title="Delete session" aria-label="Delete session" onclick="event.stopPropagation(); deleteSession('${esc(s.channelId)}')">&times;</button>
           </div>`;
       })
       .join("");
@@ -370,7 +476,7 @@ let memoryData = {};
 
 async function fetchMemory() {
   try {
-    const res = await apiFetch("/api/memory");
+    const res = await apiFetch("/api/memory", { resourceKey: "memory" });
     memoryData = await res.json();
     updateMemoryScopeFilter();
     renderMemoryFiltered();
@@ -420,7 +526,7 @@ function renderMemoryFiltered() {
             return `<div class="memory-fact">
               <span class="memory-fact-text">${esc(f.fact)}</span>
               <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
-              <button class="btn btn-danger btn-xs" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>
+              <button class="btn btn-danger btn-xs" title="Delete fact" aria-label="Delete fact" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>
             </div>`;
           },
         )
@@ -995,7 +1101,7 @@ function isToolActive(name) {
 
 async function fetchTools() {
   try {
-    const res = await apiFetch("/api/tools");
+    const res = await apiFetch("/api/tools", { resourceKey: "tools" });
     const tools = await res.json();
     toolsState = tools;
     const tbody = document.getElementById("tools-body");
@@ -1041,7 +1147,7 @@ async function toggleTool(name) {
 
 async function fetchUsers() {
   try {
-    const res = await apiFetch("/api/users");
+    const res = await apiFetch("/api/users", { resourceKey: "users" });
     const data = await res.json();
     const tbody = document.getElementById("users-body");
     const users = Object.values(data);
@@ -1063,7 +1169,7 @@ async function fetchUsers() {
         <td>${u.messageCount}</td>
         <td>${timeAgo(u.firstSeen)}</td>
         <td>${timeAgo(u.lastSeen)}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteUserDash('${esc(u.userId)}')">&times;</button></td>
+        <td><button class="btn btn-danger btn-xs" title="Delete user" aria-label="Delete user" onclick="event.stopPropagation(); deleteUserDash('${esc(u.userId)}')">&times;</button></td>
       </tr>`,
       )
       .join("");
@@ -1115,7 +1221,7 @@ async function showUserDetail(userId) {
           <div class="memory-fact">
             <span class="memory-fact-text">${esc(f.fact)}</span>
             <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
-            <button class="btn btn-danger btn-xs" onclick="event.stopPropagation(); deleteUserFact('${esc(userId)}', ${i})">&times;</button>
+            <button class="btn btn-danger btn-xs" title="Delete fact" aria-label="Delete fact" onclick="event.stopPropagation(); deleteUserFact('${esc(userId)}', ${i})">&times;</button>
           </div>`,
         )
         .join("");
@@ -1197,7 +1303,7 @@ async function clearUserFacts(userId) {
 
 async function fetchNotes() {
   try {
-    const res = await apiFetch("/api/notes");
+    const res = await apiFetch("/api/notes", { resourceKey: "notes" });
     const data = await res.json();
     const container = document.getElementById("notes-content");
     const scopes = Object.keys(data);
@@ -1222,7 +1328,7 @@ async function fetchNotes() {
                 <span class="memory-fact-text">${esc(preview)}</span>
                 <span class="memory-fact-time muted">${timeAgo(n.updatedAt)}</span>
                 <button class="btn btn-xs" onclick="editNote('${esc(scope)}', '${esc(title)}')">Edit</button>
-                <button class="btn btn-danger btn-xs" onclick="deleteNoteDash('${esc(scope)}', '${esc(title)}')">&times;</button>
+                <button class="btn btn-danger btn-xs" title="Delete note" aria-label="Delete note" onclick="deleteNoteDash('${esc(scope)}', '${esc(title)}')">&times;</button>
               </div>`;
           })
           .join("");
@@ -1336,7 +1442,7 @@ async function deleteNoteDash(scope, title) {
 
 async function fetchKnowledgeBase() {
   try {
-    const res = await apiFetch("/api/knowledge");
+    const res = await apiFetch("/api/knowledge", { resourceKey: "knowledge" });
     const data = await res.json();
 
     document.getElementById("kb-file-count").textContent = data.fileCount;
@@ -1360,7 +1466,7 @@ async function fetchKnowledgeBase() {
         <td><span class="muted">${timeAgo(f.indexedAt)}</span></td>
         <td>
           <button class="btn btn-xs" onclick="viewKBChunks('${esc(f.fileId)}', '${esc(f.name)}')">Preview</button>
-          <button class="btn btn-danger btn-xs" onclick="removeKBFile('${esc(f.fileId)}', '${esc(f.name)}')">&times;</button>
+          <button class="btn btn-danger btn-xs" title="Remove file" aria-label="Remove file" onclick="removeKBFile('${esc(f.fileId)}', '${esc(f.name)}')">&times;</button>
         </td>
       </tr>`;
     }).join("");
@@ -1500,7 +1606,7 @@ async function fetchScoringStats() {
   if (inp.value !== uid) inp.value = uid;
 
   try {
-    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`);
+    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`, { resourceKey: "tasks-stats" });
     if (!res.ok) return;
     const data = await res.json();
     if (!data.exists) return;
@@ -1540,7 +1646,7 @@ async function fetchTasks() {
     // Score-sorted leaderboard (requires uid) or plain list
     let tasks;
     if (uid && sortMode === "score") {
-      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=50`);
+      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=50`, { resourceKey: "tasks-score" });
       if (res.ok) {
         const data = await res.json();
         tasks = (data.tasks || []).map(t => ({
@@ -1556,7 +1662,7 @@ async function fetchTasks() {
     if (!tasks) {
       const headers = {};
       if (uid) headers["X-Discord-User-Id"] = uid;
-      const res = await apiFetch("/api/tasks", { headers });
+      const res = await apiFetch("/api/tasks", { headers, resourceKey: "tasks" });
       if (res.status === 503) {
         document.getElementById("tasks-body").innerHTML =
           '<tr><td colspan="6" class="muted">Google Tasks not configured</td></tr>';
@@ -1612,7 +1718,7 @@ async function fetchTasks() {
         <td>${scoreBadge}</td>
         <td><span class="${priClass}">${esc(t.priority)}</span></td>
         <td${overdue}>${dueStr}</td>
-        <td><button class="btn btn-danger btn-xs" onclick="deleteTodo('${esc(taskUid)}')">&times;</button></td>
+        <td><button class="btn btn-danger btn-xs" title="Delete task" aria-label="Delete task" onclick="deleteTodo('${esc(taskUid)}')">&times;</button></td>
       </tr>`;
       })
       .join("");
@@ -1743,7 +1849,7 @@ async function deleteTodo(uid) {
 
 async function fetchAgents() {
   try {
-    const res = await apiFetch("/api/agents");
+    const res = await apiFetch("/api/agents", { resourceKey: "agents" });
     const agents = await res.json();
     const tbody = document.getElementById("agents-body");
 
@@ -1847,9 +1953,37 @@ function clearConsole() {
   seenEntries.clear();
 }
 
+function setConsoleMode(text) {
+  const mode = document.getElementById("console-mode");
+  if (mode) mode.textContent = `Mode: ${text}`;
+}
+
+function stopConsolePollingFallback() {
+  if (consolePollInterval) {
+    clearInterval(consolePollInterval);
+    consolePollInterval = null;
+  }
+}
+
+function startConsolePollingFallback() {
+  stopConsolePollingFallback();
+  setConsoleMode("polling fallback");
+  const poll = async () => {
+    try {
+      const res = await apiFetch("/api/logs", { resourceKey: "console-logs" });
+      const logs = await res.json();
+      for (const entry of logs) appendLogLine(entry);
+    } catch (err) {
+      console.error("console fallback:", err);
+    }
+  };
+  poll();
+  consolePollInterval = setInterval(poll, 5000);
+}
+
 async function initConsole() {
   try {
-    const res = await apiFetch("/api/logs");
+    const res = await apiFetch("/api/logs", { resourceKey: "console-logs" });
     const logs = await res.json();
     for (const entry of logs) {
       appendLogLine(entry);
@@ -1860,6 +1994,8 @@ async function initConsole() {
 
   // Close any previous EventSource
   if (window._logSource) { window._logSource.close(); }
+  stopConsolePollingFallback();
+  setConsoleMode("SSE stream");
   const evtSource = apiEventSource("/api/logs/stream");
   window._logSource = evtSource;
   evtSource.onmessage = (event) => {
@@ -1880,6 +2016,14 @@ async function initConsole() {
       /* ignore */
     }
   });
+
+  evtSource.onerror = () => {
+    if (window._logSource) {
+      window._logSource.close();
+      window._logSource = null;
+    }
+    startConsolePollingFallback();
+  };
 }
 
 // --- Resizable sidebar ---
@@ -1893,6 +2037,7 @@ async function initConsole() {
   if (saved) aside.style.width = saved + "px";
 
   handle.addEventListener("pointerdown", (e) => {
+    if (window.matchMedia("(max-width: 900px)").matches) return;
     e.preventDefault();
     handle.setPointerCapture(e.pointerId);
     handle.classList.add("active");
@@ -1915,6 +2060,24 @@ async function initConsole() {
     localStorage.setItem("sidebar-width", parseInt(aside.style.width));
   });
 })();
+
+function closeMobileSidebar() {
+  document.body.classList.remove("mobile-sidebar-open");
+  const toggle = document.getElementById("mobile-sidebar-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", "false");
+}
+
+function toggleMobileSidebar() {
+  const open = document.body.classList.toggle("mobile-sidebar-open");
+  const toggle = document.getElementById("mobile-sidebar-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", String(open));
+}
+
+window.addEventListener("resize", () => {
+  if (!window.matchMedia("(max-width: 900px)").matches) {
+    closeMobileSidebar();
+  }
+});
 
 // --- Utilities ---
 
@@ -2037,7 +2200,7 @@ function cronToHuman(expr) {
 
 async function fetchCron() {
   try {
-    const res = await apiFetch("/api/cron");
+    const res = await apiFetch("/api/cron", { resourceKey: "cron" });
     const jobs = await res.json();
     const tbody = document.getElementById("cron-body");
 
@@ -2071,7 +2234,7 @@ async function fetchCron() {
               <button class="btn-icon" onclick="triggerCronJob('${esc(j.name)}')" title="Run now">&#9889;</button>
               <button class="btn-icon" onclick="showCronHistory('${esc(j.name)}')" title="History">&#8635;</button>
               <button class="btn-icon" onclick="openCronEditor('${esc(j.name)}')" title="Edit">&#9998;</button>
-              <button class="btn-icon btn-icon-danger" onclick="deleteCronJob('${esc(j.name)}')" title="Delete">&#10005;</button>
+              <button class="btn-icon btn-icon-danger" onclick="deleteCronJob('${esc(j.name)}')" title="Delete scheduled task" aria-label="Delete scheduled task">&#10005;</button>
             </td>
           </tr>`;
       })
@@ -2258,6 +2421,10 @@ function closeCronEditor(force) {
 // Escape key to close any open overlay
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    if (document.body.classList.contains("mobile-sidebar-open")) {
+      closeMobileSidebar();
+      return;
+    }
     const userOverlay = document.getElementById("user-overlay");
     if (userOverlay.style.display !== "none") { hideUserDetail(); return; }
     const cronEditor = document.getElementById("cron-editor");
@@ -2624,7 +2791,7 @@ async function exportData() {
 // --- Reboot ---
 
 async function rebootBot() {
-  if (!confirm("Reboot the bot?")) return;
+  if (!confirm("Reboot the bot now? Active conversations may be interrupted.")) return;
 
   const btn = document.getElementById("reboot-btn");
   btn.disabled = true;
@@ -2649,7 +2816,7 @@ function loadActivityPreview() {
 
   btn.style.display = "none";
   wrap.style.display = "";
-  frame.src = "/activity/test.html";
+  frame.src = buildUrl("/activity/test.html");
 }
 
 // --- Home Tab ---
@@ -2668,7 +2835,7 @@ const ACHIEVEMENT_ICONS = {
 
 async function fetchHomeMood() {
   try {
-    const res = await apiFetch("/api/mood");
+    const res = await apiFetch("/api/mood", { resourceKey: "home-mood" });
     const mood = await res.json();
     const el = document.getElementById("home-mood-value");
     if (!mood.active) {
@@ -2692,7 +2859,7 @@ async function fetchHomeScoring() {
     return;
   }
   try {
-    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`);
+    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`, { resourceKey: "home-scoring" });
     if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
     const data = await res.json();
     if (!data.exists) { el.innerHTML = '<span class="muted">No data</span>'; return; }
@@ -2705,7 +2872,7 @@ async function fetchHomeScoring() {
 
 async function fetchHomePersona() {
   try {
-    const res = await apiFetch("/api/personas");
+    const res = await apiFetch("/api/personas", { resourceKey: "home-persona" });
     const data = await res.json();
     const el = document.getElementById("home-persona-value");
     const active = data.personas.find(p => p.name === data.activePersona);
@@ -2715,7 +2882,7 @@ async function fetchHomePersona() {
 
 async function fetchHomeCronSummary() {
   try {
-    const res = await apiFetch("/api/cron");
+    const res = await apiFetch("/api/cron", { resourceKey: "home-cron" });
     const jobs = await res.json();
     const el = document.getElementById("home-cron-value");
     const enabled = jobs.filter(j => j.enabled);
@@ -2759,7 +2926,7 @@ async function fetchHomeCronSummary() {
 async function fetchHomeCalendar() {
   const el = document.getElementById("home-calendar");
   try {
-    const res = await apiFetch("/api/calendar/all-events?maxResults=8&daysAhead=14");
+    const res = await apiFetch("/api/calendar/all-events?maxResults=8&daysAhead=14", { resourceKey: "home-calendar" });
     if (res.status === 404 || res.status === 503) {
       el.innerHTML = '<span class="muted">Calendar not configured</span>';
       _homeNextEvent = null;
@@ -2800,7 +2967,7 @@ async function fetchHomeTodos() {
   try {
     let tasks = [];
     if (uid) {
-      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=5`);
+      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=5`, { resourceKey: "home-todos-score" });
       if (res.ok) {
         const data = await res.json();
         tasks = data.tasks || [];
@@ -2809,7 +2976,7 @@ async function fetchHomeTodos() {
 
     if (tasks.length === 0 && uid) {
       // Fallback to plain task list
-      const res = await apiFetch("/api/tasks?status=needsAction", { headers: { "X-Discord-User-Id": uid } });
+      const res = await apiFetch("/api/tasks?status=needsAction", { headers: { "X-Discord-User-Id": uid }, resourceKey: "home-todos-tasks" });
       if (res.ok) {
         const data = await res.json();
         tasks = (data.tasks || []).slice(0, 5).map(t => ({ title: t.title, score: null, due: t.due }));
@@ -2841,7 +3008,7 @@ async function fetchHomeScoringHistory() {
     return;
   }
   try {
-    const res = await apiFetch(`/api/scoring/history?userId=${encodeURIComponent(uid)}&limit=5`);
+    const res = await apiFetch(`/api/scoring/history?userId=${encodeURIComponent(uid)}&limit=5`, { resourceKey: "home-history" });
     if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
     const data = await res.json();
     const events = data.events || [];
@@ -2880,7 +3047,7 @@ async function fetchHomeAchievements() {
     return;
   }
   try {
-    const res = await apiFetch(`/api/scoring/achievements?userId=${encodeURIComponent(uid)}`);
+    const res = await apiFetch(`/api/scoring/achievements?userId=${encodeURIComponent(uid)}`, { resourceKey: "home-achievements" });
     if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
     const data = await res.json();
     renderAchievements(el, data.achievements || []);
@@ -2955,7 +3122,7 @@ async function fetchCalendarEvents() {
       tbody.innerHTML = '<tr><td colspan="4" class="muted">Set Discord User ID to view calendar</td></tr>';
       return;
     }
-    const res = await apiFetch(`/api/calendar/events?maxResults=20&daysAhead=30&userId=${encodeURIComponent(uid)}`);
+    const res = await apiFetch(`/api/calendar/events?maxResults=20&daysAhead=30&userId=${encodeURIComponent(uid)}`, { resourceKey: "calendar-events" });
     if (res.status === 404 || res.status === 503) {
       tbody.innerHTML = '<tr><td colspan="4" class="muted">Calendar not configured. Add Google credentials to settings.yaml.</td></tr>';
       return;
@@ -3008,47 +3175,54 @@ async function fetchCalendarEvents() {
   }
 }
 
-// --- Polling management ---
+// --- Polling management (active-tab aware) ---
 
-let pollIntervals = [];
+const pollTasks = [
+  { key: "status", intervalMs: 10_000, tabs: null, run: () => runTask("status", () => fetchStatus()) },
+  { key: "heartbeat", intervalMs: 60_000, tabs: null, run: () => runTask("heartbeat", () => fetchHeartbeat()) },
+  { key: "home", intervalMs: 30_000, tabs: ["home"], run: () => runTask("home", () => fetchHomeData()) },
+  { key: "persona", intervalMs: 60_000, tabs: ["persona"], run: () => runTask("persona", async () => { await fetchPersonas(); await fetchPersona(); }) },
+  { key: "data-memory", intervalMs: 60_000, tabs: ["data"], run: () => runTask("data-memory", () => fetchMemory()) },
+  { key: "data-notes", intervalMs: 60_000, tabs: ["data"], run: () => runTask("data-notes", () => fetchNotes()) },
+  { key: "data-knowledge", intervalMs: 60_000, tabs: ["data"], run: () => runTask("data-knowledge", () => fetchKnowledgeBase()) },
+  { key: "people-sessions", intervalMs: 15_000, tabs: ["people"], run: () => runTask("people-sessions", () => fetchSessions()) },
+  { key: "people-users", intervalMs: 60_000, tabs: ["people"], run: () => runTask("people-users", () => fetchUsers()) },
+  { key: "automation-cron", intervalMs: 30_000, tabs: ["automation"], run: () => runTask("automation-cron", () => fetchCron()) },
+  { key: "automation-tasks", intervalMs: 30_000, tabs: ["automation"], run: () => runTask("automation-tasks", () => fetchTasks()) },
+  { key: "automation-calendar", intervalMs: 60_000, tabs: ["automation"], run: () => runTask("automation-calendar", () => fetchCalendarEvents()) },
+  { key: "system-tools", intervalMs: 60_000, tabs: ["system"], run: () => runTask("system-tools", () => fetchTools()) },
+  { key: "system-agents", intervalMs: 60_000, tabs: ["system"], run: () => runTask("system-agents", () => fetchAgents()) },
+];
+
+function runDuePollTasks(force = false) {
+  const now = Date.now();
+  const tab = getActiveTab();
+
+  for (const task of pollTasks) {
+    if (task.tabs && !task.tabs.includes(tab)) continue;
+    const last = pollLastRun.get(task.key) || 0;
+    if (force || now - last >= task.intervalMs) {
+      pollLastRun.set(task.key, now);
+      task.run();
+    }
+  }
+}
 
 function refreshAll() {
-  fetchStatus();
-  fetchSessions();
-  fetchMemory();
-  fetchCron();
-  fetchTools();
-  fetchAgents();
-  fetchUsers();
-  fetchNotes();
-  fetchKnowledgeBase();
-  fetchTasks();
-  fetchHeartbeat();
-  fetchHomeData();
-  fetchCalendarEvents();
+  runDuePollTasks(true);
 }
 
 function startPolling() {
   stopPolling();
-  pollIntervals = [
-    setInterval(fetchStatus, 10000),
-    setInterval(fetchSessions, 15000),
-    setInterval(fetchMemory, 60000),
-    setInterval(fetchCron, 30000),
-    setInterval(fetchTools, 60000),
-    setInterval(fetchAgents, 60000),
-    setInterval(fetchUsers, 60000),
-    setInterval(fetchNotes, 60000),
-    setInterval(fetchTasks, 30000),
-    setInterval(fetchHeartbeat, 60000),
-    setInterval(fetchHomeData, 30000),
-    setInterval(fetchCalendarEvents, 60000),
-  ];
+  runDuePollTasks(true);
+  pollTimer = setInterval(() => runDuePollTasks(false), 5000);
 }
 
 function stopPolling() {
-  pollIntervals.forEach(clearInterval);
-  pollIntervals = [];
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 // Pause polling when tab is hidden, resume when visible
@@ -3063,26 +3237,13 @@ document.addEventListener("visibilitychange", () => {
 
 // --- Init ---
 checkAuth();
-fetchStatus();
 fetchConfig();
-fetchSessions();
-fetchMemory();
-fetchCron();
-fetchPersonas();
-fetchPersona();
-fetchTools();
-fetchAgents();
-fetchUsers();
-fetchNotes();
-fetchKnowledgeBase();
-fetchTasks();
-fetchHeartbeat();
-fetchHomeData();
-fetchCalendarEvents();
 initConsole();
+refreshAll();
 startPolling();
 
 // Cleanup EventSource on page unload
 window.addEventListener("beforeunload", () => {
   if (window._logSource) window._logSource.close();
+  stopConsolePollingFallback();
 });

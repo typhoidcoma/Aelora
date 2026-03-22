@@ -87,7 +87,7 @@ export function startWeb(state: AppState): Server | null {
   app.set("trust proxy", 1);
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.join(__dirname, "..", "public");
-  const basePath = config.web.basePath || "";
+  const basePath = (config.web.basePath || "").replace(/\/$/, "");
   const MAX_STREAM_MESSAGE_CHARS = 12_000;
   const MAX_EXPORT_BYTES = 5 * 1024 * 1024;
 
@@ -297,7 +297,7 @@ export function startWeb(state: AppState): Server | null {
 </head><body>
   <div id="ui"></div>
   <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>SwaggerUIBundle({url:"/api/docs/openapi.yaml",dom_id:"#ui",deepLinking:true})</script>
+  <script>SwaggerUIBundle({url:${JSON.stringify(`${basePath}/api/docs/openapi.yaml`)},dom_id:"#ui",deepLinking:true})</script>
 </body></html>`);
   });
 

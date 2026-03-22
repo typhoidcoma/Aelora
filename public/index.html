@@ -18,9 +18,10 @@
       <span class="header-stat"><span class="label">Heartbeat:</span> <span id="heartbeat-status-badge">--</span></span>
     </div>
     <span id="last-updated" class="last-updated"></span>
+    <button class="btn mobile-sidebar-btn" id="mobile-sidebar-toggle" onclick="toggleMobileSidebar()" aria-controls="dashboard-sidebar" aria-expanded="false">Panels</button>
     <button class="btn" id="logout-btn" onclick="clearApiKey()" style="display:none; font-size:0.75rem;">Logout</button>
     <button class="btn" onclick="exportData()">Export Data</button>
-    <button class="btn btn-danger" id="reboot-btn" onclick="rebootBot()">Reboot</button>
+    <button class="btn btn-danger" id="reboot-btn" onclick="rebootBot()">Reboot Bot</button>
   </header>
 
   <div class="layout">
@@ -326,7 +327,7 @@
         <div class="section-header" data-section="sessions">
           <span class="chevron">&#9660;</span>
           <h2>Sessions</h2>
-          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All</button>
+          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All Sessions</button>
         </div>
         <div class="section-body" data-section="sessions">
           <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
@@ -589,7 +590,7 @@
     <div class="resize-handle" id="resize-handle"></div>
 
     <!-- Right sidebar: activity + console -->
-    <aside>
+    <aside id="dashboard-sidebar" aria-label="Quick panels">
       <div class="sidebar-panel glance-panel">
         <div class="console-header">
           <h3>Quick Glance</h3>
@@ -616,6 +617,17 @@
             <span class="glance-value" id="glance-streak">--</span>
           </div>
         </div>
+        <div class="system-health">
+          <h4>System Health</h4>
+          <div class="system-health-row">
+            <span>SSE Clients</span>
+            <span id="health-sse">--/--</span>
+          </div>
+          <div class="system-health-row">
+            <span>WS Clients</span>
+            <span id="health-ws">--/--</span>
+          </div>
+        </div>
       </div>
       <div class="sidebar-panel console-panel">
         <div class="console-header">
@@ -629,10 +641,13 @@
             <button class="btn btn-xs" onclick="clearConsole()">Clear</button>
           </div>
         </div>
+        <div id="console-mode" class="console-mode">Mode: connecting...</div>
         <div id="console-output" class="console-output"></div>
       </div>
     </aside>
   </div>
+
+  <div id="mobile-sidebar-backdrop" class="mobile-sidebar-backdrop" onclick="closeMobileSidebar()" aria-hidden="true"></div>
 
   <div id="toast-container"></div>
 

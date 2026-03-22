@@ -17,6 +17,8 @@ import { appendLog } from "../daily-log.js";
 import { classifyMood, onMoodChange } from "../mood.js";
 import { updateUser } from "../users.js";
 import { extractFacts, trackMessage } from "../fact-extractor.js";
+import { saveFact } from "../memory.js";
+import { broadcastEvent } from "../logger.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -37,8 +39,10 @@ export async function startDiscord(config: Config): Promise<Client> {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildMessageReactions,
+      GatewayIntentBits.DirectMessageReactions,
     ],
-    partials: [Partials.Channel],
+    partials: [Partials.Channel, Partials.Reaction, Partials.Message, Partials.User],
   });
 
   // --- Client lifecycle handlers ---
@@ -195,6 +199,76 @@ export async function startDiscord(config: Config): Promise<Client> {
         return;
       }
       console.error("Discord: interaction handler error:", err);
+    }
+  });
+
+  // --- Reaction detection ---
+
+  const POSITIVE_EMOJI = new Set(["👍", "❤️", "✅", "🔥", "💯", "⭐", "🎉", "💪", "👏", "🙌", "😍", "🤩", "💜", "💙", "🫡", "🙏"]);
+  const NEGATIVE_EMOJI = new Set(["👎", "❌", "😒", "😡", "🤮", "💀"]);
+  const reactionThrottle = new Map<string, number>(); // userId → last saved timestamp
+  const REACTION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per user
+
+  client.on(Events.MessageReactionAdd, async (reaction, user) => {
+    try {
+      if (user.bot || user.id === client.user?.id) return;
+
+      // Resolve partials
+      if (reaction.partial) reaction = await reaction.fetch();
+      if (reaction.message.partial) await reaction.message.fetch();
+
+      const emoji = reaction.emoji.name ?? "unknown";
+      const channelName = "name" in reaction.message.channel ? (reaction.message.channel as any).name : reaction.message.channelId;
+      const username = (user as any).username ?? user.id;
+
+      console.log(`Discord: ${username} reacted ${emoji} to message in #${channelName}`);
+
+      broadcastEvent("mindmap", {
+        type: "reaction:added",
+        conversationId: reaction.message.channelId,
+        userId: user.id,
+        emoji,
+        botMessage: reaction.message.author?.id === client.user?.id,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Only save facts for reactions to bot messages with clear sentiment
+      if (reaction.message.author?.id !== client.user?.id) return;
+
+      const isPositive = POSITIVE_EMOJI.has(emoji);
+      const isNegative = NEGATIVE_EMOJI.has(emoji);
+      if (!isPositive && !isNegative) return;
+
+      // Throttle: max 1 fact per user per 5 minutes
+      const lastSaved = reactionThrottle.get(user.id) ?? 0;
+      if (Date.now() - lastSaved < REACTION_COOLDOWN_MS) return;
+      reactionThrottle.set(user.id, Date.now());
+
+      const preview = (reaction.message.content ?? "").slice(0, 80);
+      const fact = isPositive
+        ? `Reacted positively (${emoji}) to bot's message: "${preview}"`
+        : `Disagreed (${emoji}) with bot's message: "${preview}"`;
+
+      saveFact(`user:${user.id}`, fact, {
+        category: "behavioral",
+        confidence: "inferred",
+        source: `reaction:${reaction.message.channelId}`,
+      });
+    } catch (err) {
+      console.warn("Discord: reaction handler error:", err);
+    }
+  });
+
+  client.on(Events.MessageReactionRemove, async (reaction, user) => {
+    try {
+      if (user.bot) return;
+      if (reaction.partial) reaction = await reaction.fetch();
+      const emoji = reaction.emoji.name ?? "unknown";
+      const username = (user as any).username ?? user.id;
+      const channelName = "name" in reaction.message.channel ? (reaction.message.channel as any).name : reaction.message.channelId;
+      console.log(`Discord: ${username} removed ${emoji} reaction in #${channelName}`);
+    } catch {
+      // best effort
     }
   });
 

@@ -63,35 +63,32 @@ export default defineTool({
 
         // No scope  -  show all available
         const globalFacts = getFacts("global");
+        const userFacts = userId ? getFacts(`user:${userId}`) : [];
+        const channelFacts = channelId ? getFacts(`channel:${channelId}`) : [];
+
         if (globalFacts.length > 0) {
           lines.push(`**Global facts** (${globalFacts.length}):`);
           globalFacts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
         }
 
-        if (userId) {
-          const userFacts = getFacts(`user:${userId}`);
-          if (userFacts.length > 0) {
-            if (lines.length > 0) lines.push("");
-            lines.push(`**User facts** (${userFacts.length}):`);
-            userFacts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
-          }
+        if (userFacts.length > 0) {
+          if (lines.length > 0) lines.push("");
+          lines.push(`**User facts** (${userFacts.length}):`);
+          userFacts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
         }
 
-        if (channelId) {
-          const channelFacts = getFacts(`channel:${channelId}`);
-          if (channelFacts.length > 0) {
-            if (lines.length > 0) lines.push("");
-            lines.push(`**Channel facts** (${channelFacts.length}):`);
-            channelFacts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
-          }
+        if (channelFacts.length > 0) {
+          if (lines.length > 0) lines.push("");
+          lines.push(`**Channel facts** (${channelFacts.length}):`);
+          channelFacts.forEach((f, i) => lines.push(`${i}. ${f.fact}`));
         }
 
         if (lines.length === 0) return { text: "No facts stored yet.", data: { action: "list", count: 0, scopes: {} } };
 
         const scopesData: Record<string, { fact: string }[]> = {};
         if (globalFacts.length > 0) scopesData.global = globalFacts.map(f => ({ fact: f.fact }));
-        if (userId) { const userFacts2 = getFacts(`user:${userId}`); if (userFacts2.length > 0) scopesData.user = userFacts2.map(f => ({ fact: f.fact })); }
-        if (channelId) { const channelFacts2 = getFacts(`channel:${channelId}`); if (channelFacts2.length > 0) scopesData.channel = channelFacts2.map(f => ({ fact: f.fact })); }
+        if (userFacts.length > 0) scopesData.user = userFacts.map(f => ({ fact: f.fact }));
+        if (channelFacts.length > 0) scopesData.channel = channelFacts.map(f => ({ fact: f.fact }));
         return { text: lines.join("\n"), data: { action: "list", scopes: scopesData } };
       }
 

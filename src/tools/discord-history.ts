@@ -110,15 +110,25 @@ export default defineTool({
         const channelsData: { channelId: string; channelName: string; count: number; messages: FormattedMessage[] }[] = [];
         let totalMessages = 0;
 
-        for (const ch of channels) {
+        // Fetch all channels in parallel (batches of 10 to respect rate limits)
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < channels.length; i += BATCH_SIZE) {
           if (totalMessages >= ALL_CHANNELS_TOTAL_LIMIT) break;
-          const remaining = ALL_CHANNELS_TOTAL_LIMIT - totalMessages;
-          const result = await fetchChannelMessages(ch.id, Math.min(allChannelLimit, remaining), cutoff, skipBots);
-          if (result.error || result.messages.length === 0) continue;
-
-          results.push(formatChannelBlock(result.channelName, ch.id, result.messages));
-          channelsData.push({ channelId: ch.id, channelName: result.channelName, count: result.messages.length, messages: result.messages });
-          totalMessages += result.messages.length;
+          const batch = channels.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.allSettled(
+            batch.map(ch => fetchChannelMessages(ch.id, allChannelLimit, cutoff, skipBots)),
+          );
+          for (let j = 0; j < batchResults.length; j++) {
+            if (totalMessages >= ALL_CHANNELS_TOTAL_LIMIT) break;
+            const r = batchResults[j];
+            if (r.status !== "fulfilled" || r.value.error || r.value.messages.length === 0) continue;
+            const result = r.value;
+            const remaining = ALL_CHANNELS_TOTAL_LIMIT - totalMessages;
+            const msgs = result.messages.slice(0, remaining);
+            results.push(formatChannelBlock(result.channelName, batch[j].id, msgs));
+            channelsData.push({ channelId: batch[j].id, channelName: result.channelName, count: msgs.length, messages: msgs });
+            totalMessages += msgs.length;
+          }
         }
 
         if (results.length === 0) {

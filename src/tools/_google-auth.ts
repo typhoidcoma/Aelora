@@ -14,16 +14,29 @@ export type GoogleConfig = {
 // Module-level token cache (shared across all Google tools)
 let cachedAccessToken: string | null = null;
 let tokenExpiresAt = 0;
+// Dedup in-flight refresh requests to prevent thundering herd
+let _refreshPromise: Promise<string> | null = null;
 
 /**
  * Exchange a refresh token for an access token (cached with expiry).
  * Throws on failure  -  callers should catch and return tool error strings.
+ * Uses promise dedup to prevent multiple concurrent refresh requests.
  */
 export async function getGoogleAccessToken(config: GoogleConfig): Promise<string> {
   if (cachedAccessToken && Date.now() < tokenExpiresAt) {
     return cachedAccessToken;
   }
 
+  if (_refreshPromise) return _refreshPromise;
+
+  _refreshPromise = _doTokenRefresh(config).finally(() => {
+    _refreshPromise = null;
+  });
+
+  return _refreshPromise;
+}
+
+async function _doTokenRefresh(config: GoogleConfig): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },

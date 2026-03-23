@@ -13,15 +13,20 @@ export type Note = {
 
 export type NoteStore = Record<string, Record<string, Note>>;
 
+let _cache: NoteStore | null = null;
+
 export function loadNotes(): NoteStore {
+  if (_cache) return _cache;
   try {
     if (existsSync(NOTES_FILE)) {
-      return JSON.parse(readFileSync(NOTES_FILE, "utf-8"));
+      _cache = JSON.parse(readFileSync(NOTES_FILE, "utf-8"));
+      return _cache!;
     }
   } catch {
     console.warn("Notes: failed to read notes file, starting fresh");
   }
-  return {};
+  _cache = {};
+  return _cache;
 }
 
 function saveNotes(store: NoteStore): void {
@@ -29,6 +34,7 @@ function saveNotes(store: NoteStore): void {
     mkdirSync(DATA_DIR, { recursive: true });
   }
   writeFileSync(NOTES_FILE, JSON.stringify(store, null, 2), "utf-8");
+  _cache = store;
 }
 
 function resolveScope(scope: string | undefined, channelId: string | null): string {

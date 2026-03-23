@@ -199,35 +199,52 @@ export default defineTool({
           const createdTasks: { id: string; title: string; notes: string | null; status: string; due: string | null }[] = [];
           let added = 0;
 
-          for (const item of parsedItems) {
-            if (!item.title) {
-              lines.push(`Skipped: missing title`);
-              continue;
-            }
+          // Process in batches of 5 to balance speed vs rate limits
+          const BATCH_SIZE = 5;
+          for (let i = 0; i < parsedItems.length; i += BATCH_SIZE) {
+            const batch = parsedItems.slice(i, i + BATCH_SIZE);
+            const batchResults = await Promise.allSettled(
+              batch.map(async (item) => {
+                if (!item.title) return { skipped: true, reason: "missing title" } as const;
 
-            const task: Record<string, unknown> = { title: item.title };
-            if (item.notes) task.notes = item.notes;
-            if (item.dueDate) task.due = `${item.dueDate}T00:00:00.000Z`;
+                const task: Record<string, unknown> = { title: item.title };
+                if (item.notes) task.notes = item.notes;
+                if (item.dueDate) task.due = `${item.dueDate}T00:00:00.000Z`;
 
-            const res = await googleFetch(
-              `${TASKS_BASE}/lists/${encodeURIComponent(listId)}/tasks`,
-              config,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(task),
-              },
+                const res = await googleFetch(
+                  `${TASKS_BASE}/lists/${encodeURIComponent(listId)}/tasks`,
+                  config,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(task),
+                  },
+                );
+
+                if (!res.ok) return { failed: true, title: item.title, status: res.status } as const;
+                const created = (await res.json()) as Task;
+                return { created } as const;
+              }),
             );
 
-            if (!res.ok) {
-              lines.push(`Failed: ${item.title} (${res.status})`);
-            } else {
-              const created = (await res.json()) as Task;
-              let line = `Added: ${created.title}`;
-              if (created.due) line += ` (due ${formatDate(created.due)})`;
-              lines.push(line);
-              createdTasks.push({ id: created.id, title: created.title, notes: created.notes ?? null, status: created.status, due: created.due ?? null });
-              added++;
+            for (const r of batchResults) {
+              if (r.status !== "fulfilled") {
+                lines.push(`Failed: ${r.reason}`);
+                continue;
+              }
+              const val = r.value;
+              if ("skipped" in val) {
+                lines.push(`Skipped: ${val.reason}`);
+              } else if ("failed" in val) {
+                lines.push(`Failed: ${val.title} (${val.status})`);
+              } else {
+                const { created } = val;
+                let line = `Added: ${created.title}`;
+                if (created.due) line += ` (due ${formatDate(created.due)})`;
+                lines.push(line);
+                createdTasks.push({ id: created.id, title: created.title, notes: created.notes ?? null, status: created.status, due: created.due ?? null });
+                added++;
+              }
             }
           }
 

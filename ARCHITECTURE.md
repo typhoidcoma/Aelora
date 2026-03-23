@@ -579,14 +579,20 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 | `mood` | Manual emotional state override (set_mood) | none |
 | `tasks` | Per-user task list adapter over Google Tasks (list/get/create/complete/update/delete, auto-creates task list per Discord user) | `google.*` |
 | `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
-| `google_calendar` | Google Calendar: list, create, update, delete events | `google.*` |
+| `calendar` | Per-user personal calendar (list/create/update/delete events, auto-creates calendar per Discord user) | `google.*` |
+| `google_calendar` | Admin read-only calendar tool (list events, list calendars) + exports CRUD helpers used by `calendar` | `google.*` |
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
-| `google_tasks` | Google Tasks: list, add, complete, update, delete tasks | `google.*` |
+| `google_tasks` | Admin-level raw Google Tasks API (list/add/complete/update/delete on explicit list IDs) — use `tasks` for user-facing task management | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
 | `scoring` | Scoring tool: stats, leaderboard, achievements, rate_effort, set_metadata, add_event (Supabase) | `google.*` |
+| `set_mood` | Manual emotional state override (Plutchik's wheel: 8 emotions × 3 intensities) | none |
 | `date` | Natural language date resolution via chrono-node (converts "next Friday" → ISO 8601) | none |
 | `linear` | Full Linear project management: issues CRUD, sub-issues, projects, teams, search, comments, GraphQL | `linear.apiKey` |
-| `luminizer` | Image generation via DALL-E 3 or compatible API (generate from text prompt, configurable style) | `luminizer.apiKey`, `luminizer.model`, `luminizer.baseURL`, `luminizer.stylePrompt` |
+| `luminizer` | Image generation and restyling via DALL-E 3 / gpt-image-1 (text-to-image generation, image-to-image restyling, configurable style prompts) | `luminizer.apiKey`, `luminizer.model`, `luminizer.baseURL`, `luminizer.stylePrompt` |
+
+> **Tool Architecture Notes:**
+> - `google_calendar` exports CRUD functions (`createEvent`, `updateEvent`, `deleteEvent`, `listEvents`) used by `calendar` and heartbeat handlers. Its own tool registration is read-only (list events, list calendars).
+> - `tasks` is the per-user tool (auto-creates task lists, used for all user interactions). `google_tasks` is the admin/raw API tool for debugging and bulk operations on explicit list IDs.
 
 ---
 

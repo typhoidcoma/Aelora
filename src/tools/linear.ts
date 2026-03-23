@@ -1,4 +1,4 @@
-import { LinearClient, type IssueSearchResult } from "@linear/sdk";
+import { LinearClient } from "@linear/sdk";
 import { defineTool, param } from "./types.js";
 
 function getClient(apiKey: string): LinearClient {
@@ -90,7 +90,7 @@ export default defineTool({
           first: maxResults,
           filter: Object.keys(myFilter).length > 0 ? myFilter : undefined,
         });
-        return formatIssueList(assigned.nodes, `My assigned issues`);
+        return formatIssues(assigned.nodes, `My assigned issues`, "list");
       }
 
       case "list_issues": {
@@ -104,7 +104,7 @@ export default defineTool({
           filter: Object.keys(filter).length > 0 ? filter : undefined,
         });
         const label = args.team ? `Issues for team ${args.team}` : "Issues";
-        return formatIssueList(issues.nodes, label);
+        return formatIssues(issues.nodes, label, "list");
       }
 
       case "get_issue": {
@@ -152,7 +152,7 @@ export default defineTool({
       case "search": {
         if (!args.query) return "Error: query is required for search action.";
         const results = await client.searchIssues(args.query, { first: maxResults });
-        return formatSearchResults(results.nodes, `Search results for "${args.query}"`);
+        return formatIssues(results.nodes as unknown as FormattableIssue[], `Search results for "${args.query}"`, "search");
       }
 
       case "list_projects": {
@@ -364,7 +364,7 @@ export default defineTool({
 
         const parent = await client.issue(subParentId);
         const children = await parent.children({ first: maxResults });
-        return formatIssueList(children.nodes, `Sub-issues of ${parent.identifier}`);
+        return formatIssues(children.nodes, `Sub-issues of ${parent.identifier}`, "list");
       }
 
       // ── Project actions ─────────────────────────────────────────────
@@ -471,17 +471,29 @@ export default defineTool({
 
 type IssueNode = Awaited<ReturnType<LinearClient["issues"]>>["nodes"][number];
 
-async function formatIssueList(nodes: IssueNode[], heading: string) {
-  if (nodes.length === 0) return { text: `${heading}: no issues found.`, data: { action: "list", count: 0, issues: [] } };
+type FormattableIssue = Pick<IssueNode, "state" | "assignee" | "identifier" | "title" | "priority" | "dueDate">;
+
+async function formatIssues(
+  nodes: FormattableIssue[],
+  heading: string,
+  action: string,
+) {
+  if (nodes.length === 0) return { text: `${heading}: no issues found.`, data: { action, count: 0, issues: [] } };
+
+  // Parallelize state + assignee resolution across all issues
+  const resolved = await Promise.all(
+    nodes.map(async (issue) => {
+      const [state, assignee] = await Promise.all([issue.state, issue.assignee]);
+      return { issue, state, assignee };
+    }),
+  );
 
   const lines: string[] = [];
   const issueData: Record<string, unknown>[] = [];
 
-  for (const issue of nodes) {
-    const state = await issue.state;
-    const assignee = await issue.assignee;
-    const statusStr = state?.name ?? "?";
-    const assigneeStr = assignee?.name ?? "Unassigned";
+  for (const { issue, state, assignee } of resolved) {
+    const statusStr = (state as { name?: string } | undefined)?.name ?? "?";
+    const assigneeStr = (assignee as { name?: string } | undefined)?.name ?? "Unassigned";
     const due = issue.dueDate ? ` | Due: ${issue.dueDate}` : "";
 
     lines.push(
@@ -499,39 +511,7 @@ async function formatIssueList(nodes: IssueNode[], heading: string) {
 
   return {
     text: `**${heading}** (${nodes.length}):\n${lines.join("\n")}`,
-    data: { action: "list", count: nodes.length, issues: issueData },
-  };
-}
-
-async function formatSearchResults(nodes: IssueSearchResult[], heading: string) {
-  if (nodes.length === 0) return { text: `${heading}: no issues found.`, data: { action: "search", count: 0, issues: [] } };
-
-  const lines: string[] = [];
-  const issueData: Record<string, unknown>[] = [];
-
-  for (const issue of nodes) {
-    const state = await issue.state;
-    const assignee = await issue.assignee;
-    const statusStr = state?.name ?? "?";
-    const assigneeStr = assignee?.name ?? "Unassigned";
-    const due = issue.dueDate ? ` | Due: ${issue.dueDate}` : "";
-
-    lines.push(
-      `- **${issue.identifier}**: ${issue.title}  [${statusStr}] (${assigneeStr})${due}`,
-    );
-    issueData.push({
-      identifier: issue.identifier,
-      title: issue.title,
-      status: statusStr,
-      assignee: assigneeStr,
-      priority: issue.priority,
-      dueDate: issue.dueDate ?? null,
-    });
-  }
-
-  return {
-    text: `**${heading}** (${nodes.length}):\n${lines.join("\n")}`,
-    data: { action: "search", count: nodes.length, issues: issueData },
+    data: { action, count: nodes.length, issues: issueData },
   };
 }
 

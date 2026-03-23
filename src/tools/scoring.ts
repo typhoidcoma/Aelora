@@ -109,8 +109,6 @@ export async function syncCalendarForUser(
   }
 }
 
-/** @deprecated Use syncCalendarForUser instead */
-export const syncGoogleTasksForUser = syncCalendarForUser;
 
 // ============================================================
 // Tool definition
@@ -213,8 +211,8 @@ export default defineTool({
 
         if (sb) {
           // Sync Google Tasks for this user before querying
-          await syncGoogleTasksForUser(sb, discordUserId, toolConfig).catch((err) => {
-            console.warn("Scoring: Google Tasks sync failed:", err instanceof Error ? err.message : err);
+          await syncCalendarForUser(sb, discordUserId, toolConfig).catch((err) => {
+            console.warn("Scoring: calendar sync failed:", err instanceof Error ? err.message : err);
           });
 
           const events = await getPendingLifeEvents(sb, discordUserId, category as string | undefined, lim * 3);

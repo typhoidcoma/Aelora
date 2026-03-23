@@ -1,5 +1,5 @@
 // ============================================================
-// Core tool types (unchanged  -  backward compatible)
+// Core tool types (unchanged — backward compatible)
 // ============================================================
 
 export type ToolParametersSchema = {

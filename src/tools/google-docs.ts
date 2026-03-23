@@ -1,5 +1,5 @@
 import { defineTool, param } from "./types.js";
-import { googleFetch, extractGoogleConfig, resetGoogleToken } from "./_google-auth.js";
+import { googleFetch, extractGoogleConfig, resetGoogleToken, type GoogleConfig } from "./_google-auth.js";
 
 const DOCS_BASE = "https://docs.googleapis.com/v1/documents";
 const DRIVE_BASE = "https://www.googleapis.com/drive/v3/files";
@@ -42,6 +42,80 @@ type DocsDocument = {
   revisionId?: string;
 };
 
+// ── Shared query helper for list/search ─────────────────────
+
+type DriveFile = {
+  id: string;
+  name: string;
+  modifiedTime: string;
+  webViewLink: string;
+  owners?: { displayName: string }[];
+};
+
+async function queryDocs(
+  config: GoogleConfig,
+  query: string | undefined,
+  maxResults: number,
+  action: "list" | "search",
+) {
+  let driveQuery = "mimeType='application/vnd.google-apps.document'";
+  if (query) {
+    driveQuery += ` and name contains '${query.replace(/'/g, "\\'")}'`;
+  }
+
+  const params = new URLSearchParams({
+    q: driveQuery,
+    pageSize: String(maxResults),
+    fields: "files(id,name,modifiedTime,webViewLink,owners)",
+    orderBy: "modifiedTime desc",
+  });
+
+  const res = await googleFetch(`${DRIVE_BASE}?${params}`, config);
+  if (!res.ok) return `Error: ${action} failed (${res.status}).`;
+
+  const data = (await res.json()) as { files: DriveFile[] };
+
+  if (!data.files?.length) {
+    const msg = query ? `No Google Docs found matching "${query}".` : "No Google Docs found.";
+    return { text: msg, data: { action, query: query ?? null, count: 0, documents: [] } };
+  }
+
+  const heading = query
+    ? `Found ${data.files.length} doc(s) matching "${query}":\n`
+    : `${data.files.length} most recent Google Doc(s):\n`;
+
+  let text = heading;
+  for (let i = 0; i < data.files.length; i++) {
+    const f = data.files[i];
+    const modified = new Date(f.modifiedTime).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const owner = f.owners?.[0]?.displayName ?? "";
+    text += `\n${i + 1}. ${f.name}\n`;
+    text += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
+    text += `   ID: ${f.id}\n`;
+    text += `   Link: ${f.webViewLink}\n`;
+  }
+
+  return {
+    text,
+    data: {
+      action,
+      query: query ?? null,
+      count: data.files.length,
+      documents: data.files.map(f => ({
+        id: f.id,
+        name: f.name,
+        modifiedTime: f.modifiedTime,
+        link: f.webViewLink,
+        owner: f.owners?.[0]?.displayName ?? null,
+      })),
+    },
+  };
+}
+
 // ── Tool ─────────────────────────────────────────────────────
 
 export default defineTool({
@@ -71,140 +145,13 @@ export default defineTool({
     try {
       switch (action) {
         // ── List ──────────────────────────────────────────────
-        case "list": {
-          const max = maxResults ?? 10;
-
-          let driveQuery = "mimeType='application/vnd.google-apps.document'";
-          if (query) {
-            driveQuery += ` and name contains '${query.replace(/'/g, "\\'")}'`;
-          }
-
-          const params = new URLSearchParams({
-            q: driveQuery,
-            pageSize: String(max),
-            fields: "files(id,name,modifiedTime,webViewLink,owners)",
-            orderBy: "modifiedTime desc",
-          });
-
-          const res = await googleFetch(`${DRIVE_BASE}?${params}`, config);
-          if (!res.ok) return `Error: list failed (${res.status}).`;
-
-          const data = (await res.json()) as {
-            files: {
-              id: string;
-              name: string;
-              modifiedTime: string;
-              webViewLink: string;
-              owners?: { displayName: string }[];
-            }[];
-          };
-
-          if (!data.files?.length) {
-            return {
-              text: query ? `No Google Docs found matching "${query}".` : "No Google Docs found.",
-              data: { action: "list", query: query ?? null, count: 0, documents: [] },
-            };
-          }
-
-          let text_ = query
-            ? `Found ${data.files.length} doc(s) matching "${query}":\n`
-            : `${data.files.length} most recent Google Doc(s):\n`;
-
-          for (let i = 0; i < data.files.length; i++) {
-            const f = data.files[i];
-            const modified = new Date(f.modifiedTime).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
-            const owner = f.owners?.[0]?.displayName ?? "";
-            text_ += `\n${i + 1}. ${f.name}\n`;
-            text_ += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
-            text_ += `   ID: ${f.id}\n`;
-            text_ += `   Link: ${f.webViewLink}\n`;
-          }
-
-          return {
-            text: text_,
-            data: {
-              action: "list",
-              query: query ?? null,
-              count: data.files.length,
-              documents: data.files.map(f => ({
-                id: f.id,
-                name: f.name,
-                modifiedTime: f.modifiedTime,
-                link: f.webViewLink,
-                owner: f.owners?.[0]?.displayName ?? null,
-              })),
-            },
-          };
-        }
+        case "list":
+          return queryDocs(config, query, maxResults ?? 10, "list");
 
         // ── Search ────────────────────────────────────────────
         case "search": {
           if (!query) return "Error: query is required for search.";
-          const max = maxResults ?? 5;
-
-          // Use Google Drive API to search for Google Docs
-          const driveQuery = `mimeType='application/vnd.google-apps.document' and name contains '${query.replace(/'/g, "\\'")}'`;
-          const params = new URLSearchParams({
-            q: driveQuery,
-            pageSize: String(max),
-            fields: "files(id,name,modifiedTime,webViewLink,owners)",
-            orderBy: "modifiedTime desc",
-          });
-
-          const res = await googleFetch(`${DRIVE_BASE}?${params}`, config);
-          if (!res.ok) return `Error: search failed (${res.status}).`;
-
-          const data = (await res.json()) as {
-            files: {
-              id: string;
-              name: string;
-              modifiedTime: string;
-              webViewLink: string;
-              owners?: { displayName: string }[];
-            }[];
-          };
-
-          if (!data.files?.length) {
-            return {
-              text: `No Google Docs found matching: "${query}"`,
-              data: { action: "search", query, count: 0, documents: [] },
-            };
-          }
-
-          let text_ = `Found ${data.files.length} doc(s) matching "${query}":\n`;
-          for (let i = 0; i < data.files.length; i++) {
-            const f = data.files[i];
-            const modified = new Date(f.modifiedTime).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            });
-            const owner = f.owners?.[0]?.displayName ?? "";
-            text_ += `\n${i + 1}. ${f.name}\n`;
-            text_ += `   Modified: ${modified}${owner ? ` by ${owner}` : ""}\n`;
-            text_ += `   ID: ${f.id}\n`;
-            text_ += `   Link: ${f.webViewLink}\n`;
-          }
-
-          return {
-            text: text_,
-            data: {
-              action: "search",
-              query,
-              count: data.files.length,
-              documents: data.files.map(f => ({
-                id: f.id,
-                name: f.name,
-                modifiedTime: f.modifiedTime,
-                link: f.webViewLink,
-                owner: f.owners?.[0]?.displayName ?? null,
-              })),
-            },
-          };
+          return queryDocs(config, query, maxResults ?? 5, "search");
         }
 
         // ── Read ─────────────────────────────────────────────

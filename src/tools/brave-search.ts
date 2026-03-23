@@ -112,20 +112,6 @@ async function searchOpenAI(query: string, count: number, apiKey: string, baseUR
     }
   }
 
-  // If we got a text response, use it to fill in descriptions
-  if (results.length > 0) {
-    const textPart = data.output.find((i) => i.type === "message")
-      ?.content?.find((c) => c.type === "output_text");
-    if (textPart?.text) {
-      // The text response is a summary - attach it to the first result as context
-      // Each result's description stays empty (OpenAI doesn't give per-URL snippets in annotations)
-      // But the full summary is useful, so we'll return it separately
-      for (const r of results) {
-        if (!r.description) r.description = "";
-      }
-    }
-  }
-
   return results.slice(0, count);
 }
 

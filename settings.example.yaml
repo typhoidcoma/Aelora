@@ -57,18 +57,18 @@ llm:
   systemPrompt: "You are a helpful Discord bot. Be concise."
 
   # Max tokens per LLM response.
-  maxTokens: 1024
+  maxTokens: 16384
 
   # How many previous messages to keep in conversation history per channel.
   maxHistory: 50
 
   # Max tool-calling rounds per LLM request (prevents infinite loops).
-  # maxToolIterations: 10
+  # maxToolIterations: 25      # default: 25
 
   # Enable lite mode for small local models (e.g. 4B, 7B).
   # Shortens tool descriptions and trims the system prompt to reduce
   # input tokens. Tools still work, just with less verbose schemas.
-  # lite: true
+  # lite: false
 
   # Set true when using reasoning models (xAI/Grok, DeepSeek, Qwen).
   # Adds enable_thinking:false and a /no_think prefix to secondary LLM calls
@@ -108,7 +108,8 @@ tools: {}
   # brave:
   #   apiKey: "YOUR_BRAVE_API_KEY"
 
-  # Google Workspace  -  required for todo, gmail, google_calendar, google_docs, google_tasks tools.
+  # Google Workspace  -  required for tasks, calendar, gmail, google_calendar,
+  # google_docs, and google_tasks tools.
   # Uses OAuth2 refresh token flow. See README.md "Google Workspace Setup" for full instructions.
   # You need a Google Cloud project with Gmail, Calendar, Docs, Tasks, and Drive APIs enabled,
   # plus an OAuth2 client ID and a refresh token generated via the Google OAuth Playground.
@@ -117,10 +118,18 @@ tools: {}
   #   clientSecret: "YOUR_GOOGLE_CLIENT_SECRET"
   #   refreshToken: "YOUR_REFRESH_TOKEN"
 
-  # Linear - required for the linear tool (issue tracking + scoring integration).
+  # Linear  -  required for the linear tool (issue tracking + project management).
   # Create a personal API key at https://linear.app/settings/api
   # linear:
   #   apiKey: "YOUR_LINEAR_API_KEY"
+
+  # Luminizer  -  image generation and restyling via DALL-E 3 / gpt-image-1.
+  # Omit apiKey to fall back to llm.apiKey (must be an OpenAI key).
+  # luminizer:
+  #   apiKey: "sk-YOUR_OPENAI_KEY"
+  #   model: "dall-e-3"               # or gpt-image-1 for restyle/edit support
+  #   baseURL: "https://api.openai.com/v1"
+  #   stylePrompt: ""                 # global style applied to all generations
 
 # --- Supabase ---
 # Required for the scoring/gamification system. Create a free project at supabase.com
@@ -140,11 +149,11 @@ agents:
 
 # --- Heartbeat ---
 # Periodic pulse that runs registered handlers (calendar reminders,
-# memory compaction, etc.). Separate from cron.
+# memory compaction, knowledge base sync, etc.). Separate from cron.
 
 heartbeat:
   enabled: true
-  intervalMs: 60000         # Tick interval in ms (default: 60s)
+  intervalMs: 900000        # Tick interval in ms (default: 15 min)
 
 # --- Web Dashboard ---
 
@@ -173,7 +182,7 @@ web:
   # Sensitive routes: /api/reboot, /api/export, and persona file mutation endpoints.
 
 # --- Memory ---
-# Controls per-user/channel fact storage behavior.
+# Controls per-user/channel fact storage and semantic search behavior.
 
 memory:
   maxFactsPerScope: 100       # Max facts per scope (user, channel, global)
@@ -181,12 +190,31 @@ memory:
   maxAgeDays: 0               # Auto-prune facts older than N days (0 = keep forever)
   autoExtract: true           # Automatically learn facts from conversations
 
+  # --- Semantic Vector Search ---
+  # Powers fact ranking, deduplication, and knowledge base search.
+  # Requires an OpenAI-compatible embeddings endpoint.
+  vectorSearch: true
+  # embeddingModel: "text-embedding-3-small"
+  # embeddingDimensions: 1536
+  # embeddingBaseURL: "https://api.openai.com/v1"  # or your local endpoint
+  # embeddingApiKey: ""                             # omit to use llm.apiKey
+
+  # Similarity thresholds
+  semanticDedupThreshold: 0.85    # Facts above this similarity are considered duplicates
+  semanticSearchTopK: 10          # Max candidate facts returned by vector search
+  semanticSearchMinScore: 0.3     # Minimum similarity score to include a fact
+
+  # --- Fact Consolidation ---
+  # Periodically merges related facts via LLM when a scope grows large.
+  consolidationEnabled: true
+  consolidationThreshold: 10      # Trigger consolidation after this many new facts
+
 # --- Logger ---
 # Controls console capture and optional file logging.
 
 logger:
   maxBuffer: 200              # SSE circular buffer size (log entries kept in memory)
-  fileEnabled: false           # Write logs to data/logs/YYYY-MM-DD.log
+  fileEnabled: false          # Write logs to data/logs/YYYY-MM-DD.log
   retainDays: 7               # How many days of log files to keep (auto-rotation)
 
 # --- Cron ---

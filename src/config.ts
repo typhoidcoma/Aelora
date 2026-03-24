@@ -111,6 +111,38 @@ const supabaseSchema = z
   })
   .optional();
 
+const ambientTriggerSchema = z.object({
+  enabled: z.boolean().default(true),
+  cooldownMinutes: z.number().min(0).default(30),
+  /** 0-1 probability of skipping even when trigger fires */
+  skipChance: z.number().min(0).max(1).default(0.25),
+});
+
+const ambientSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Messages to keep per channel */
+  bufferSize: z.number().int().positive().default(100),
+  /** How often the engine evaluates triggers (ms) */
+  evaluationIntervalMs: z.number().int().positive().default(300_000),
+  /** Global max ambient messages per hour across all channels */
+  globalRateLimitPerHour: z.number().int().positive().default(6),
+  /** Per-channel cooldown between any ambient messages (minutes) */
+  channelCooldownMinutes: z.number().int().positive().default(15),
+  /** Min messages in buffer before triggers can fire */
+  minBufferMessages: z.number().int().positive().default(5),
+  triggers: z.object({
+    lurker: ambientTriggerSchema.default({}),
+    patternCallout: ambientTriggerSchema.default({ cooldownMinutes: 30 }),
+    vibeShift: ambientTriggerSchema.default({ cooldownMinutes: 30 }),
+    suspiciouslyQuiet: ambientTriggerSchema.default({ cooldownMinutes: 120, enabled: false }),
+    celebration: ambientTriggerSchema.default({ cooldownMinutes: 10, skipChance: 0.1 }),
+    cursedImage: ambientTriggerSchema.default({ cooldownMinutes: 60 }),
+    callback: ambientTriggerSchema.default({ cooldownMinutes: 60, skipChance: 0.5 }),
+    topicDrift: ambientTriggerSchema.default({ cooldownMinutes: 45 }),
+    deadChannel: ambientTriggerSchema.default({ cooldownMinutes: 240 }),
+  }).default({}),
+});
+
 const knowledgeSchema = z.object({
   enabled: z.boolean().default(false),
   driveFolderId: z.string().default(""),
@@ -135,6 +167,7 @@ const configSchema = z.object({
   logger: loggerSchema.default({}),
   cron: cronSchema.default({}),
   knowledge: knowledgeSchema.default({}),
+  ambient: ambientSchema.default({}),
   supabase: supabaseSchema,
 });
 

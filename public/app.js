@@ -81,7 +81,7 @@ function switchTab(tabName) {
     persona: () => runTask("tab-persona", async () => { await fetchPersonas(); await fetchPersona(); }),
     data: () => runTask("tab-data", async () => { await fetchMemory(); await fetchNotes(); await fetchKnowledgeBase(); }),
     people: () => runTask("tab-people", async () => { await fetchSessions(); await fetchUsers(); }),
-    automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchTasks(); }),
+    automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchAmbient(); await fetchTasks(); }),
     system: () => runTask("tab-system", async () => { await fetchTools(); await fetchAgents(); }),
     mindmap: () => initMindmap(),
   };
@@ -2781,6 +2781,99 @@ async function showCronHistory(name) {
 
 function hideCronHistory() {
   document.getElementById("cron-history").style.display = "none";
+}
+
+// --- Ambient Awareness ---
+
+async function fetchAmbient() {
+  try {
+    const res = await apiFetch("/api/ambient/status", { resourceKey: "ambient" });
+    const data = await res.json();
+
+    // Status bar
+    const badge = document.getElementById("ambient-enabled-badge");
+    if (badge) {
+      badge.textContent = data.enabled ? "Enabled" : "Disabled";
+      badge.className = "ambient-badge " + (data.enabled ? "on" : "off");
+    }
+    const rateEl = document.getElementById("ambient-rate");
+    if (rateEl) rateEl.textContent = `${data.globalSendsLastHour} / ${data.globalRateLimitPerHour} per hour`;
+    const intervalEl = document.getElementById("ambient-interval");
+    if (intervalEl) intervalEl.textContent = `${Math.round(data.evaluationIntervalMs / 1000)}s`;
+
+    // Triggers table
+    const tbody = document.getElementById("ambient-triggers-body");
+    if (!tbody) return;
+
+    if (!data.triggers || data.triggers.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="muted">No triggers registered</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.triggers.map((t) => `
+      <tr${t.enabled ? "" : ' class="disabled-row"'}>
+        <td><code>${esc(t.name)}</code></td>
+        <td class="truncate-cell">${esc(t.description)}</td>
+        <td>${t.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        <td class="action-icons">
+          <button class="btn-icon" onclick="toggleAmbientTrigger('${esc(t.name)}', ${!t.enabled})" title="${t.enabled ? "Disable" : "Enable"}">${t.enabled ? "⏸" : "▶"}</button>
+        </td>
+      </tr>
+    `).join("");
+
+    // Buffers
+    if (data.bufferStats) renderAmbientBuffers(data.bufferStats);
+  } catch (err) {
+    if (err.name === "AbortError") return;
+    console.warn("fetchAmbient failed:", err);
+  }
+}
+
+function renderAmbientBuffers(stats) {
+  const tbody = document.getElementById("ambient-buffers-body");
+  if (!tbody) return;
+
+  if (!stats || stats.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">No channels tracked yet</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = stats.map((b) => {
+    const lastMsg = b.newestMessage ? timeAgo(new Date(b.newestMessage).toISOString()) : "--";
+    const lastSend = b.lastAmbientSendAt > 0 ? timeAgo(new Date(b.lastAmbientSendAt).toISOString()) : "never";
+    return `
+      <tr>
+        <td><code>#${esc(b.channelName)}</code></td>
+        <td>
+          <div class="buffer-bar-container">
+            <div class="buffer-bar-fill" style="width: ${Math.min(100, b.messageCount)}%"></div>
+            <span class="buffer-bar-label">${b.messageCount}</span>
+          </div>
+        </td>
+        <td class="muted">${lastMsg}</td>
+        <td class="muted">${lastSend}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function toggleAmbientTrigger(name, enabled) {
+  try {
+    const res = await apiFetch(`/api/ambient/triggers/${encodeURIComponent(name)}/toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      showToast(`Toggle failed: ${data.error}`, "error");
+    } else {
+      showToast(`Trigger "${name}" is now ${data.enabled ? "enabled" : "disabled"}`);
+    }
+    fetchAmbient();
+  } catch (err) {
+    showToast("Toggle failed: " + err.message, "error");
+  }
 }
 
 // --- Export ---

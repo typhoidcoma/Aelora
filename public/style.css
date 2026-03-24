@@ -2093,3 +2093,101 @@ body.mobile-sidebar-open .mobile-sidebar-backdrop {
   background: none;
   border: none;
 }
+
+/* --- Ambient Awareness --- */
+
+.ambient-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.ambient-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+}
+
+.ambient-stat-label {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.ambient-stat-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.ambient-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ambient-badge.on {
+  background: rgba(216, 199, 116, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(216, 199, 116, 0.3);
+}
+
+.ambient-badge.off {
+  background: rgba(199, 117, 83, 0.1);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
+}
+
+.ambient-sub-header {
+  margin-top: 0.75rem;
+  padding: 0.3rem 0;
+}
+
+.ambient-sub-header h3 {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.buffer-bar-container {
+  position: relative;
+  width: 100%;
+  max-width: 120px;
+  height: 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.buffer-bar-fill {
+  position: absolute;
+  inset: 0;
+  right: auto;
+  background: rgba(250, 212, 109, 0.15);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.buffer-bar-label {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}

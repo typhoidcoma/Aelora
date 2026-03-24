@@ -2233,6 +2233,45 @@ export function startWeb(state: AppState): Server | null {
     res.type("application/json").send(payload);
   });
 
+  // --- Ambient awareness ---
+
+  app.get("/api/ambient/status", async (_req, res) => {
+    try {
+      const { getAmbientState } = await import("./ambient/engine.js");
+      res.json(getAmbientState());
+    } catch {
+      res.json({ enabled: false, triggers: [], bufferStats: [], globalSendsLastHour: 0, globalRateLimitPerHour: 6, evaluationIntervalMs: 300000 });
+    }
+  });
+
+  app.get("/api/ambient/buffers", async (_req, res) => {
+    try {
+      const { getBufferStats } = await import("./ambient/buffer.js");
+      res.json(getBufferStats());
+    } catch {
+      res.json([]);
+    }
+  });
+
+  app.post("/api/ambient/triggers/:name/toggle", async (req, res) => {
+    try {
+      const { toggleTrigger } = await import("./ambient/engine.js");
+      const enabled = req.body?.enabled;
+      if (typeof enabled !== "boolean") {
+        res.status(400).json({ error: "enabled (boolean) required" });
+        return;
+      }
+      const ok = toggleTrigger(req.params.name, enabled);
+      if (!ok) {
+        res.status(404).json({ error: `trigger "${req.params.name}" not found` });
+        return;
+      }
+      res.json({ name: req.params.name, enabled });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   const server = createServer(app);
   server.listen(config.web.port, "0.0.0.0", () => {
     console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}${basePath}/dashboard`);

@@ -429,6 +429,68 @@
         </div>
       </section>
 
+      <!-- Ambient Awareness -->
+      <section>
+        <div class="section-header" data-section="ambient">
+          <span class="chevron">&#9660;</span>
+          <h2>Ambient Awareness</h2>
+        </div>
+        <div class="section-body" data-section="ambient">
+
+          <!-- Status bar -->
+          <div id="ambient-status-bar" class="ambient-status-bar">
+            <div class="ambient-stat">
+              <span class="ambient-stat-label">Status</span>
+              <span id="ambient-enabled-badge" class="ambient-badge off">Disabled</span>
+            </div>
+            <div class="ambient-stat">
+              <span class="ambient-stat-label">Rate</span>
+              <span id="ambient-rate" class="ambient-stat-value">0 / 6 per hour</span>
+            </div>
+            <div class="ambient-stat">
+              <span class="ambient-stat-label">Eval Interval</span>
+              <span id="ambient-interval" class="ambient-stat-value">--</span>
+            </div>
+          </div>
+
+          <!-- Triggers table -->
+          <table id="ambient-triggers-table">
+            <thead>
+              <tr>
+                <th>Trigger</th>
+                <th>Description</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ambient-triggers-body">
+              <tr><td colspan="4" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+
+          <!-- Channel Buffers -->
+          <div class="section-header ambient-sub-header" data-section="ambient-buffers">
+            <span class="chevron">&#9660;</span>
+            <h3>Channel Buffers</h3>
+          </div>
+          <div class="section-body" data-section="ambient-buffers">
+            <table id="ambient-buffers-table">
+              <thead>
+                <tr>
+                  <th>Channel</th>
+                  <th>Buffered</th>
+                  <th>Last Message</th>
+                  <th>Last Ambient Send</th>
+                </tr>
+              </thead>
+              <tbody id="ambient-buffers-body">
+                <tr><td colspan="4" class="muted">No channels tracked yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- Tasks -->
       <section>
         <div class="section-header" data-section="tasks">

@@ -134,6 +134,14 @@ async function main(): Promise<void> {
         console.warn("KnowledgeBase: enabled but Google credentials not configured");
       }
     }
+    // Ambient awareness system
+    if (config.ambient.enabled) {
+      const { configureBuffer } = await import("./ambient/buffer.js");
+      const { registerAmbientEngine } = await import("./ambient/engine.js");
+      configureBuffer({ bufferSize: config.ambient.bufferSize });
+      registerAmbientEngine(config, sendToChannel);
+    }
+
     startHeartbeat(config, {
       sendToChannel,
       llmOneShot: getLLMOneShot,

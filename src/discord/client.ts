@@ -19,6 +19,7 @@ import { updateUser } from "../users.js";
 import { extractFacts, trackMessage } from "../fact-extractor.js";
 import { saveFact } from "../memory.js";
 import { broadcastEvent } from "../logger.js";
+import { ingestMessage, markReaction } from "../ambient/buffer.js";
 
 export let discordClient: Client | null = null;
 export let botUserId: string | null = null;
@@ -148,6 +149,25 @@ export async function startDiscord(config: Config): Promise<Client> {
       if (!config.discord.allowedChannels.includes(message.channelId)) return;
     }
 
+    // Ambient awareness: buffer ALL messages in allowed channels (before mention filter)
+    if (config.ambient.enabled) {
+      const IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+      const chName = "name" in message.channel ? (message.channel.name as string) : "unknown";
+      ingestMessage({
+        id: message.id,
+        channelId: message.channelId,
+        channelName: chName,
+        authorId: message.author.id,
+        authorName: message.author.displayName ?? message.author.username,
+        content: message.content,
+        hasAttachments: message.attachments.size > 0,
+        attachmentTypes: [...message.attachments.values()].map((a) => a.contentType ?? "unknown"),
+        imageUrls: [...message.attachments.values()]
+          .filter((a) => a.contentType && IMAGE_MIME.has(a.contentType) && a.url)
+          .map((a) => a.url),
+      });
+    }
+
     if (config.discord.guildMode === "mention") {
       const mentioned = botUserId && message.mentions.has(botUserId);
       const botName = config.persona.botName.toLowerCase();
@@ -222,6 +242,9 @@ export async function startDiscord(config: Config): Promise<Client> {
       const username = (user as any).username ?? user.id;
 
       console.log(`Discord: ${username} reacted ${emoji} to message in #${channelName}`);
+
+      // Ambient: track reactions for cursed-image trigger
+      markReaction(reaction.message.id, reaction.message.channelId);
 
       broadcastEvent("mindmap", {
         type: "reaction:added",

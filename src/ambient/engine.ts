@@ -56,6 +56,24 @@ let savedSendToChannel: ((channelId: string, text: string) => Promise<void>) | n
 // Runtime overrides for trigger enabled state (from API toggle)
 const runtimeOverrides = new Map<string, boolean>();
 
+// Evaluation stats per trigger (rolling, reset hourly)
+type EvalStats = { evaluated: number; fired: number; skipped: number; lastEvaluatedAt: number; lastFiredAt: number };
+const evalStats = new Map<string, EvalStats>();
+let lastStatsReset = Date.now();
+
+function getOrCreateStats(name: string): EvalStats {
+  let s = evalStats.get(name);
+  if (!s) { s = { evaluated: 0, fired: 0, skipped: 0, lastEvaluatedAt: 0, lastFiredAt: 0 }; evalStats.set(name, s); }
+  return s;
+}
+
+function pruneStats(): void {
+  if (Date.now() - lastStatsReset > 60 * 60 * 1000) {
+    for (const s of evalStats.values()) { s.evaluated = 0; s.fired = 0; s.skipped = 0; }
+    lastStatsReset = Date.now();
+  }
+}
+
 function cooldownKey(triggerName: string, channelId: string): string {
   return `${triggerName}:${channelId}`;
 }
@@ -142,6 +160,7 @@ async function evaluateTick(): Promise<string | void> {
   if (!discordClient || !botUserId) return;
 
   if (!canSendGlobally(config)) return;
+  pruneStats();
 
   const buffers = getAllBuffers().filter(
     (buf) => buf.messages.length >= config.ambient.minBufferMessages,
@@ -168,9 +187,17 @@ async function evaluateTick(): Promise<string | void> {
       if (!trigger.shouldEvaluate(buffer, config)) continue;
 
       // random skip
-      if (Math.random() < triggerConf.skipChance) continue;
+      if (Math.random() < triggerConf.skipChance) {
+        const s = getOrCreateStats(trigger.name);
+        s.skipped++;
+        continue;
+      }
 
       // full evaluation
+      const stats = getOrCreateStats(trigger.name);
+      stats.evaluated++;
+      stats.lastEvaluatedAt = Date.now();
+
       let result: TriggerResult;
       try {
         const ctx: TriggerContext = {
@@ -196,6 +223,7 @@ async function evaluateTick(): Promise<string | void> {
       });
 
       if (!result.message || result.message.trim().toUpperCase() === "SKIP" || result.message.trim().length === 0) {
+        stats.skipped++;
         continue;
       }
 
@@ -229,10 +257,12 @@ async function evaluateTick(): Promise<string | void> {
         continue;
       }
 
-      // record cooldowns and timestamps
+      // record cooldowns, timestamps, and stats
       triggerCooldowns.set(cooldownKey(trigger.name, buffer.channelId), Date.now());
       globalSendTimestamps.push(Date.now());
       recordAmbientSend(buffer.channelId);
+      stats.fired++;
+      stats.lastFiredAt = Date.now();
 
       broadcastEvent("mindmap", {
         type: "ambient:sent",
@@ -327,16 +357,10 @@ export function toggleTrigger(name: string, enabled: boolean): boolean {
 }
 
 /** Dashboard state. */
-export function getAmbientState(): {
-  enabled: boolean;
-  evaluationIntervalMs: number;
-  globalSendsLastHour: number;
-  globalRateLimitPerHour: number;
-  triggers: Array<{ name: string; description: string; enabled: boolean; configKey: string }>;
-  bufferStats: ReturnType<typeof getBufferStats>;
-} {
+export function getAmbientState() {
   const config = savedConfig;
-  const oneHourAgo = Date.now() - 60 * 60 * 1000;
+  const now = Date.now();
+  const oneHourAgo = now - 60 * 60 * 1000;
   while (globalSendTimestamps.length > 0 && globalSendTimestamps[0] < oneHourAgo) {
     globalSendTimestamps.shift();
   }
@@ -346,12 +370,35 @@ export function getAmbientState(): {
     evaluationIntervalMs: config?.ambient.evaluationIntervalMs ?? 300_000,
     globalSendsLastHour: globalSendTimestamps.length,
     globalRateLimitPerHour: config?.ambient.globalRateLimitPerHour ?? 6,
-    triggers: allTriggers.map((t) => ({
-      name: t.name,
-      description: t.description,
-      enabled: config ? isTriggerEnabled(t, config) : false,
-      configKey: TRIGGER_CONFIG_MAP[t.name] ?? t.name,
-    })),
+    triggers: allTriggers.map((t) => {
+      const tc = config ? getTriggerConfig(t, config) : null;
+      const stats = evalStats.get(t.name);
+
+      // find most recent cooldown across all channels for this trigger
+      let lastFiredAt = stats?.lastFiredAt ?? 0;
+      let cooldownRemaining = 0;
+      if (lastFiredAt > 0 && tc) {
+        const elapsed = now - lastFiredAt;
+        const cdMs = tc.cooldownMinutes * 60 * 1000;
+        cooldownRemaining = Math.max(0, Math.ceil((cdMs - elapsed) / 1000));
+      }
+
+      return {
+        name: t.name,
+        description: t.description,
+        enabled: config ? isTriggerEnabled(t, config) : false,
+        configKey: TRIGGER_CONFIG_MAP[t.name] ?? t.name,
+        cooldownMinutes: tc?.cooldownMinutes ?? 30,
+        skipChance: tc?.skipChance ?? 0.25,
+        minMessages: (tc as Record<string, unknown>)?.minMessages as number ?? 3,
+        lastFiredAt: lastFiredAt > 0 ? new Date(lastFiredAt).toISOString() : null,
+        lastEvaluatedAt: stats?.lastEvaluatedAt ? new Date(stats.lastEvaluatedAt).toISOString() : null,
+        cooldownRemaining,
+        evaluated: stats?.evaluated ?? 0,
+        fired: stats?.fired ?? 0,
+        skipped: stats?.skipped ?? 0,
+      };
+    }),
     bufferStats: getBufferStats(),
   };
 }

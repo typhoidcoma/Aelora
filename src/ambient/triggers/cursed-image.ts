@@ -7,26 +7,31 @@ export const cursedImageTrigger: AmbientTrigger = {
   name: "cursed-image",
   description: "Breaks the silence when someone posts an image and nobody reacts",
 
-  shouldEvaluate(buffer) {
-    // look for images posted 3+ minutes ago with no reactions
+  shouldEvaluate(buffer, config) {
+    const tc = config.ambient.triggers.cursedImage;
+    const minAgeMs = tc.minAgeMinutes * 60 * 1000;
+    const maxAgeMs = tc.maxAgeMinutes * 60 * 1000;
     const now = Date.now();
     return buffer.messages.some((m) => {
       if (!m.hasAttachments) return false;
       if (!m.attachmentTypes.some((t) => IMAGE_TYPES.has(t))) return false;
       if (m.hasReactions) return false;
       const ageMs = now - m.timestamp;
-      return ageMs >= 3 * 60 * 1000 && ageMs <= 30 * 60 * 1000; // 3-30 min old
+      return ageMs >= minAgeMs && ageMs <= maxAgeMs;
     });
   },
 
   async evaluate(ctx) {
+    const tc = ctx.config.ambient.triggers.cursedImage;
+    const minAgeMs = tc.minAgeMinutes * 60 * 1000;
+    const maxAgeMs = tc.maxAgeMinutes * 60 * 1000;
     const now = Date.now();
     const unreactedImages = ctx.buffer.messages.filter((m) => {
       if (!m.hasAttachments) return false;
       if (!m.attachmentTypes.some((t) => IMAGE_TYPES.has(t))) return false;
       if (m.hasReactions) return false;
       const ageMs = now - m.timestamp;
-      return ageMs >= 3 * 60 * 1000 && ageMs <= 30 * 60 * 1000;
+      return ageMs >= minAgeMs && ageMs <= maxAgeMs;
     });
 
     if (unreactedImages.length === 0) {

@@ -5,12 +5,13 @@ export const lurkerTrigger: AmbientTrigger = {
   name: "lurker",
   description: "Drops a muttered self-talk observation when a channel is active and entertaining",
 
-  shouldEvaluate(buffer) {
-    // need 10+ messages in last 15 min from 2+ unique users
-    const recent = getRecentMessages(buffer.channelId, 15 * 60 * 1000);
-    if (recent.length < 10) return false;
+  shouldEvaluate(buffer, config) {
+    const tc = config.ambient.triggers.lurker;
+    const windowMs = tc.windowMinutes * 60 * 1000;
+    const recent = getRecentMessages(buffer.channelId, windowMs);
+    if (recent.length < tc.minMessages) return false;
     const uniqueUsers = new Set(recent.map((m) => m.authorId));
-    return uniqueUsers.size >= 2;
+    return uniqueUsers.size >= tc.minUsers;
   },
 
   async evaluate(ctx) {

@@ -2806,20 +2806,38 @@ async function fetchAmbient() {
     if (!tbody) return;
 
     if (!data.triggers || data.triggers.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="muted">No triggers registered</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">No triggers registered</td></tr>';
       return;
     }
 
-    tbody.innerHTML = data.triggers.map((t) => `
+    tbody.innerHTML = data.triggers.map((t) => {
+      const lastFired = t.lastFiredAt ? timeAgo(t.lastFiredAt) : "never";
+      const statsText = `${t.evaluated} eval / ${t.fired} fired / ${t.skipped} skip`;
+
+      let statusBadge;
+      if (!t.enabled) {
+        statusBadge = '<span class="ambient-status-badge off">Off</span>';
+      } else if (t.cooldownRemaining > 0) {
+        const mins = Math.ceil(t.cooldownRemaining / 60);
+        statusBadge = `<span class="ambient-status-badge cooling">Cooling ${mins}m</span>`;
+      } else {
+        statusBadge = '<span class="ambient-status-badge ready">Ready</span>';
+      }
+
+      return `
       <tr${t.enabled ? "" : ' class="disabled-row"'}>
         <td><code>${esc(t.name)}</code></td>
-        <td class="truncate-cell">${esc(t.description)}</td>
-        <td>${t.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
+        <td>${t.cooldownMinutes}m</td>
+        <td>${Math.round(t.skipChance * 100)}%</td>
+        <td>${t.minMessages}</td>
+        <td class="muted">${lastFired}</td>
+        <td class="muted" title="${esc(statsText)}">${t.evaluated}/${t.fired}/${t.skipped}</td>
+        <td>${statusBadge}</td>
         <td class="action-icons">
           <button class="btn-icon" onclick="toggleAmbientTrigger('${esc(t.name)}', ${!t.enabled})" title="${t.enabled ? "Disable" : "Enable"}">${t.enabled ? "⏸" : "▶"}</button>
         </td>
-      </tr>
-    `).join("");
+      </tr>`;
+    }).join("");
 
     // Buffers
     if (data.bufferStats) renderAmbientBuffers(data.bufferStats);
@@ -3299,6 +3317,7 @@ const pollTasks = [
   { key: "automation-cron", intervalMs: 30_000, tabs: ["automation"], run: () => runTask("automation-cron", () => fetchCron()) },
   { key: "automation-tasks", intervalMs: 30_000, tabs: ["automation"], run: () => runTask("automation-tasks", () => fetchTasks()) },
   { key: "automation-calendar", intervalMs: 60_000, tabs: ["automation"], run: () => runTask("automation-calendar", () => fetchCalendarEvents()) },
+  { key: "automation-ambient", intervalMs: 30_000, tabs: ["automation"], run: () => runTask("automation-ambient", () => fetchAmbient()) },
   { key: "system-tools", intervalMs: 60_000, tabs: ["system"], run: () => runTask("system-tools", () => fetchTools()) },
   { key: "system-agents", intervalMs: 60_000, tabs: ["system"], run: () => runTask("system-agents", () => fetchAgents()) },
 ];
@@ -3381,6 +3400,9 @@ function initMindmap() {
       { selector: ".fact", style: { shape: "hexagon", "background-color": "#831843", "border-color": "#ec4899" }},
       { selector: ".mood", style: { shape: "ellipse", "background-color": "#3730a3", "border-color": "#818cf8" }},
       { selector: ".iteration", style: { shape: "round-rectangle", "background-color": "#374151", "border-color": "#6b7280" }},
+      { selector: ".ambient-fired", style: { shape: "star", "background-color": "#854d0e", "border-color": "#fbbf24" }},
+      { selector: ".ambient-skip", style: { shape: "star", "background-color": "#1f2937", "border-color": "#4b5563" }},
+      { selector: ".ambient-sent", style: { shape: "star", "background-color": "#92400e", "border-color": "#f59e0b" }},
       { selector: ":selected", style: { "border-width": 3, "border-color": "#fad46d" }},
     ],
     layout: { name: "preset" },
@@ -3562,6 +3584,25 @@ function handleMindmapEvent(data) {
     case "conversation:end": {
       // Reset per-turn tracking so the next message in this channel branches from the last assistant reply
       convo.lastIterationId = null;
+      break;
+    }
+
+    case "ambient:evaluated": {
+      const id = _nextNodeId();
+      const cls = data.fired ? "ambient-fired" : "ambient-skip";
+      const label = (data.fired ? "Ambient FIRE" : "Ambient skip") + "\n" + esc(data.trigger);
+      _addNode(id, label, cls, cid, { eventType: "ambient:evaluated", trigger: data.trigger, fired: data.fired, reason: data.reason });
+      const parentId = convo.rootId || convo.lastMsgId;
+      if (parentId) _addEdge(parentId, id, "ambient");
+      break;
+    }
+
+    case "ambient:sent": {
+      const id = _nextNodeId();
+      const label = "Ambient sent\n" + esc(data.trigger) + "\n" + (data.preview || "").slice(0, 40);
+      _addNode(id, label, "ambient-sent", cid, { eventType: "ambient:sent", trigger: data.trigger, preview: data.preview });
+      const parentId = convo.rootId || convo.lastMsgId;
+      if (parentId) _addEdge(parentId, id, "ambient");
       break;
     }
   }

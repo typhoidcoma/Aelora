@@ -7,14 +7,15 @@ export const celebrationTrigger: AmbientTrigger = {
   name: "celebration",
   description: "Piles on the hype when someone shares a win",
 
-  shouldEvaluate(buffer) {
-    // look for wins in the last 5 minutes
-    const recent = getRecentMessages(buffer.channelId, 5 * 60 * 1000);
+  shouldEvaluate(buffer, config) {
+    const windowMs = config.ambient.triggers.celebration.windowMinutes * 60 * 1000;
+    const recent = getRecentMessages(buffer.channelId, windowMs);
     return recent.some((m) => WIN_PATTERNS.test(m.content));
   },
 
   async evaluate(ctx) {
-    const recent = getRecentMessages(ctx.buffer.channelId, 5 * 60 * 1000);
+    const windowMs = ctx.config.ambient.triggers.celebration.windowMinutes * 60 * 1000;
+    const recent = getRecentMessages(ctx.buffer.channelId, windowMs);
     const winMessages = recent.filter((m) => WIN_PATTERNS.test(m.content));
 
     if (winMessages.length === 0) {

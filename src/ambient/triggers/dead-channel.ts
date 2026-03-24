@@ -1,27 +1,24 @@
 import type { AmbientTrigger } from "../types.js";
 import { getAllSessions } from "../../sessions.js";
 
-const QUIET_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours of silence
-
 export const deadChannelTrigger: AmbientTrigger = {
   name: "dead-channel",
   description: "Pokes a normally active channel that has gone quiet",
 
-  shouldEvaluate(buffer) {
+  shouldEvaluate(buffer, config) {
     if (buffer.messages.length === 0) return false;
 
+    const tc = config.ambient.triggers.deadChannel;
     const lastMsg = buffer.messages[buffer.messages.length - 1];
     const silenceMs = Date.now() - lastMsg.timestamp;
 
-    if (silenceMs < QUIET_THRESHOLD_MS) return false;
+    if (silenceMs < tc.silenceMinutes * 60 * 1000) return false;
 
-    // check if this channel is normally active (via sessions)
     const sessions = getAllSessions();
     const session = sessions.find((s) => s.channelId === buffer.channelId);
     if (!session) return false;
 
-    // only poke if the channel has a decent message history
-    return session.messageCount >= 20;
+    return session.messageCount >= tc.minSessionMessages;
   },
 
   async evaluate(ctx) {

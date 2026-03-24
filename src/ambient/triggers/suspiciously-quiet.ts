@@ -1,16 +1,17 @@
 import type { AmbientTrigger } from "../types.js";
 
 const COMMITMENT_PATTERNS = /\b(i'll|i will|gonna|going to|let me|brb|will do|on it|give me a sec|working on|about to|promise)\b/i;
-const QUIET_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export const suspiciouslyQuietTrigger: AmbientTrigger = {
   name: "suspiciously-quiet",
   description: "Notices when someone promised something and then went silent",
 
-  shouldEvaluate(buffer) {
-    if (buffer.messages.length < 5) return false;
+  shouldEvaluate(buffer, config) {
+    const tc = config.ambient.triggers.suspiciouslyQuiet;
+    if (buffer.messages.length < tc.minMessages) return false;
 
     const now = Date.now();
+    const silenceMs = tc.silenceMinutes * 60 * 1000;
     const activeUsers = new Map<string, { lastMsg: number; lastContent: string; name: string }>();
 
     for (const msg of buffer.messages) {
@@ -21,9 +22,8 @@ export const suspiciouslyQuietTrigger: AmbientTrigger = {
       });
     }
 
-    // check if any user with a commitment has gone quiet
     for (const [, user] of activeUsers) {
-      if (now - user.lastMsg >= QUIET_THRESHOLD_MS && COMMITMENT_PATTERNS.test(user.lastContent)) {
+      if (now - user.lastMsg >= silenceMs && COMMITMENT_PATTERNS.test(user.lastContent)) {
         return true;
       }
     }
@@ -32,6 +32,8 @@ export const suspiciouslyQuietTrigger: AmbientTrigger = {
 
   async evaluate(ctx) {
     const now = Date.now();
+    const tc = ctx.config.ambient.triggers.suspiciouslyQuiet;
+    const silenceMs = tc.silenceMinutes * 60 * 1000;
     const quietCommitters: Array<{ name: string; said: string; silentFor: number }> = [];
 
     const activeUsers = new Map<string, { lastMsg: number; lastContent: string; name: string }>();
@@ -44,12 +46,12 @@ export const suspiciouslyQuietTrigger: AmbientTrigger = {
     }
 
     for (const [, user] of activeUsers) {
-      const silentMs = now - user.lastMsg;
-      if (silentMs >= QUIET_THRESHOLD_MS && COMMITMENT_PATTERNS.test(user.lastContent)) {
+      const silentMsActual = now - user.lastMsg;
+      if (silentMsActual >= silenceMs && COMMITMENT_PATTERNS.test(user.lastContent)) {
         quietCommitters.push({
           name: user.name,
           said: user.lastContent.slice(0, 200),
-          silentFor: Math.round(silentMs / (60 * 60 * 1000)),
+          silentFor: Math.round(silentMsActual / (60 * 60 * 1000)),
         });
       }
     }

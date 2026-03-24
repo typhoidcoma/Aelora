@@ -2191,3 +2191,31 @@ body.mobile-sidebar-open .mobile-sidebar-backdrop {
   color: var(--text-muted);
   font-weight: 600;
 }
+
+.ambient-status-badge {
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.ambient-status-badge.ready {
+  background: rgba(216, 199, 116, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(216, 199, 116, 0.3);
+}
+
+.ambient-status-badge.cooling {
+  background: rgba(250, 212, 109, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.ambient-status-badge.off {
+  background: rgba(199, 117, 83, 0.08);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
+}

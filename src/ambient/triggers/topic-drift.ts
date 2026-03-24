@@ -4,12 +4,12 @@ export const topicDriftTrigger: AmbientTrigger = {
   name: "topic-drift",
   description: "Notices when conversation has drifted wildly from where it started",
 
-  shouldEvaluate(buffer) {
-    if (buffer.messages.length < 20) return false;
-    // messages need to span at least 15 minutes
+  shouldEvaluate(buffer, config) {
+    const tc = config.ambient.triggers.topicDrift;
+    if (buffer.messages.length < tc.minMessages) return false;
     const first = buffer.messages[0].timestamp;
     const last = buffer.messages[buffer.messages.length - 1].timestamp;
-    return last - first >= 15 * 60 * 1000;
+    return last - first >= tc.minSpanMinutes * 60 * 1000;
   },
 
   async evaluate(ctx) {

@@ -5,9 +5,8 @@ export const patternCalloutTrigger: AmbientTrigger = {
   name: "pattern-callout",
   description: "Notices recurring topics or questions that keep coming up",
 
-  shouldEvaluate(buffer) {
-    // needs enough history to spot patterns
-    return buffer.messages.length >= 30;
+  shouldEvaluate(buffer, config) {
+    return buffer.messages.length >= config.ambient.triggers.patternCallout.minMessages;
   },
 
   async evaluate(ctx) {

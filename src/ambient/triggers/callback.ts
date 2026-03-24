@@ -5,9 +5,8 @@ export const callbackTrigger: AmbientTrigger = {
   name: "callback",
   description: "References something from the past when it becomes relevant again",
 
-  shouldEvaluate(buffer) {
-    // always worth checking if there's enough conversation
-    return buffer.messages.length >= 8;
+  shouldEvaluate(buffer, config) {
+    return buffer.messages.length >= config.ambient.triggers.callback.minMessages;
   },
 
   async evaluate(ctx) {

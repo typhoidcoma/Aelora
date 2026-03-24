@@ -111,35 +111,65 @@ const supabaseSchema = z
   })
   .optional();
 
-const ambientTriggerSchema = z.object({
+// Base fields shared by all ambient triggers
+const ambientTriggerBase = {
   enabled: z.boolean().default(true),
   cooldownMinutes: z.number().min(0).default(30),
-  /** 0-1 probability of skipping even when trigger fires */
   skipChance: z.number().min(0).max(1).default(0.25),
-});
+  minMessages: z.number().int().min(0).default(3),
+};
 
 const ambientSchema = z.object({
   enabled: z.boolean().default(false),
-  /** Messages to keep per channel */
   bufferSize: z.number().int().positive().default(100),
-  /** How often the engine evaluates triggers (ms) */
   evaluationIntervalMs: z.number().int().positive().default(300_000),
-  /** Global max ambient messages per hour across all channels */
   globalRateLimitPerHour: z.number().int().positive().default(6),
-  /** Per-channel cooldown between any ambient messages (minutes) */
   channelCooldownMinutes: z.number().int().positive().default(15),
-  /** Min messages in buffer before triggers can fire */
-  minBufferMessages: z.number().int().positive().default(5),
+  minBufferMessages: z.number().int().positive().default(3),
   triggers: z.object({
-    lurker: ambientTriggerSchema.default({}),
-    patternCallout: ambientTriggerSchema.default({ cooldownMinutes: 30 }),
-    vibeShift: ambientTriggerSchema.default({ cooldownMinutes: 30 }),
-    suspiciouslyQuiet: ambientTriggerSchema.default({ cooldownMinutes: 120, enabled: false }),
-    celebration: ambientTriggerSchema.default({ cooldownMinutes: 10, skipChance: 0.1 }),
-    cursedImage: ambientTriggerSchema.default({ cooldownMinutes: 60 }),
-    callback: ambientTriggerSchema.default({ cooldownMinutes: 60, skipChance: 0.5 }),
-    topicDrift: ambientTriggerSchema.default({ cooldownMinutes: 45 }),
-    deadChannel: ambientTriggerSchema.default({ cooldownMinutes: 240 }),
+    lurker: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(4),
+      minUsers: z.number().int().min(1).default(2),
+      windowMinutes: z.number().int().positive().default(30),
+    }).default({}),
+    patternCallout: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(10),
+    }).default({ cooldownMinutes: 30 }),
+    vibeShift: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(6),
+      minSpanMinutes: z.number().int().positive().default(10),
+    }).default({ cooldownMinutes: 30 }),
+    suspiciouslyQuiet: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(3),
+      silenceMinutes: z.number().int().positive().default(60),
+    }).default({ cooldownMinutes: 120, enabled: false }),
+    celebration: z.object({
+      ...ambientTriggerBase,
+      windowMinutes: z.number().int().positive().default(10),
+    }).default({ cooldownMinutes: 10, skipChance: 0.1 }),
+    cursedImage: z.object({
+      ...ambientTriggerBase,
+      minAgeMinutes: z.number().int().min(0).default(2),
+      maxAgeMinutes: z.number().int().positive().default(60),
+    }).default({ cooldownMinutes: 60 }),
+    callback: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(4),
+    }).default({ cooldownMinutes: 60, skipChance: 0.5 }),
+    topicDrift: z.object({
+      ...ambientTriggerBase,
+      minMessages: z.number().int().min(0).default(8),
+      minSpanMinutes: z.number().int().positive().default(10),
+    }).default({ cooldownMinutes: 45 }),
+    deadChannel: z.object({
+      ...ambientTriggerBase,
+      silenceMinutes: z.number().int().positive().default(60),
+      minSessionMessages: z.number().int().positive().default(10),
+    }).default({ cooldownMinutes: 240 }),
   }).default({}),
 });
 

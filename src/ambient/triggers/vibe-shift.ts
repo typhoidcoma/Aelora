@@ -4,12 +4,12 @@ export const vibeShiftTrigger: AmbientTrigger = {
   name: "vibe-shift",
   description: "Detects when a channel's mood changes significantly",
 
-  shouldEvaluate(buffer) {
-    if (buffer.messages.length < 10) return false;
-    // messages need to span at least 10 minutes
+  shouldEvaluate(buffer, config) {
+    const tc = config.ambient.triggers.vibeShift;
+    if (buffer.messages.length < tc.minMessages) return false;
     const first = buffer.messages[0].timestamp;
     const last = buffer.messages[buffer.messages.length - 1].timestamp;
-    return last - first >= 10 * 60 * 1000;
+    return last - first >= tc.minSpanMinutes * 60 * 1000;
   },
 
   async evaluate(ctx) {

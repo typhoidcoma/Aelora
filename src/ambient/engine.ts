@@ -122,8 +122,8 @@ async function llmEvaluate(prompt: string, config: Config): Promise<string> {
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 
-  // Use persona's composed prompt as a slim identity context
-  const personaContext = config.llm.systemPrompt.slice(0, 2000); // just enough for voice/tone
+  // Use full persona prompt so the bot sounds like itself (Wendy, Aelora, etc.)
+  const personaContext = config.llm.systemPrompt;
 
   const result = await client.chat.completions.create({
     model,

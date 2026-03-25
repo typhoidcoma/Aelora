@@ -57,7 +57,7 @@ tags:
     description: Persistent note storage with scope-based organization
   - name: Calendar
     description: Google Calendar event management
-  - name: Todos
+  - name: Tasks
     description: Task management via Google Tasks
   - name: Users
     description: User profile tracking across channels
@@ -1597,12 +1597,12 @@ paths:
                   error:
                     type: string
 
-  # â”€â”€ Todos (Google Tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  /api/todos:
+  # â”€â”€ Tasks (Google Tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  /api/tasks:
     get:
-      tags: [Todos]
-      summary: List all todos
-      description: Returns todos from Google Tasks. Filter by status.
+      tags: [Tasks]
+      summary: List all tasks
+      description: Returns tasks from Google Tasks. Filter by status.
       parameters:
         - name: status
           in: query
@@ -1612,13 +1612,13 @@ paths:
             default: all
       responses:
         "200":
-          description: Todo list
+          description: Task list
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  todos:
+                  tasks:
                     type: array
                     items:
                       $ref: "#/components/schemas/TodoItem"
@@ -1631,14 +1631,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: Google Calendar not configured
+          description: Google not configured
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
     post:
-      tags: [Todos]
-      summary: Create a new todo
+      tags: [Tasks]
+      summary: Create a new task
       requestBody:
         required: true
         content:
@@ -1659,7 +1659,7 @@ paths:
               required: [title]
       responses:
         "201":
-          description: Todo created
+          description: Task created
           content:
             application/json:
               schema:
@@ -1677,20 +1677,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /api/todos/{uid}:
+  /api/tasks/{uid}:
     get:
-      tags: [Todos]
-      summary: Get a single todo
+      tags: [Tasks]
+      summary: Get a single task
       parameters:
         - name: uid
           in: path
           required: true
-          description: Google Tasks ID of the todo
+          description: Google Tasks ID of the task
           schema:
             type: string
       responses:
         "200":
-          description: Todo item
+          description: Task item
           content:
             application/json:
               schema:
@@ -1702,13 +1702,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
     put:
-      tags: [Todos]
-      summary: Update a todo
+      tags: [Tasks]
+      summary: Update a task
       parameters:
         - name: uid
           in: path
           required: true
-          description: Google Tasks ID of the todo
+          description: Google Tasks ID of the task
           schema:
             type: string
       requestBody:
@@ -1732,7 +1732,7 @@ paths:
                   description: Set to true to mark as completed
       responses:
         "200":
-          description: Updated todo
+          description: Updated task
           content:
             application/json:
               schema:
@@ -1744,13 +1744,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
     delete:
-      tags: [Todos]
-      summary: Delete a todo
+      tags: [Tasks]
+      summary: Delete a task
       parameters:
         - name: uid
           in: path
           required: true
-          description: Google Tasks ID of the todo
+          description: Google Tasks ID of the task
           schema:
             type: string
       responses:

@@ -17,8 +17,9 @@ sudo useradd --system --shell /usr/sbin/nologin --create-home --home-dir /opt/ae
 ```bash
 sudo -u aelora git clone https://github.com/YOUR_USER/aelora.git /opt/aelora
 cd /opt/aelora
-sudo -u aelora npm ci --omit=dev
+sudo -u aelora npm ci
 sudo -u aelora npm run build
+sudo -u aelora npm prune --omit=dev
 ```
 
 ## 3. Configure
@@ -47,7 +48,7 @@ sudo chown root:aelora /etc/aelora/env
 sudo chmod 0640 /etc/aelora/env
 ```
 
-Environment variables override the corresponding `settings.yaml` values. See `deploy/env.example` for the full list.
+Environment variables override the corresponding `settings.yaml` values. `deploy/env.example` includes common production overrides; additional supported variables are defined in `src/config.ts` (`applyEnvOverrides`).
 
 ## 4. Install the systemd service
 
@@ -158,8 +159,9 @@ The dashboard will be at `https://<machine>.<tailnet>.ts.net/aelora/dashboard`.
 ```bash
 cd /opt/aelora
 sudo -u aelora git pull
-sudo -u aelora npm ci --omit=dev
+sudo -u aelora npm ci
 sudo -u aelora npm run build
+sudo -u aelora npm prune --omit=dev
 sudo systemctl restart aelora
 ```
 

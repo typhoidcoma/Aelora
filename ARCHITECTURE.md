@@ -154,7 +154,7 @@ Persona loading is wrapped in try-catch -if the active persona fails to load, th
    /ask [prompt]     → deferReply → getLLMResponse() → buildResponseEmbed()
    /tools            → getAllTools() + getAllAgents() → buildToolListEmbed()
    /ping             → latency measurement → buildSuccessEmbed()
-   /clear            → clearHistory(channelId) → buildSuccessEmbed()
+   /new              → clearSession(channelId) + deleteSession(channelId) → buildSuccessEmbed()
    /websearch [query]→ executeTool("web_search") → buildResponseEmbed()
    /reboot           → reply embed → setTimeout(500ms) → reboot()
    /play             → embed + Link button → discord.com/activities/{appId}
@@ -176,7 +176,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
 
 - Stored in a `Map<string, ChatMessage[]>` keyed by Discord channel ID
 - Each channel has independent history
-- Trimmed to `maxHistory` (default 20) messages after each exchange
+- Trimmed to `maxHistory` (default 50) messages after each exchange
 - Periodically persisted to `data/memory/conversations.json` by the conversation-save heartbeat handler (every 5 minutes)
 - Also saved on graceful shutdown (SIGINT/SIGTERM) and before crash exits
 
@@ -208,7 +208,7 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 
 ### Tool Calling Loop
 
-`runCompletionLoop()` -up to `config.llm.maxToolIterations` (default 10) rounds:
+`runCompletionLoop()` -up to `config.llm.maxToolIterations` (default 25) rounds:
 
 1. Call `client.chat.completions.create()` with messages + tool definitions
 2. If response has `tool_calls`: parse args, dispatch each to tool or agent, push results, loop
@@ -1349,9 +1349,9 @@ type Config = {
     apiKey: string;
     model: string;
     systemPrompt: string;       // Overwritten by persona system at startup
-    maxTokens: number;          // Default: 1024
-    maxHistory: number;         // Default: 20
-    maxToolIterations: number;  // Default: 10 -max tool-calling rounds per request
+    maxTokens: number;          // Default: 16384
+    maxHistory: number;         // Default: 50
+    maxToolIterations: number;  // Default: 25 -max tool-calling rounds per request
     lite: boolean;              // Default: false -slim tool schemas for local models
   };
   web: { enabled: boolean; port: number; apiKey?: string };

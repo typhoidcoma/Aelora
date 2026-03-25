@@ -103,12 +103,13 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `supabase` | Supabase project URL and anon key for scoring persistence |
 | `agents` | Agent system toggle, max iterations |
 | `heartbeat` | Periodic handler system interval (default: 15 min) |
-| `memory` | Max facts per scope, max fact length, TTL, vector search, embedding config, consolidation |
+| `memory` | Max facts per scope, max fact length, max age, vector search, embedding config, consolidation |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
 | `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix), auth compatibility flags, sensitive-route policy |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 | `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
+| `ambient` | Ambient-awareness trigger system (buffer, cadence, per-trigger cooldowns) |
 
 </details>
 
@@ -409,7 +410,7 @@ Three agents are included: `researcher` (web research with synthesis and note sa
 | `/ask [prompt]` | Ask the bot with a rich embed response |
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
-| `/new` | Start a fresh session (clears history and context) |
+| `/new` | Start a fresh session (clears history, summary, and context) |
 | `/websearch [query] [count]` | Search the web (Brave or OpenAI, 1-10 results) |
 | `/memory view` | View your remembered facts |
 | `/memory add [fact]` | Remember a fact |

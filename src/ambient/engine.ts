@@ -117,7 +117,7 @@ function getTriggerConfig(trigger: AmbientTrigger, config: Config) {
   return config.ambient.triggers[configKey];
 }
 
-/** Lightweight LLM call using auxiliary model, no tools/persona bloat. */
+/** LLM call using auxiliary model with full persona context. */
 async function llmEvaluate(prompt: string, config: Config): Promise<string> {
   const client = getLLMClient();
   const model = getAuxiliaryModel();

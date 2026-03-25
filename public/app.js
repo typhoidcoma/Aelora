@@ -3403,6 +3403,7 @@ function initMindmap() {
       { selector: ".ambient-fired", style: { shape: "star", "background-color": "#854d0e", "border-color": "#fbbf24" }},
       { selector: ".ambient-skip", style: { shape: "star", "background-color": "#1f2937", "border-color": "#4b5563" }},
       { selector: ".ambient-sent", style: { shape: "star", "background-color": "#92400e", "border-color": "#f59e0b" }},
+      { selector: ".reaction", style: { shape: "ellipse", "background-color": "#4a1d96", "border-color": "#a78bfa", width: 20, height: 20, "font-size": "8px" }},
       { selector: ":selected", style: { "border-width": 3, "border-color": "#fad46d" }},
     ],
     layout: { name: "preset" },
@@ -3582,6 +3583,11 @@ function handleMindmapEvent(data) {
     }
 
     case "conversation:end": {
+      // Mark root node as done
+      if (convo.rootId && _cy) {
+        const root = _cy.getElementById(convo.rootId);
+        if (root.length) root.addClass("conv-done");
+      }
       // Reset per-turn tracking so the next message in this channel branches from the last assistant reply
       convo.lastIterationId = null;
       break;
@@ -3603,6 +3609,15 @@ function handleMindmapEvent(data) {
       _addNode(id, label, "ambient-sent", cid, { eventType: "ambient:sent", trigger: data.trigger, preview: data.preview });
       const parentId = convo.rootId || convo.lastMsgId;
       if (parentId) _addEdge(parentId, id, "ambient");
+      break;
+    }
+
+    case "reaction:added": {
+      const id = _nextNodeId();
+      const label = (data.emoji || "?") + (data.botMessage ? " (on bot)" : "");
+      _addNode(id, label, "reaction", cid, { eventType: "reaction:added", emoji: data.emoji, botMessage: data.botMessage });
+      const parentId = convo.lastMsgId || convo.rootId;
+      if (parentId) _addEdge(parentId, id, "react");
       break;
     }
   }
@@ -3631,6 +3646,11 @@ function showMindmapDetail(node) {
   if (d.durationMs !== undefined) html += `<p><strong>Duration:</strong> ${d.durationMs}ms</p>`;
   if (d.success !== undefined) html += `<p><strong>Success:</strong> ${d.success}</p>`;
   if (d.contradictions !== undefined) html += `<p><strong>Contradictions:</strong> ${d.contradictions}</p>`;
+  if (d.trigger) html += `<p><strong>Trigger:</strong> ${esc(d.trigger)}</p>`;
+  if (d.reason) html += `<p><strong>Reason:</strong> ${esc(d.reason)}</p>`;
+  if (d.fired !== undefined) html += `<p><strong>Fired:</strong> ${d.fired}</p>`;
+  if (d.emoji) html += `<p><strong>Emoji:</strong> ${esc(d.emoji)}</p>`;
+  if (d.botMessage !== undefined) html += `<p><strong>On bot message:</strong> ${d.botMessage}</p>`;
   if (d.conversationId) html += `<p class="muted" style="font-size:0.7rem;">Conv: ${esc(d.conversationId)}</p>`;
 
   panel.innerHTML = html;

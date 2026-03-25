@@ -1,6 +1,6 @@
 import { registerHeartbeatHandler, type HeartbeatHandler } from "../heartbeat.js";
 import { getAllBuffers, recordAmbientSend, getBufferStats } from "./buffer.js";
-import type { AmbientTrigger, TriggerContext, TriggerResult } from "./types.js";
+import type { AmbientTrigger, ContentPart, TriggerContext, TriggerResult } from "./types.js";
 import type { Config } from "../config.js";
 import { broadcastEvent } from "../logger.js";
 import { appendLog } from "../daily-log.js";
@@ -117,8 +117,8 @@ function getTriggerConfig(trigger: AmbientTrigger, config: Config) {
   return config.ambient.triggers[configKey];
 }
 
-/** LLM call using auxiliary model with full persona context. */
-async function llmEvaluate(prompt: string, config: Config): Promise<string> {
+/** LLM call using auxiliary model with full persona context. Accepts plain text or multimodal content. */
+async function llmEvaluate(prompt: string | ContentPart[], config: Config): Promise<string> {
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 

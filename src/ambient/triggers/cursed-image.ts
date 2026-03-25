@@ -1,4 +1,4 @@
-import type { AmbientTrigger } from "../types.js";
+import type { AmbientTrigger, ContentPart } from "../types.js";
 import { getRecentMessages } from "../buffer.js";
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -52,17 +52,13 @@ export const cursedImageTrigger: AmbientTrigger = {
       (m) => `${m.authorName}: ${m.content.slice(0, 200)}${m.hasAttachments ? " [posted image]" : ""}`,
     ).join("\n");
 
-    const prompt = `${target.authorName} posted an image ${silentMinutes} minutes ago and nobody said anything about it.
-
-surrounding context:
-${surrounding}
-
-you can't see the image. react to the fact that it got completely ignored. examples:
-- "not a single person acknowledged that image lmao"
-- "the way nobody said anything about that. iconic"
-- "that image just sitting there with zero reactions is sending me"
-
-if it's not worth commenting on, respond SKIP.`;
+    // Build multimodal prompt with the actual image so the LLM can see it
+    const prompt: ContentPart[] = [
+      { type: "text", text: `${target.authorName} posted this image ${silentMinutes} minutes ago and nobody said anything about it.\n\nsurrounding context:\n${surrounding}\n\n` },
+      // Include the actual image(s) so the LLM can react to the content
+      ...target.imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url, detail: "low" as const } })),
+      { type: "text", text: `\nreact to the image and the fact that it got completely ignored. examples:\n- "not a single person acknowledged that image lmao"\n- "the way nobody said anything about that. iconic"\n- "that image just sitting there with zero reactions is sending me"\n\nif it's not worth commenting on, respond SKIP.` },
+    ];
 
     const response = await ctx.llmEvaluate(prompt);
     return {

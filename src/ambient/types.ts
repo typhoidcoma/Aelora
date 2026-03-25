@@ -1,5 +1,8 @@
 import type { Config } from "../config.js";
 import type { ChannelBuffer } from "./buffer.js";
+import type OpenAI from "openai";
+
+export type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
 
 export type TriggerResult = {
   /** The message text to send. Null/empty = skip. */
@@ -16,8 +19,8 @@ export type TriggerContext = {
   buffer: ChannelBuffer;
   config: Config;
   botUserId: string;
-  /** Lightweight LLM call for trigger evaluation (uses auxiliary model, no tools). */
-  llmEvaluate: (prompt: string) => Promise<string>;
+  /** Lightweight LLM call for trigger evaluation (uses auxiliary model, no tools). Accepts plain text or multimodal content. */
+  llmEvaluate: (prompt: string | ContentPart[]) => Promise<string>;
   /** Get all buffers (for cross-channel awareness). */
   getAllBuffers: () => ChannelBuffer[];
 };

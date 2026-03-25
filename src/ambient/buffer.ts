@@ -117,6 +117,37 @@ export function formatBufferForLLM(channelId: string, limit?: number): string {
     .join("\n");
 }
 
+/** Format buffer messages as multimodal content for LLM consumption, including images. */
+export function formatBufferForLLMMultimodal(channelId: string, limit?: number): import("./types.js").ContentPart[] {
+  const buf = buffers.get(channelId);
+  if (!buf) return [{ type: "text", text: "" }];
+  const msgs = limit ? buf.messages.slice(-limit) : buf.messages;
+
+  const parts: import("./types.js").ContentPart[] = [];
+
+  // Build text conversation
+  const textLines = msgs.map((m) => {
+    let line = `${m.authorName}: ${m.content}`;
+    if (m.hasAttachments && m.imageUrls.length > 0) {
+      line += ` [posted ${m.imageUrls.length} image(s)]`;
+    } else if (m.hasAttachments) {
+      line += ` [attached: ${m.attachmentTypes.join(", ")}]`;
+    }
+    return line;
+  });
+
+  parts.push({ type: "text", text: textLines.join("\n") });
+
+  // Append image URLs (Discord CDN URLs work directly with vision models)
+  for (const msg of msgs) {
+    for (const url of msg.imageUrls) {
+      parts.push({ type: "image_url", image_url: { url, detail: "low" } });
+    }
+  }
+
+  return parts;
+}
+
 /** Record that an ambient message was sent to a channel. */
 export function recordAmbientSend(channelId: string): void {
   const buf = buffers.get(channelId);

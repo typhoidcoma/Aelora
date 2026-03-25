@@ -1,5 +1,5 @@
-import type { AmbientTrigger } from "../types.js";
-import { formatBufferForLLM, getRecentMessages } from "../buffer.js";
+import type { AmbientTrigger, ContentPart } from "../types.js";
+import { formatBufferForLLMMultimodal, getRecentMessages } from "../buffer.js";
 
 export const lurkerTrigger: AmbientTrigger = {
   name: "lurker",
@@ -15,21 +15,13 @@ export const lurkerTrigger: AmbientTrigger = {
   },
 
   async evaluate(ctx) {
-    const conversation = formatBufferForLLM(ctx.buffer.channelId, 25);
+    const conversationParts = formatBufferForLLMMultimodal(ctx.buffer.channelId, 25);
 
-    const prompt = `here's what people have been saying in the channel:
----
-${conversation}
----
-
-use what you know about these people. react to whatever's funniest, weirdest, or most unhinged like you're part of the group chat.
-
-examples (don't copy these, make your own):
-- "wait did three people just independently discover the same thing lmao"
-- "genuinely can't tell if that was a bit or a cry for help"
-- "okay the group project energy rn is immaculate though"
-
-if nothing's interesting, respond SKIP.`;
+    const prompt: ContentPart[] = [
+      { type: "text", text: `here's what people have been saying in the channel:\n---\n` },
+      ...conversationParts,
+      { type: "text", text: `\n---\n\nuse what you know about these people. react to whatever's funniest, weirdest, or most unhinged like you're part of the group chat. if someone posted an image, you can see it and react to it.\n\nexamples (don't copy these, make your own):\n- "wait did three people just independently discover the same thing lmao"\n- "genuinely can't tell if that was a bit or a cry for help"\n- "okay the group project energy rn is immaculate though"\n\nif nothing's interesting, respond SKIP.` },
+    ];
 
     const response = await ctx.llmEvaluate(prompt);
     return {

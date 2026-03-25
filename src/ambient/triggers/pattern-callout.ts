@@ -1,5 +1,5 @@
-import type { AmbientTrigger } from "../types.js";
-import { formatBufferForLLM } from "../buffer.js";
+import type { AmbientTrigger, ContentPart } from "../types.js";
+import { formatBufferForLLMMultimodal } from "../buffer.js";
 
 export const patternCalloutTrigger: AmbientTrigger = {
   name: "pattern-callout",
@@ -10,20 +10,13 @@ export const patternCalloutTrigger: AmbientTrigger = {
   },
 
   async evaluate(ctx) {
-    const conversation = formatBufferForLLM(ctx.buffer.channelId, 40);
+    const conversationParts = formatBufferForLLMMultimodal(ctx.buffer.channelId, 40);
 
-    const prompt = `here's what's been going on in the channel:
----
-${conversation}
----
-
-has the same thing come up multiple times? same question, same complaint, same person hitting the same wall?
-
-if there's a pattern, say something. examples:
-- "okay this is the third time someone's asked about the auth flow. we gotta fix that thing"
-- "funny how we had this exact conversation like two weeks ago and nothing changed"
-
-if no clear pattern, respond SKIP.`;
+    const prompt: ContentPart[] = [
+      { type: "text", text: `here's what's been going on in the channel:\n---\n` },
+      ...conversationParts,
+      { type: "text", text: `\n---\n\nhas the same thing come up multiple times? same question, same complaint, same person hitting the same wall?\n\nif there's a pattern, say something. examples:\n- "okay this is the third time someone's asked about the auth flow. we gotta fix that thing"\n- "funny how we had this exact conversation like two weeks ago and nothing changed"\n\nif no clear pattern, respond SKIP.` },
+    ];
 
     const response = await ctx.llmEvaluate(prompt);
     return {

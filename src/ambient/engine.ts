@@ -122,16 +122,16 @@ async function llmEvaluate(prompt: string, config: Config): Promise<string> {
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 
-  // Use full persona prompt so the bot sounds like itself (Wendy, Aelora, etc.)
-  const personaContext = config.llm.systemPrompt;
+  // Use ambient-filtered persona (voice sections only, no tools/skills noise)
+  const personaContext = config.llm.ambientSystemPrompt || config.llm.systemPrompt;
 
   const result = await client.chat.completions.create({
     model,
-    max_completion_tokens: 512,
+    max_completion_tokens: 8192,
     messages: [
       {
         role: "system",
-        content: `${personaContext}\n\n[AMBIENT MODE] You are passively observing Discord channels. Keep responses short (1-4 sentences max). All lowercase. If nothing is worth commenting on, respond with exactly SKIP.`,
+        content: `${personaContext}\n\n[AMBIENT MODE]\nyou're hanging out in discord like everyone else. you're part of the conversation, not watching it from the outside. if something's funny, react like a friend would. if something's wild, say what everyone's thinking. if someone ships something, hype them.\n\nrules:\n- 1-3 sentences max. fragments are fine.\n- talk like you're IN the group chat, not narrating it from a distance. no "i notice that" or "the energy in here is" meta-commentary.\n- don't offer help or try to be useful. you're just vibing.\n- don't @ anyone or ask questions.\n- if nothing's worth saying, respond with exactly SKIP\n- no em dashes ever`,
       },
       { role: "user", content: prompt },
     ],

@@ -31,18 +31,19 @@ export const celebrationTrigger: AmbientTrigger = {
       (m) => `${m.authorName}: ${m.content.slice(0, 200)}`,
     ).join("\n");
 
-    const prompt = `someone in this discord channel just shared what sounds like a win:
+    const prompt = `someone just shared what sounds like a win:
 
 ${winContext}
 
 surrounding context:
 ${surrounding}
 
-if this is genuinely a win or accomplishment, write 1-2 sentences of enthusiastic hype. match or overshoot their energy. be genuinely excited. this is the "WAIT YOU ACTUALLY DID IT??" moment.
+if this is a real win, hype them up. examples:
+- "wait you actually finished it?? who are you"
+- "oh it shipped?? i'm genuinely emotional rn"
+- "finally. FINALLY."
 
-all lowercase. don't ask follow-up questions. just pure celebration energy.
-
-if this isn't actually a win (sarcasm, talking about someone else, etc), respond SKIP.`;
+if this isn't actually a win (sarcasm, someone else's thing, etc), respond SKIP.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

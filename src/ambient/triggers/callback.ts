@@ -16,25 +16,21 @@ export const callbackTrigger: AmbientTrigger = {
     const userIds = [...new Set(ctx.buffer.messages.map((m) => m.authorId))];
     const userNames = [...new Set(ctx.buffer.messages.map((m) => m.authorName))];
 
-    const prompt = `you're reading this discord conversation:
+    const prompt = `here's what's being discussed:
 ---
 ${conversation}
 ---
 
 the people talking are: ${userNames.join(", ")}
 
-think about what you know about these people from memory. their past conversations, things they've said, promises they made, habits, running jokes, old incidents, things they complained about before.
+does anything connect to something from the past? a promise that aged badly, a prediction that came true, a complaint that's happening again? the more specific the better.
 
-is there a natural, funny callback to something from the past? something like:
-- "didn't someone say the exact opposite of this like two weeks ago"
-- "oh so NOW we care about documentation. interesting."
-- "this conversation is giving major deja vu and not in a good way"
+examples:
+- "wait didn't someone say the exact opposite of this like two weeks ago"
+- "oh so NOW we care about documentation lol"
+- "this conversation is giving deja vu and not the good kind"
 
-write 1-2 sentences making the callback. it should feel like "oh that reminds me" but snarky. the more specific the memory, the funnier it hits.
-
-all lowercase. don't address anyone directly. don't offer help.
-
-if you don't have any relevant memories or callbacks, respond SKIP. don't force it.`;
+if you don't have a relevant callback, respond SKIP. don't force it.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

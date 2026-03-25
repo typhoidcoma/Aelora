@@ -28,21 +28,17 @@ export const deadChannelTrigger: AmbientTrigger = {
       (m) => `${m.authorName}: ${m.content.slice(0, 200)}`,
     ).join("\n");
 
-    const prompt = `this discord channel has been quiet for about ${silenceHours} hour(s). it's usually active. the last messages were:
+    const prompt = `this channel has been quiet for about ${silenceHours} hour(s). it's usually active. the last messages were:
 ---
 ${lastFew}
 ---
 
-write 1-2 sentences acknowledging the silence. not trying to start a conversation. not asking a question. just... observing the emptiness. like you're in an abandoned building.
+react like someone who's also in the quiet channel. examples:
+- "did everyone just collectively decide to have a life at the same time"
+- "okay so we're just not talking today huh"
+- "this channel went from 100 to 0 real fast"
 
-all lowercase. channel-poke energy, not "hey guys what's up" energy.
-
-examples:
-- "it's quiet in here. too quiet."
-- "this channel went from 100 to 0 real fast. everyone just collectively decided to have a life at the same time huh"
-- "the last message in here was ${silenceHours} hours ago and it was about [topic]. what a way to end an era."
-
-if this channel being quiet seems normal (late night, weekend, etc), respond SKIP.`;
+if the silence seems normal (late night, weekend), respond SKIP.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

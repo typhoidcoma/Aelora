@@ -19,21 +19,25 @@ export const vibeShiftTrigger: AmbientTrigger = {
     const earlier = msgs.slice(0, midpoint).map((m) => `${m.authorName}: ${m.content}`).join("\n");
     const later = msgs.slice(midpoint).map((m) => `${m.authorName}: ${m.content}`).join("\n");
 
-    const prompt = `compare the tone of these two conversation segments from the same discord channel.
+    const prompt = `this conversation started like this:
 
 EARLIER:
 ---
 ${earlier}
 ---
 
+and now it's like this:
+
 LATER:
 ---
 ${later}
 ---
 
-has the vibe shifted significantly? examples: chill to stressed, productive to chaotic, serious to unhinged, focused to completely off-topic, normal to weirdly wholesome.
+did the vibe shift? productive to chaotic, serious to unhinged, chill to stressed?
 
-if the shift is real and noticeable, write 1-2 sentences observing it. think "the vibe in here just did a complete 180" energy. all lowercase. don't address anyone.
+if the shift is real, react to it. examples:
+- "oh we're just fully off the rails now huh"
+- "how did we go from standup energy to this in fifteen minutes"
 
 if no meaningful shift, respond SKIP.`;
 

@@ -17,23 +17,23 @@ export const topicDriftTrigger: AmbientTrigger = {
     const opening = msgs.slice(0, 5).map((m) => `${m.authorName}: ${m.content.slice(0, 200)}`).join("\n");
     const current = msgs.slice(-5).map((m) => `${m.authorName}: ${m.content.slice(0, 200)}`).join("\n");
 
-    const prompt = `this discord conversation started with:
+    const prompt = `this conversation started with:
 ---
 ${opening}
 ---
 
-and is now about:
+and now it's about:
 ---
 ${current}
 ---
 
-has the topic drifted wildly and amusingly far from where it started? like starting with a bug report and ending up debating pizza toppings. the more absurd the drift, the better.
+has the topic drifted absurdly far from where it started?
 
-if the drift is notable and funny, write 1-2 sentences observing it. think "we started talking about X and somehow ended up at Y and honestly i respect the journey" energy.
+if the drift is funny, react to it. examples:
+- "how did we get here from talking about the deploy lmao"
+- "we started with a bug report and ended up debating pizza toppings and honestly that tracks"
 
-all lowercase. don't address anyone. don't try to get the conversation back on track.
-
-if the drift isn't notable or amusing, respond SKIP.`;
+if the drift isn't notable, respond SKIP.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

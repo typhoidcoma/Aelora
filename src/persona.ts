@@ -112,7 +112,7 @@ export function discoverFiles(dir: string, basePath = ""): string[] {
 
 // --- Variable substitution ---
 
-function substituteVariables(content: string, variables: PersonaVariables): string {
+export function substituteVariables(content: string, variables: PersonaVariables): string {
   return content.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
     return key in variables ? variables[key] : match;
   });

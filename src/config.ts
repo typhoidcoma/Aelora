@@ -33,6 +33,7 @@ const llmSchema = z.object({
   model: z.string().default(""),
   auxiliaryModel: z.string().default(""),
   systemPrompt: z.string().default("You are a helpful assistant."),
+  ambientSystemPrompt: z.string().default(""),
   maxTokens: z.number().int().positive().default(16384),
   maxHistory: z.number().int().positive().default(50),
   maxToolIterations: z.number().int().positive().default(25),

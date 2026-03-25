@@ -64,19 +64,16 @@ export const suspiciouslyQuietTrigger: AmbientTrigger = {
       .map((q) => `- ${q.name} said "${q.said}" and has been silent for ~${q.silentFor} hour(s)`)
       .join("\n");
 
-    const prompt = `someone in this discord channel made a commitment and then went radio silent.
+    const prompt = `someone made a commitment and then went quiet.
 
 ${context}
 
-write 1-2 sentences noticing the silence. not accusatory, not helpful. just... noticing. like you're narrating a true crime documentary about productivity.
+react like a friend who noticed. examples:
+- "wasn't someone supposed to 'handle it' like three hours ago lol"
+- "love how that 'five minute fix' was four hours ago"
+- "so that thing that was gonna be done by eod... it is no longer eod"
 
-all lowercase. don't @ anyone. don't offer help. just ominously observe the silence.
-
-examples of the vibe:
-- "someone said they'd 'handle it' and then vanished into the void. the silence is telling."
-- "it's been real quiet since someone promised a fix by end of day. it is no longer end of day."
-
-if the commitment seems too trivial to comment on, respond SKIP.`;
+if the commitment seems too trivial, respond SKIP.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

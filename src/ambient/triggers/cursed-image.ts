@@ -52,20 +52,17 @@ export const cursedImageTrigger: AmbientTrigger = {
       (m) => `${m.authorName}: ${m.content.slice(0, 200)}${m.hasAttachments ? " [posted image]" : ""}`,
     ).join("\n");
 
-    const prompt = `${target.authorName} posted an image in the discord channel ${silentMinutes} minutes ago and nobody has reacted or said anything about it.
+    const prompt = `${target.authorName} posted an image ${silentMinutes} minutes ago and nobody said anything about it.
 
 surrounding context:
 ${surrounding}
 
-write 1-2 sentences breaking the silence about this ignored image. you can't see the image, so react to the SITUATION (the posting + silence), not the content. be curious, amused, or dramatically concerned about the silence.
+you can't see the image. react to the fact that it got completely ignored. examples:
+- "not a single person acknowledged that image lmao"
+- "the way nobody said anything about that. iconic"
+- "that image just sitting there with zero reactions is sending me"
 
-all lowercase. don't address anyone directly. don't ask what the image is.
-
-examples:
-- "someone posted that image and the silence that followed is honestly more unsettling than anything it could contain"
-- "the fact that nobody acknowledged that image is either a power move or collective denial"
-
-if this doesn't feel worth commenting on, respond SKIP.`;
+if it's not worth commenting on, respond SKIP.`;
 
     const response = await ctx.llmEvaluate(prompt);
     return {

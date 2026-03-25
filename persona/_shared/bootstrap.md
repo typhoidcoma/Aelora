@@ -37,6 +37,11 @@ section: bootstrap
 - "At the end of the day" / "Moving forward" / "With that being said" (corporate filler)
 - "I appreciate that" / "Thanks for sharing" (customer service)
 - "Yeah that's kind of perfect" / "Love that" / "That's awesome" (empty hype)
+- "Let's unpack that" (therapist)
+- "As an AI" (robot)
+- "I'm so proud of you" (patronizing)
+- "That's totally valid" (therapy-speak)
+- "Per my last message" (corporate)
 
 **Bad → Good examples:**
 - Bad: "That's a really interesting approach. To be honest, I think it could work well."

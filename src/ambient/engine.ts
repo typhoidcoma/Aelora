@@ -7,43 +7,23 @@ import { appendLog } from "../daily-log.js";
 import { classifyMood } from "../mood.js";
 import { chunkMessage } from "../utils.js";
 import { getLLMClient, getAuxiliaryModel, stripThinkBlocks } from "../llm.js";
+import { recordEngagement, canEngage } from "./engagement.js";
 
-// All triggers (imported statically for reliability)
-import { lurkerTrigger } from "./triggers/lurker.js";
-import { patternCalloutTrigger } from "./triggers/pattern-callout.js";
-import { vibeShiftTrigger } from "./triggers/vibe-shift.js";
-import { suspiciouslyQuietTrigger } from "./triggers/suspiciously-quiet.js";
-import { celebrationTrigger } from "./triggers/celebration.js";
-import { cursedImageTrigger } from "./triggers/cursed-image.js";
-import { callbackTrigger } from "./triggers/callback.js";
-import { topicDriftTrigger } from "./triggers/topic-drift.js";
-import { deadChannelTrigger } from "./triggers/dead-channel.js";
+// Triggers (consolidated from 9 to 2)
+import { converseTrigger } from "./triggers/converse.js";
+import { imageReactTrigger } from "./triggers/image-react.js";
 
 type TriggerConfigKey = keyof Config["ambient"]["triggers"];
 
 // Map trigger names to config keys
 const TRIGGER_CONFIG_MAP: Record<string, TriggerConfigKey> = {
-  lurker: "lurker",
-  "pattern-callout": "patternCallout",
-  "vibe-shift": "vibeShift",
-  "suspiciously-quiet": "suspiciouslyQuiet",
-  celebration: "celebration",
-  "cursed-image": "cursedImage",
-  callback: "callback",
-  "topic-drift": "topicDrift",
-  "dead-channel": "deadChannel",
+  converse: "converse",
+  "image-react": "imageReact",
 };
 
 const allTriggers: AmbientTrigger[] = [
-  lurkerTrigger,
-  patternCalloutTrigger,
-  vibeShiftTrigger,
-  suspiciouslyQuietTrigger,
-  celebrationTrigger,
-  cursedImageTrigger,
-  callbackTrigger,
-  topicDriftTrigger,
-  deadChannelTrigger,
+  converseTrigger,
+  imageReactTrigger,
 ];
 
 // State
@@ -89,9 +69,12 @@ function canSendGlobally(config: Config): boolean {
 }
 
 function canSendToChannel(channelId: string, config: Config): boolean {
+  // Use shared engagement lock (covers ambient, name-triggered, reply-check)
+  const cooldownMs = config.ambient.channelCooldownMinutes * 60 * 1000;
+  if (!canEngage(channelId, cooldownMs)) return false;
+  // Also check buffer-level cooldown for backward compat
   const buf = getAllBuffers().find((b) => b.channelId === channelId);
   if (!buf) return false;
-  const cooldownMs = config.ambient.channelCooldownMinutes * 60 * 1000;
   return Date.now() - buf.lastAmbientSendAt >= cooldownMs;
 }
 
@@ -131,7 +114,7 @@ async function llmEvaluate(prompt: string | ContentPart[], config: Config): Prom
     messages: [
       {
         role: "system",
-        content: `${personaContext}\n\n[AMBIENT MODE]\nyou're hanging out in discord like everyone else. you're part of the conversation, not watching it from the outside. if something's funny, react like a friend would. if something's wild, say what everyone's thinking. if someone ships something, hype them.\n\nrules:\n- 1-3 sentences max. fragments are fine.\n- talk like you're IN the group chat, not narrating it from a distance. no "i notice that" or "the energy in here is" meta-commentary.\n- don't offer help or try to be useful. you're just vibing.\n- don't @ anyone or ask questions.\n- if nothing's worth saying, respond with exactly SKIP\n- no em dashes ever`,
+        content: `${personaContext}\n\n[AMBIENT MODE]\nyou're in a group chat with friends. you see the conversation as it happens.\nif you have something genuine to contribute, say it in 1-3 sentences.\nif messages tagged [BOT] show you already spoke recently, SKIP.\nif nothing's worth saying, SKIP. most of the time you should SKIP.\ndon't narrate or observe the conversation. don't comment on dynamics or patterns.\njust be a person in the chat. add to the conversation, don't remark on it.\nno em dashes ever.`,
       },
       { role: "user", content: prompt },
     ],
@@ -261,6 +244,7 @@ async function evaluateTick(): Promise<string | void> {
       triggerCooldowns.set(cooldownKey(trigger.name, buffer.channelId), Date.now());
       globalSendTimestamps.push(Date.now());
       recordAmbientSend(buffer.channelId);
+      recordEngagement(buffer.channelId, `ambient/${trigger.name}`);
       stats.fired++;
       stats.lastFiredAt = Date.now();
 

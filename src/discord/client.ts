@@ -134,10 +134,34 @@ export async function startDiscord(config: Config): Promise<Client> {
 
   // --- Message handler ---
   client.on(Events.MessageCreate, async (message: Message) => {
-    if (message.author.id === botUserId) return;
-    if (message.author.bot) return;
-
+    const isBotMessage = message.author.id === botUserId || message.author.bot;
     const isDM = !message.guild;
+
+    // Ambient awareness: buffer ALL messages in allowed guild channels (including bot's own)
+    if (!isDM && config.ambient.enabled) {
+      const inAllowed = config.discord.allowedChannels.length === 0 || config.discord.allowedChannels.includes(message.channelId);
+      if (inAllowed) {
+        const IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+        const chName = "name" in message.channel ? (message.channel.name as string) : "unknown";
+        ingestMessage({
+          id: message.id,
+          channelId: message.channelId,
+          channelName: chName,
+          authorId: message.author.id,
+          authorName: message.author.displayName ?? message.author.username,
+          content: message.content,
+          hasAttachments: message.attachments.size > 0,
+          attachmentTypes: [...message.attachments.values()].map((a) => a.contentType ?? "unknown"),
+          imageUrls: [...message.attachments.values()]
+            .filter((a) => a.contentType && IMAGE_MIME.has(a.contentType) && a.url)
+            .map((a) => a.url),
+          isBot: isBotMessage,
+        });
+      }
+    }
+
+    // Stop processing bot messages (they're in the buffer but shouldn't trigger responses)
+    if (isBotMessage) return;
 
     if (isDM) {
       if (!config.discord.allowDMs) return;
@@ -149,25 +173,6 @@ export async function startDiscord(config: Config): Promise<Client> {
       if (!config.discord.allowedChannels.includes(message.channelId)) return;
     }
 
-    // Ambient awareness: buffer ALL messages in allowed channels (before mention filter)
-    if (config.ambient.enabled) {
-      const IMAGE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-      const chName = "name" in message.channel ? (message.channel.name as string) : "unknown";
-      ingestMessage({
-        id: message.id,
-        channelId: message.channelId,
-        channelName: chName,
-        authorId: message.author.id,
-        authorName: message.author.displayName ?? message.author.username,
-        content: message.content,
-        hasAttachments: message.attachments.size > 0,
-        attachmentTypes: [...message.attachments.values()].map((a) => a.contentType ?? "unknown"),
-        imageUrls: [...message.attachments.values()]
-          .filter((a) => a.contentType && IMAGE_MIME.has(a.contentType) && a.url)
-          .map((a) => a.url),
-      });
-    }
-
     if (config.discord.guildMode === "mention") {
       const mentioned = botUserId && message.mentions.has(botUserId);
       const botName = config.persona.botName.toLowerCase();
@@ -175,6 +180,10 @@ export async function startDiscord(config: Config): Promise<Client> {
       if (!mentioned && !namedInText) return;
       // Name-triggered (not @mentioned) — natural chime-in behavior
       if (!mentioned && namedInText) {
+        // Respect shared engagement lock (prevents cascading with ambient/reply-check)
+        const { canEngage: canEngageChannel, recordEngagement } = await import("../ambient/engagement.js");
+        if (!canEngageChannel(message.channelId, 15 * 60 * 1000)) return;
+
         // Cooldown: don't chime in if we already did recently in this channel
         const lastChime = nameChimeCooldown.get(message.channelId) ?? 0;
         if (Date.now() - lastChime < NAME_CHIME_COOLDOWN_MS) return;
@@ -197,11 +206,15 @@ export async function startDiscord(config: Config): Promise<Client> {
         } catch { /* no permission or error, proceed without context */ }
 
         nameChimeCooldown.set(message.channelId, Date.now());
+        recordEngagement(message.channelId, "name-triggered");
         await handleMessage(message, config, true, recentContext);
         return;
       }
     }
 
+    // Direct @mention — always respond, record engagement
+    const { recordEngagement } = await import("../ambient/engagement.js");
+    recordEngagement(message.channelId, "mention");
     await handleMessage(message, config);
   });
 

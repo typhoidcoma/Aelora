@@ -10,6 +10,7 @@ export type BufferedMessage = {
   imageUrls: string[];
   hasReactions: boolean;
   reactionCount: number;
+  isBot: boolean;
 };
 
 export type ChannelBuffer = {
@@ -37,6 +38,7 @@ export function ingestMessage(msg: {
   hasAttachments: boolean;
   attachmentTypes: string[];
   imageUrls: string[];
+  isBot?: boolean;
 }): void {
   let buf = buffers.get(msg.channelId);
   if (!buf) {
@@ -63,6 +65,7 @@ export function ingestMessage(msg: {
     imageUrls: msg.imageUrls,
     hasReactions: false,
     reactionCount: 0,
+    isBot: msg.isBot ?? false,
   });
 
   // keep sorted by timestamp (messages usually arrive in order, but just in case)
@@ -107,7 +110,8 @@ export function formatBufferForLLM(channelId: string, limit?: number): string {
   const msgs = limit ? buf.messages.slice(-limit) : buf.messages;
   return msgs
     .map((m) => {
-      let line = `${m.authorName}: ${m.content}`;
+      const prefix = m.isBot ? "[BOT] " : "";
+      let line = `${prefix}${m.authorName}: ${m.content}`;
       if (m.hasAttachments) {
         const types = m.attachmentTypes.join(", ");
         line += ` [attached: ${types}]`;
@@ -127,7 +131,8 @@ export function formatBufferForLLMMultimodal(channelId: string, limit?: number):
 
   // Build text conversation
   const textLines = msgs.map((m) => {
-    let line = `${m.authorName}: ${m.content}`;
+    const prefix = m.isBot ? "[BOT] " : "";
+    let line = `${prefix}${m.authorName}: ${m.content}`;
     if (m.hasAttachments && m.imageUrls.length > 0) {
       line += ` [posted ${m.imageUrls.length} image(s)]`;
     } else if (m.hasAttachments) {

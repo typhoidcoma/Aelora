@@ -141,6 +141,16 @@ const replyCheck: HeartbeatHandler = {
           msg.reference?.messageId != null &&
           sorted.some((m) => m.id === msg.reference!.messageId && m.author.id === botUserId);
 
+        // For non-mention replies-to-bot, respect the shared engagement lock
+        // This prevents piling on after ambient or name-triggered responses
+        if (!isMention && isReplyToBot) {
+          const { canEngage } = await import("./ambient/engagement.js");
+          if (!canEngage(msg.channelId, 15 * 60 * 1000)) {
+            checkedMessages.add(msg.id);
+            continue;
+          }
+        }
+
         if (!isMention && !isReplyToBot) {
           if (msg.reference?.messageId) {
             try {
@@ -206,6 +216,10 @@ const replyCheck: HeartbeatHandler = {
             }
             repliedCount++;
             repliedPreviews.push(`${msg.author.username} in #${channelName}`);
+
+            // Record engagement to prevent ambient/name-triggered piling on
+            const { recordEngagement } = await import("./ambient/engagement.js");
+            recordEngagement(msg.channelId, "reply-check");
 
             try {
               const userSnippet = (typeof userContent === "string" ? userContent : content).slice(0, 200);

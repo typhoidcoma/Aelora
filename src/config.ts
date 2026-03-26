@@ -128,49 +128,17 @@ const ambientSchema = z.object({
   channelCooldownMinutes: z.number().int().positive().default(15),
   minBufferMessages: z.number().int().positive().default(3),
   triggers: z.object({
-    lurker: z.object({
+    converse: z.object({
       ...ambientTriggerBase,
       minMessages: z.number().int().min(0).default(4),
       minUsers: z.number().int().min(1).default(2),
       windowMinutes: z.number().int().positive().default(30),
-    }).default({}),
-    patternCallout: z.object({
+    }).default({ cooldownMinutes: 30, skipChance: 0.3 }),
+    imageReact: z.object({
       ...ambientTriggerBase,
-      minMessages: z.number().int().min(0).default(10),
-    }).default({ cooldownMinutes: 30 }),
-    vibeShift: z.object({
-      ...ambientTriggerBase,
-      minMessages: z.number().int().min(0).default(6),
-      minSpanMinutes: z.number().int().positive().default(10),
-    }).default({ cooldownMinutes: 30 }),
-    suspiciouslyQuiet: z.object({
-      ...ambientTriggerBase,
-      minMessages: z.number().int().min(0).default(3),
-      silenceMinutes: z.number().int().positive().default(60),
-    }).default({ cooldownMinutes: 120, enabled: false }),
-    celebration: z.object({
-      ...ambientTriggerBase,
-      windowMinutes: z.number().int().positive().default(10),
-    }).default({ cooldownMinutes: 10, skipChance: 0.1 }),
-    cursedImage: z.object({
-      ...ambientTriggerBase,
-      minAgeMinutes: z.number().int().min(0).default(2),
-      maxAgeMinutes: z.number().int().positive().default(60),
-    }).default({ cooldownMinutes: 60 }),
-    callback: z.object({
-      ...ambientTriggerBase,
-      minMessages: z.number().int().min(0).default(4),
-    }).default({ cooldownMinutes: 60, skipChance: 0.5 }),
-    topicDrift: z.object({
-      ...ambientTriggerBase,
-      minMessages: z.number().int().min(0).default(8),
-      minSpanMinutes: z.number().int().positive().default(10),
-    }).default({ cooldownMinutes: 45 }),
-    deadChannel: z.object({
-      ...ambientTriggerBase,
-      silenceMinutes: z.number().int().positive().default(60),
-      minSessionMessages: z.number().int().positive().default(10),
-    }).default({ cooldownMinutes: 240 }),
+      minAgeMinutes: z.number().int().min(0).default(3),
+      maxAgeMinutes: z.number().int().positive().default(45),
+    }).default({ cooldownMinutes: 30, skipChance: 0.25 }),
   }).default({}),
 });
 

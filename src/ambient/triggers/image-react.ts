@@ -1,18 +1,18 @@
 import type { AmbientTrigger, ContentPart } from "../types.js";
-import { getRecentMessages } from "../buffer.js";
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
-export const cursedImageTrigger: AmbientTrigger = {
-  name: "cursed-image",
-  description: "Breaks the silence when someone posts an image and nobody reacts",
+export const imageReactTrigger: AmbientTrigger = {
+  name: "image-react",
+  description: "Engages with an image someone posted when the conversation moved on without acknowledging it",
 
   shouldEvaluate(buffer, config) {
-    const tc = config.ambient.triggers.cursedImage;
+    const tc = config.ambient.triggers.imageReact;
     const minAgeMs = tc.minAgeMinutes * 60 * 1000;
     const maxAgeMs = tc.maxAgeMinutes * 60 * 1000;
     const now = Date.now();
     return buffer.messages.some((m) => {
+      if (m.isBot) return false;
       if (!m.hasAttachments) return false;
       if (!m.attachmentTypes.some((t) => IMAGE_TYPES.has(t))) return false;
       if (m.hasReactions) return false;
@@ -22,11 +22,12 @@ export const cursedImageTrigger: AmbientTrigger = {
   },
 
   async evaluate(ctx) {
-    const tc = ctx.config.ambient.triggers.cursedImage;
+    const tc = ctx.config.ambient.triggers.imageReact;
     const minAgeMs = tc.minAgeMinutes * 60 * 1000;
     const maxAgeMs = tc.maxAgeMinutes * 60 * 1000;
     const now = Date.now();
     const unreactedImages = ctx.buffer.messages.filter((m) => {
+      if (m.isBot) return false;
       if (!m.hasAttachments) return false;
       if (!m.attachmentTypes.some((t) => IMAGE_TYPES.has(t))) return false;
       if (m.hasReactions) return false;
@@ -41,23 +42,35 @@ export const cursedImageTrigger: AmbientTrigger = {
     const target = unreactedImages[unreactedImages.length - 1]; // most recent
     const silentMinutes = Math.round((now - target.timestamp) / 60000);
 
-    // check if anyone replied after the image (even without reactions)
-    const afterImage = ctx.buffer.messages.filter((m) => m.timestamp > target.timestamp && m.authorId !== target.authorId);
+    // Skip if conversation continued after the image (people saw it)
+    const afterImage = ctx.buffer.messages.filter(
+      (m) => m.timestamp > target.timestamp && m.authorId !== target.authorId && !m.isBot,
+    );
     if (afterImage.length > 2) {
-      // conversation moved on, people saw it
       return { message: null, debugReason: "conversation continued after image, not truly ignored" };
     }
 
-    const surrounding = ctx.buffer.messages.slice(-8).map(
-      (m) => `${m.authorName}: ${m.content.slice(0, 200)}${m.hasAttachments ? " [posted image]" : ""}`,
-    ).join("\n");
+    const surrounding = ctx.buffer.messages
+      .slice(-5)
+      .map((m) => {
+        const prefix = m.isBot ? "[BOT] " : "";
+        return `${prefix}${m.authorName}: ${m.content.slice(0, 200)}${m.hasAttachments ? " [posted image]" : ""}`;
+      })
+      .join("\n");
 
-    // Build multimodal prompt with the actual image so the LLM can see it
     const prompt: ContentPart[] = [
-      { type: "text", text: `${target.authorName} posted this image ${silentMinutes} minutes ago and nobody said anything about it.\n\nsurrounding context:\n${surrounding}\n\n` },
-      // Include the actual image(s) so the LLM can react to the content
-      ...target.imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url, detail: "low" as const } })),
-      { type: "text", text: `\nreact to the image and the fact that it got completely ignored. examples:\n- "not a single person acknowledged that image lmao"\n- "the way nobody said anything about that. iconic"\n- "that image just sitting there with zero reactions is sending me"\n\nif it's not worth commenting on, respond SKIP.` },
+      {
+        type: "text",
+        text: `${target.authorName} shared this image ${silentMinutes} minutes ago.\n\nrecent context:\n${surrounding}\n\n`,
+      },
+      ...target.imageUrls.map((url) => ({
+        type: "image_url" as const,
+        image_url: { url, detail: "low" as const },
+      })),
+      {
+        type: "text",
+        text: `\nif the image is interesting, react to what's actually in it. talk about the content, engage with it genuinely. don't mention that it was ignored or unreacted.\n\nif it's not worth commenting on, respond SKIP.`,
+      },
     ];
 
     const response = await ctx.llmEvaluate(prompt);

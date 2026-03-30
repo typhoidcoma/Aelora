@@ -46,6 +46,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with at-a-glance stat cards, achievements, calendar, scoring, live console, real-time LLM conversation visualization, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Async Persistence Queue** - Debounced/coalesced async writes with bounded flush and graceful shutdown draining
+- **Ambient Awareness** - Passive channel monitoring with per-channel message buffers, engagement tracking, and configurable triggers (conversation participation, image reactions) that let the bot join conversations naturally without being addressed
 - **Connection Guards** - SSE/WS client caps and payload-size limits for stream/export endpoints
 - **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 

@@ -75,6 +75,10 @@ tags:
     description: Task scoring system, leaderboard, achievements, and life events
   - name: Linear
     description: Linear project management integration (issues, projects, teams)
+  - name: Knowledge Base
+    description: Google Drive knowledge base sync, search, and file management
+  - name: Ambient
+    description: Ambient awareness engine status, buffers, and trigger management
   - name: WebSocket
     description: |
       Real-time bidirectional chat via WebSocket at `ws://host:port/ws`.
@@ -370,6 +374,27 @@ components:
           description: Google Calendar event URL
         etag:
           type: string
+
+    BufferStats:
+      type: object
+      properties:
+        channelId:
+          type: string
+        channelName:
+          type: string
+        messageCount:
+          type: integer
+        oldestMessage:
+          type: number
+          nullable: true
+          description: Unix timestamp of oldest buffered message
+        newestMessage:
+          type: number
+          nullable: true
+          description: Unix timestamp of newest buffered message
+        lastAmbientSendAt:
+          type: number
+          description: Unix timestamp of last ambient message sent to this channel
 
     UserProfile:
       type: object
@@ -1596,6 +1621,73 @@ paths:
                 properties:
                   error:
                     type: string
+
+  /api/calendar/all-events:
+    get:
+      tags: [Calendar]
+      summary: List events from all user calendars
+      description: |
+        Aggregates upcoming events across all registered users' calendars.
+        Returns a merged, chronologically sorted list. Does not require a user ID.
+      parameters:
+        - name: maxResults
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+          description: Maximum total events to return (across all users)
+        - name: daysAhead
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 14
+          description: How many days ahead to query
+      responses:
+        “200”:
+          description: Aggregated event list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        uid:
+                          type: string
+                        summary:
+                          type: string
+                        description:
+                          type: string
+                        location:
+                          type: string
+                        dtstart:
+                          type: string
+                        dtend:
+                          type: string
+                        user:
+                          type: object
+                          properties:
+                            userId:
+                              type: string
+                            username:
+                              type: string
+                  count:
+                    type: integer
+                  daysAhead:
+                    type: integer
+        “404”:
+          description: Calendar tool not enabled
+        “500”:
+          description: Calendar query failed
+        “503”:
+          description: Google not configured
 
   # â”€â”€ Tasks (Google Tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/tasks:
@@ -2916,4 +3008,267 @@ paths:
           description: Missing q parameter
         "503":
           description: Linear not configured
+
+  # —— Knowledge Base ————————————————————
+
+  /api/knowledge:
+    get:
+      tags: [Knowledge Base]
+      summary: Knowledge base status
+      description: Returns knowledge base stats including file count, chunk count, last sync time, and per-file metadata.
+      responses:
+        "200":
+          description: Knowledge base statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  fileCount:
+                    type: integer
+                  chunkCount:
+                    type: integer
+                  lastSyncAt:
+                    type: string
+                    nullable: true
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        fileId:
+                          type: string
+                        name:
+                          type: string
+                        mimeType:
+                          type: string
+                        chunkCount:
+                          type: integer
+                        lastSyncedAt:
+                          type: string
+
+  /api/knowledge/sync:
+    post:
+      tags: [Knowledge Base]
+      summary: Trigger knowledge base sync
+      description: Starts a sync of the configured Google Drive folder. Re-indexes new and modified files, removes deleted ones.
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  added:
+                    type: integer
+                  updated:
+                    type: integer
+                  removed:
+                    type: integer
+        "503":
+          description: Knowledge base not enabled or vector store not ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/knowledge/files/{fileId}/chunks:
+    get:
+      tags: [Knowledge Base]
+      summary: List chunks for a file
+      description: Returns all indexed chunks for a specific knowledge base file.
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Google Drive file ID
+      responses:
+        "200":
+          description: File chunks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fileId:
+                    type: string
+                  chunks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        index:
+                          type: integer
+
+  /api/knowledge/files/{fileId}:
+    delete:
+      tags: [Knowledge Base]
+      summary: Delete a knowledge base file
+      description: Removes a file and all its chunks from the knowledge base index.
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Google Drive file ID
+      responses:
+        "200":
+          description: File removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  chunksRemoved:
+                    type: integer
+        "404":
+          description: File not found in knowledge base
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  # —— Ambient Awareness ————————————————
+
+  /api/ambient/status:
+    get:
+      tags: [Ambient]
+      summary: Ambient engine status
+      description: Returns the ambient engine state including trigger stats, cooldowns, and buffer statistics.
+      responses:
+        "200":
+          description: Engine state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  evaluationIntervalMs:
+                    type: integer
+                  globalSendsLastHour:
+                    type: integer
+                  globalRateLimitPerHour:
+                    type: integer
+                  triggers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        enabled:
+                          type: boolean
+                        cooldownMinutes:
+                          type: number
+                        skipChance:
+                          type: number
+                        lastFiredAt:
+                          type: string
+                          nullable: true
+                        lastEvaluatedAt:
+                          type: string
+                          nullable: true
+                        cooldownRemaining:
+                          type: integer
+                          description: Seconds remaining on cooldown
+                        evaluated:
+                          type: integer
+                        fired:
+                          type: integer
+                        skipped:
+                          type: integer
+                  bufferStats:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BufferStats"
+
+  /api/ambient/buffers:
+    get:
+      tags: [Ambient]
+      summary: Channel buffer stats
+      description: Returns per-channel buffer statistics (message counts, timestamps, last ambient send).
+      responses:
+        "200":
+          description: Buffer stats array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BufferStats"
+
+  /api/ambient/triggers/{name}/toggle:
+    post:
+      tags: [Ambient]
+      summary: Toggle an ambient trigger
+      description: Enable or disable an ambient trigger at runtime. Override persists until bot restart.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Trigger name (e.g. "converse", "image-react")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required: [enabled]
+      responses:
+        "200":
+          description: Trigger toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  enabled:
+                    type: boolean
+        "400":
+          description: Missing enabled field
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Trigger not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
 

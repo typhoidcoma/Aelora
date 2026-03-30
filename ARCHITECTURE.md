@@ -576,7 +576,6 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 | `web_search` | Web search (configurable: Brave or OpenAI provider) | `brave.apiKey` or `search.provider` |
 | `cron` | Create, list, toggle, trigger, delete cron jobs at runtime | none |
 | `memory` | Remember/recall/forget facts about users and channels | none |
-| `mood` | Manual emotional state override (set_mood) | none |
 | `tasks` | Per-user task list adapter over Google Tasks (list/get/create/complete/update/delete, auto-creates task list per Discord user) | `google.*` |
 | `gmail` | Gmail: search, read, send, reply, forward, labels, drafts | `google.*` |
 | `calendar` | Per-user personal calendar (list/create/update/delete events, auto-creates calendar per Discord user) | `google.*` |
@@ -904,6 +903,103 @@ knowledge:
 ```
 
 Env override: `AELORA_KB_DRIVE_FOLDER_ID`
+
+---
+
+## Ambient Awareness System
+
+**Files:** [src/ambient/engine.ts](src/ambient/engine.ts), [src/ambient/buffer.ts](src/ambient/buffer.ts), [src/ambient/engagement.ts](src/ambient/engagement.ts), [src/ambient/types.ts](src/ambient/types.ts), [src/ambient/url-extract.ts](src/ambient/url-extract.ts), [src/ambient/triggers/converse.ts](src/ambient/triggers/converse.ts), [src/ambient/triggers/image-react.ts](src/ambient/triggers/image-react.ts)
+
+Passive channel monitoring system that lets the bot participate naturally in Discord conversations without being directly addressed. The engine ingests every message from allowed channels into per-channel ring buffers and periodically evaluates registered triggers to decide whether to speak.
+
+### Architecture
+
+```
+Discord MessageCreate
+        │
+        ▼
+  ingestMessage()          ← buffer.ts: push to per-channel ring buffer (FIFO, max bufferSize)
+        │
+        ▼
+  evaluateTick()           ← engine.ts: runs on its own interval (default 5 min)
+        │
+   ┌────┴────┐
+   │ Per-channel, per-trigger evaluation:
+   │  1. Global rate limit check (default 6/hour)
+   │  2. Channel cooldown check (shared engagement tracker)
+   │  3. Trigger-specific cooldown check
+   │  4. shouldEvaluate() — cheap pre-filter (no LLM)
+   │  5. Random skip (configurable skipChance)
+   │  6. evaluate() — full LLM evaluation (auxiliary model)
+   │  7. Send message or reply, record cooldowns
+   └─────────┘
+```
+
+### Buffer System (`buffer.ts`)
+
+Every message in allowed Discord channels is pushed into a per-channel `ChannelBuffer`. Each buffer is a capped ring buffer (`bufferSize`, default 100). Messages are stored as `BufferedMessage` with metadata: author, content, timestamps, attachment types, image URLs, reaction counts, and bot flag.
+
+Key exports: `ingestMessage()`, `getRecentMessages(channelId, windowMs)`, `formatBufferForLLM()`, `formatBufferForLLMMultimodal()`, `getBufferStats()`.
+
+### Engagement Tracker (`engagement.ts`)
+
+Shared rate limiter across all bot response paths (ambient, name-triggered replies, reply-check heartbeat). `recordEngagement(channelId, source)` logs when the bot spoke; `canEngage(channelId, cooldownMs)` checks if the cooldown has expired. Prevents cascading loops where multiple systems try to respond to the same channel simultaneously.
+
+### Triggers
+
+Triggers implement the `AmbientTrigger` interface: a `shouldEvaluate()` pre-filter (cheap, no LLM) and an `evaluate()` method (may call LLM via auxiliary model). Triggers are shuffled each tick to avoid priority bias.
+
+| Trigger | Description | Key Config |
+|---------|-------------|------------|
+| `converse` | Joins active multi-user conversations when the bot has something genuine to add. Requires N messages from M unique users within a time window. Uses multimodal prompt with URL content extraction. | `minMessages`, `minUsers`, `windowMinutes` |
+| `image-react` | Reacts to images that went unacknowledged. Targets images within an age window (min/max minutes) with no reactions and minimal follow-up conversation. Uses vision (multimodal) prompt. | `minAgeMinutes`, `maxAgeMinutes` |
+
+### URL Content Extraction (`url-extract.ts`)
+
+Fetches and extracts readable text from URLs shared in conversations. Used by the `converse` trigger to give the LLM context about shared links. Features: HTML stripping, 30-minute LRU cache, 5-second fetch timeout, max 3 URLs per evaluation, Discord CDN URLs skipped.
+
+### Engine Lifecycle
+
+`registerAmbientEngine(config, sendToChannel)` starts the evaluation timer and registers a heartbeat handler for status reporting. The engine runs independently of the heartbeat interval (default evaluation every 5 minutes vs 15-minute heartbeat). `stopAmbientEngine()` clears the timer. `toggleTrigger(name, enabled)` provides runtime overrides that persist until restart.
+
+### Rate Limiting
+
+- **Global:** max `globalRateLimitPerHour` sends across all channels (default 6)
+- **Per-channel:** shared engagement cooldown (`channelCooldownMinutes`, default 15 min)
+- **Per-trigger:** individual cooldown per trigger per channel (`cooldownMinutes`, default 30 min)
+- **Random skip:** each evaluation has a `skipChance` probability of being silently skipped (default 25-30%)
+
+### API Endpoints
+
+- `GET /api/ambient/status` — engine state, trigger stats (evaluated/fired/skipped counts, cooldowns), buffer stats
+- `GET /api/ambient/buffers` — per-channel buffer stats (message count, oldest/newest timestamps, last ambient send)
+- `POST /api/ambient/triggers/:name/toggle` — enable/disable a trigger at runtime (`{ enabled: boolean }`)
+
+### Config
+
+```yaml
+ambient:
+  enabled: false
+  bufferSize: 100
+  evaluationIntervalMs: 300000     # 5 minutes
+  globalRateLimitPerHour: 6
+  channelCooldownMinutes: 15
+  minBufferMessages: 3
+  triggers:
+    converse:
+      enabled: true
+      cooldownMinutes: 30
+      skipChance: 0.3
+      minMessages: 4
+      minUsers: 2
+      windowMinutes: 30
+    imageReact:
+      enabled: true
+      cooldownMinutes: 30
+      skipChance: 0.25
+      minAgeMinutes: 3
+      maxAgeMinutes: 45
+```
 
 ---
 
@@ -1303,7 +1399,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (10 routes), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (1), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Export (1) -~80 endpoints total.
+**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Export (1) -~88 endpoints total.
 
 ### Routing
 
@@ -1348,13 +1444,27 @@ type Config = {
     baseURL: string;
     apiKey: string;
     model: string;
+    auxiliaryModel: string;     // Default: "" -lightweight model for ambient/mood (falls back to main model)
     systemPrompt: string;       // Overwritten by persona system at startup
+    ambientSystemPrompt: string; // Default: "" -persona context for ambient engine (voice-only, no tools)
     maxTokens: number;          // Default: 16384
     maxHistory: number;         // Default: 50
     maxToolIterations: number;  // Default: 25 -max tool-calling rounds per request
     lite: boolean;              // Default: false -slim tool schemas for local models
+    disableThinking: boolean;   // Default: false -strip <think> blocks from models that emit them
+    verifyToolClaims: boolean;  // Default: true -validate tool call claims in LLM output
+    maxVerificationRetries: number; // Default: 1 -retries for tool claim verification (0-3)
   };
-  web: { enabled: boolean; port: number; apiKey?: string };
+  web: {
+    enabled: boolean;
+    port: number;
+    apiKey?: string;
+    basePath: string;           // Default: "" -URL prefix (e.g. "/aelora"), trailing slash stripped
+    auth: {
+      allowQueryToken: boolean; // Default: true -accept ?token= for SSE endpoints
+      allowWsQueryToken: boolean; // Default: true -accept ?token= for WebSocket
+    };
+  };
   persona: { enabled: boolean; dir: string; botName: string; activePersona: string };
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
@@ -1369,6 +1479,17 @@ type Config = {
     maxFactsPerScope: number;   // Default: 100
     maxFactLength: number;      // Default: 1000
     maxAgeDays: number;         // Default: 0 (0 = no TTL, keep forever)
+    autoExtract: boolean;       // Default: true -auto-extract facts from conversations
+    vectorSearch: boolean;      // Default: true -enable semantic vector search
+    embeddingModel: string;     // Default: "text-embedding-3-small"
+    embeddingDimensions: number; // Default: 1536
+    embeddingBaseURL: string;   // Default: "https://api.openai.com/v1"
+    embeddingApiKey: string;    // Default: "" -separate key for embedding provider
+    semanticDedupThreshold: number; // Default: 0.85 -similarity threshold for deduplication
+    semanticSearchTopK: number; // Default: 10 -max results from vector search
+    semanticSearchMinScore: number; // Default: 0.3 -minimum similarity to include
+    consolidationEnabled: boolean;  // Default: true -LLM-powered fact merging
+    consolidationThreshold: number; // Default: 10 -new facts before consolidation runs
   };
   logger: {
     maxBuffer: number;          // Default: 200, SSE circular buffer size
@@ -1377,6 +1498,27 @@ type Config = {
   };
   cron: {
     maxHistory: number;         // Default: 10 -execution records per job
+  };
+  knowledge: {
+    enabled: boolean;           // Default: false
+    driveFolderId: string;      // Google Drive folder ID to sync
+    syncIntervalMinutes: number; // Default: 30
+    chunkSize: number;          // Default: 800 -characters per chunk
+    chunkOverlap: number;       // Default: 100 -overlap between chunks
+    maxChunksPerPrompt: number; // Default: 5 -max chunks injected into system prompt
+    minRelevanceScore: number;  // Default: 0.35 -minimum similarity to include
+  };
+  ambient: {
+    enabled: boolean;           // Default: false
+    bufferSize: number;         // Default: 100 -max messages per channel buffer
+    evaluationIntervalMs: number; // Default: 300000 (5 min)
+    globalRateLimitPerHour: number; // Default: 6
+    channelCooldownMinutes: number; // Default: 15
+    minBufferMessages: number;  // Default: 3 -min messages before evaluating a channel
+    triggers: {
+      converse: { enabled: boolean; cooldownMinutes: number; skipChance: number; minMessages: number; minUsers: number; windowMinutes: number };
+      imageReact: { enabled: boolean; cooldownMinutes: number; skipChance: number; minAgeMinutes: number; maxAgeMinutes: number };
+    };
   };
   supabase?: {
     url: string;

@@ -7,6 +7,10 @@ export const imageReactTrigger: AmbientTrigger = {
   description: "Engages with an image someone posted when the conversation moved on without acknowledging it",
 
   shouldEvaluate(buffer, config) {
+    // Don't evaluate if bot spoke in the last 5 messages (prevents compounding with converse trigger)
+    const last5 = buffer.messages.slice(-5);
+    if (last5.some((m) => m.isBot)) return false;
+
     const tc = config.ambient.triggers.imageReact;
     const minAgeMs = tc.minAgeMinutes * 60 * 1000;
     const maxAgeMs = tc.maxAgeMinutes * 60 * 1000;
@@ -69,7 +73,7 @@ export const imageReactTrigger: AmbientTrigger = {
       })),
       {
         type: "text",
-        text: `\nif the image is interesting, react to what's actually in it. talk about the content, engage with it genuinely. don't mention that it was ignored or unreacted.\n\nif it's not worth commenting on, respond SKIP.`,
+        text: `\nif the image catches your eye, react to it like a friend would. be funny, be surprised, roast it, hype it up, whatever fits. engage with what's actually in the image. don't mention that it was ignored or unreacted.\n\nif it's not worth commenting on, respond SKIP.`,
       },
     ];
 

@@ -17,7 +17,12 @@ import {
   type PersonaState,
 } from "./persona.js";
 import { getLLMResponse, clearSession } from "./llm.js";
-import { getAllTools, toggleTool, isToolEnabled, executeTool } from "./tool-registry.js";
+import {
+  getAllTools,
+  toggleTool,
+  isToolEnabled,
+  executeTool,
+} from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
 import { discordClient, botUserId } from "./discord.js";
@@ -31,22 +36,49 @@ import {
 } from "./cron.js";
 import { getRecentLogs, addSSEClient, getLiveClientMetrics } from "./logger.js";
 import { reboot } from "./lifecycle.js";
-import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMessage } from "./sessions.js";
+import {
+  getAllSessions,
+  getSession,
+  deleteSession,
+  clearAllSessions,
+  recordMessage,
+} from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel, classifyMood } from "./mood.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
-import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
-import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTask, getGoogleConfig, resolveUserTaskList } from "./tools/tasks.js";
+import {
+  listAllNotes,
+  listNotesByScope,
+  getNote,
+  upsertNote,
+  deleteNote,
+} from "./tools/notes.js";
+import {
+  listTasks,
+  getTaskByUid,
+  createTask,
+  completeTask,
+  updateTask,
+  deleteTask,
+  getGoogleConfig,
+  resolveUserTaskList,
+} from "./tools/tasks.js";
 import { listEvents } from "./tools/google-calendar.js";
 import { resolveUserCalendar } from "./tools/calendar.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
-import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
+import {
+  getKnowledgeBaseStats,
+  syncKnowledgeBase,
+  getFileChunks,
+  removeFile,
+} from "./knowledge-base.js";
 import { LinearClient } from "@linear/sdk";
 import {
   tryGetSupabaseClient,
+  tryGetServiceRoleClient,
   ensureUserProfile,
   upsertLifeEvent,
   recordScoringEvent,
@@ -56,8 +88,15 @@ import {
   getUserStats,
   getPendingLifeEvents,
   getRecentScoringEvents,
+  listQuests,
+  getQuestById,
+  createQuest,
+  updateQuest,
+  appendQuestLog,
   type LifeEventRow,
+  type UpdateQuestInput,
 } from "./supabase.js";
+import { broadcastEvent, broadcastDemoTaskComplete } from "./ws.js";
 import {
   scoreTask,
   processCompletion,
@@ -99,7 +138,9 @@ export function startWeb(state: AppState): Server | null {
       }
       next();
     });
-    console.log(`Web: base path "${basePath}" - stripping prefix from incoming requests`);
+    console.log(
+      `Web: base path "${basePath}" - stripping prefix from incoming requests`,
+    );
   }
 
   app.use(express.json());
@@ -124,8 +165,13 @@ export function startWeb(state: AppState): Server | null {
     const start = Date.now();
     res.on("finish", () => {
       // Log POST/PUT/DELETE (mutations) and non-2xx errors (skip 404 from tool-disabled guards)
-      if (req.method !== "GET" || (res.statusCode >= 400 && res.statusCode !== 404)) {
-        console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+      if (
+        req.method !== "GET" ||
+        (res.statusCode >= 400 && res.statusCode !== 404)
+      ) {
+        console.log(
+          `Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`,
+        );
       }
     });
     next();
@@ -138,7 +184,10 @@ export function startWeb(state: AppState): Server | null {
       // Inject clientId into the HTML so the Activity doesn't need a separate fetch
       const { readFile } = await import("node:fs/promises");
       try {
-        let html = await readFile(path.join(activityDir, "index.html"), "utf-8");
+        let html = await readFile(
+          path.join(activityDir, "index.html"),
+          "utf-8",
+        );
         html = html.replace(
           "<!-- __ACTIVITY_CONFIG__ -->",
           `<script>window.__ACTIVITY_CONFIG__ = { clientId: "${config.activity.clientId}", serverUrl: "${config.activity.serverUrl ?? ""}" };</script>`,
@@ -194,7 +243,11 @@ export function startWeb(state: AppState): Server | null {
   ];
   const isSensitiveRequest = (req: express.Request): boolean => {
     if (req.path === "/api/reboot" || req.path === "/api/export") return true;
-    if (req.path === "/api/persona/file" && ["PUT", "POST", "DELETE"].includes(req.method)) return true;
+    if (
+      req.path === "/api/persona/file" &&
+      ["PUT", "POST", "DELETE"].includes(req.method)
+    )
+      return true;
     return false;
   };
   let lastQueryTokenWarningAt = 0;
@@ -208,28 +261,44 @@ export function startWeb(state: AppState): Server | null {
     req: express.Request,
     opts?: { allowQueryToken?: boolean; requireSensitive?: boolean },
   ): { ok: boolean; usedQueryToken: boolean; error?: string } => {
-    const allowQueryToken = opts?.allowQueryToken ?? config.web.auth.allowQueryToken;
+    const allowQueryToken =
+      opts?.allowQueryToken ?? config.web.auth.allowQueryToken;
     const authHeader = req.headers.authorization;
-    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-    const queryToken = allowQueryToken ? (req.query.token as string | undefined) : undefined;
+    const bearer = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : undefined;
+    const queryToken = allowQueryToken
+      ? (req.query.token as string | undefined)
+      : undefined;
 
     if (config.web.apiKey) {
       const token = bearer ?? queryToken;
       if (token === config.web.apiKey) {
         return { ok: true, usedQueryToken: !bearer && !!queryToken };
       }
-      return { ok: false, usedQueryToken: false, error: "Unauthorized. Provide Authorization: Bearer <key> header." };
+      return {
+        ok: false,
+        usedQueryToken: false,
+        error: "Unauthorized. Provide Authorization: Bearer <key> header.",
+      };
     }
 
     if (opts?.requireSensitive && !isLocalRequest(req.ip)) {
-      return { ok: false, usedQueryToken: false, error: "Sensitive route requires local request or API key auth." };
+      return {
+        ok: false,
+        usedQueryToken: false,
+        error: "Sensitive route requires local request or API key auth.",
+      };
     }
 
     return { ok: true, usedQueryToken: false };
   };
 
   const addQueryTokenDeprecationHeaders = (res: express.Response): void => {
-    res.setHeader("Warning", "299 - Query token auth is deprecated; use Authorization: Bearer");
+    res.setHeader(
+      "Warning",
+      "299 - Query token auth is deprecated; use Authorization: Bearer",
+    );
     res.setHeader("Deprecation", "true");
   };
 
@@ -248,7 +317,9 @@ export function startWeb(state: AppState): Server | null {
     if (auth.usedQueryToken) {
       addQueryTokenDeprecationHeaders(res);
       if (Date.now() - lastQueryTokenWarningAt > 60_000) {
-        console.warn("Web: query-token auth used; migrate clients to Authorization header");
+        console.warn(
+          "Web: query-token auth used; migrate clients to Authorization header",
+        );
         lastQueryTokenWarningAt = Date.now();
       }
     }
@@ -277,7 +348,9 @@ export function startWeb(state: AppState): Server | null {
   if (config.web.apiKey) {
     console.log("Web: API key authentication enabled");
   } else {
-    console.warn("Web: API key not set; sensitive routes restricted to local requests");
+    console.warn(
+      "Web: API key not set; sensitive routes restricted to local requests",
+    );
   }
 
   // --- API docs (public) ---
@@ -322,7 +395,17 @@ export function startWeb(state: AppState): Server | null {
 
   // Create a new runtime cron job
   app.post("/api/cron", (req, res) => {
-    const { name, schedule, timezone, channelId, type, message, prompt, enabled, silent } = req.body ?? {};
+    const {
+      name,
+      schedule,
+      timezone,
+      channelId,
+      type,
+      message,
+      prompt,
+      enabled,
+      silent,
+    } = req.body ?? {};
 
     if (!name || typeof name !== "string") {
       res.status(400).json({ error: "name is required" });
@@ -333,7 +416,9 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     if (!silent && (!channelId || typeof channelId !== "string")) {
-      res.status(400).json({ error: "channelId is required for non-silent jobs" });
+      res
+        .status(400)
+        .json({ error: "channelId is required for non-silent jobs" });
       return;
     }
     if (!type || !["static", "llm"].includes(type)) {
@@ -341,7 +426,17 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const result = createCronJob({ name, schedule, timezone, channelId, type, message, prompt, enabled, silent: !!silent });
+    const result = createCronJob({
+      name,
+      schedule,
+      timezone,
+      channelId,
+      type,
+      message,
+      prompt,
+      enabled,
+      silent: !!silent,
+    });
 
     if (!result.success) {
       res.status(400).json({ error: result.error });
@@ -388,7 +483,9 @@ export function startWeb(state: AppState): Server | null {
     const result = deleteCronJob(name);
 
     if (!result.found) {
-      res.status(404).json({ error: result.error ?? `Job "${name}" not found` });
+      res
+        .status(404)
+        .json({ error: result.error ?? `Job "${name}" not found` });
       return;
     }
 
@@ -406,7 +503,9 @@ export function startWeb(state: AppState): Server | null {
     const result = updateCronJob(name, req.body ?? {});
 
     if (!result.found) {
-      res.status(404).json({ error: result.error ?? `Job "${name}" not found` });
+      res
+        .status(404)
+        .json({ error: result.error ?? `Job "${name}" not found` });
       return;
     }
 
@@ -471,7 +570,11 @@ export function startWeb(state: AppState): Server | null {
   // Reload persona from disk
   app.post("/api/persona/reload", (_req, res) => {
     try {
-      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
+      const newState = loadPersona(
+        config.persona.dir,
+        { botName: config.persona.botName },
+        config.persona.activePersona,
+      );
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
 
@@ -496,7 +599,11 @@ export function startWeb(state: AppState): Server | null {
       res.json({ personas, activePersona: config.persona.activePersona });
     } catch (err) {
       console.warn("Persona: failed to list personas:", err);
-      res.json({ personas: [], activePersona: config.persona.activePersona, error: String(err) });
+      res.json({
+        personas: [],
+        activePersona: config.persona.activePersona,
+        error: String(err),
+      });
     }
   });
 
@@ -506,7 +613,11 @@ export function startWeb(state: AppState): Server | null {
     const available = discoverPersonas(config.persona.dir);
 
     if (!persona || !available.includes(persona)) {
-      res.status(400).json({ error: `Invalid persona "${persona}". Available: ${available.join(", ")}` });
+      res
+        .status(400)
+        .json({
+          error: `Invalid persona "${persona}". Available: ${available.join(", ")}`,
+        });
       return;
     }
 
@@ -514,7 +625,11 @@ export function startWeb(state: AppState): Server | null {
 
     try {
       // Load BEFORE updating config  -  if loadPersona throws, config stays intact
-      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, persona);
+      const newState = loadPersona(
+        config.persona.dir,
+        { botName: config.persona.botName },
+        persona,
+      );
       config.persona.activePersona = persona;
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
@@ -542,7 +657,11 @@ export function startWeb(state: AppState): Server | null {
   // Helper: reload persona after a file change  -  non-blocking (logs errors, never throws)
   function reloadPersonaState(): boolean {
     try {
-      const newState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
+      const newState = loadPersona(
+        config.persona.dir,
+        { botName: config.persona.botName },
+        config.persona.activePersona,
+      );
       state.personaState = newState;
       config.llm.systemPrompt = newState.composedPrompt;
       return true;
@@ -556,10 +675,12 @@ export function startWeb(state: AppState): Server | null {
   app.get("/api/persona/files", (_req, res) => {
     try {
       const allPaths = discoverFiles(config.persona.dir);
-      const files = allPaths.map((relPath) => {
-        const file = getFileContent(config.persona.dir, relPath);
-        return file;
-      }).filter(Boolean);
+      const files = allPaths
+        .map((relPath) => {
+          const file = getFileContent(config.persona.dir, relPath);
+          return file;
+        })
+        .filter(Boolean);
       res.json({ files });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -611,7 +732,12 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const result = createFile(config.persona.dir, relPath, content ?? "", meta ?? {});
+    const result = createFile(
+      config.persona.dir,
+      relPath,
+      content ?? "",
+      meta ?? {},
+    );
     if (!result.success) {
       res.status(400).json({ error: result.error });
       return;
@@ -647,7 +773,12 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const result = createPersona(config.persona.dir, name, description, botName);
+    const result = createPersona(
+      config.persona.dir,
+      name,
+      description,
+      botName,
+    );
     if (!result.success) {
       res.status(400).json({ error: result.error });
       return;
@@ -660,7 +791,8 @@ export function startWeb(state: AppState): Server | null {
 
   // Chat  -  send message with full conversation state
   app.post("/api/chat", async (req, res) => {
-    const { message, sessionId, userId, username } = req.body ?? {};
+    const { message, sessionId, userId, username, supabaseUserId } =
+      req.body ?? {};
 
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "message is required" });
@@ -673,25 +805,51 @@ export function startWeb(state: AppState): Server | null {
 
     // Track session and user if identity provided
     if (userId && username) {
-      recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
+      recordMessage({
+        channelId: sessionId,
+        guildId: null,
+        channelName: sessionId,
+        userId,
+        username,
+      });
       updateUser(userId, username, sessionId);
     }
     trackMessage(sessionId);
 
     try {
-      const reply = await getLLMResponse(sessionId, message, undefined, userId ?? undefined);
+      const reply = await getLLMResponse(
+        sessionId,
+        message,
+        undefined,
+        userId ?? undefined,
+        undefined,
+        supabaseUserId ?? undefined,
+      );
 
       // Side effects (async, best-effort)
-      appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message, sessionId).catch((err) => console.warn("Mood classify failed:", err));
+      appendLog({
+        channelName: sessionId,
+        userId: userId ?? "anonymous",
+        username: username ?? "anonymous",
+        summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}`,
+      });
+      classifyMood(reply, message, sessionId).catch((err) =>
+        console.warn("Mood classify failed:", err),
+      );
       if (config.memory.autoExtract !== false) {
-        extractFacts(message, reply, sessionId, userId ?? undefined)
-          .catch((err) => console.warn("Fact extraction failed:", err));
+        extractFacts(message, reply, sessionId, userId ?? undefined).catch(
+          (err) => console.warn("Fact extraction failed:", err),
+        );
       }
 
       res.json({ reply, sessionId });
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : typeof err === "object" && err !== null
+            ? JSON.stringify(err)
+            : String(err);
       console.error("Web chat error:", errMsg);
       res.status(500).json({ error: errMsg });
     }
@@ -699,7 +857,8 @@ export function startWeb(state: AppState): Server | null {
 
   // Chat  -  streaming version
   app.post("/api/chat/stream", async (req, res) => {
-    const { message, sessionId, userId, username } = req.body ?? {};
+    const { message, sessionId, userId, username, supabaseUserId } =
+      req.body ?? {};
 
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "message is required" });
@@ -710,12 +869,22 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     if (message.length > MAX_STREAM_MESSAGE_CHARS) {
-      res.status(413).json({ error: `message too large (max ${MAX_STREAM_MESSAGE_CHARS} chars)` });
+      res
+        .status(413)
+        .json({
+          error: `message too large (max ${MAX_STREAM_MESSAGE_CHARS} chars)`,
+        });
       return;
     }
 
     if (userId && username) {
-      recordMessage({ channelId: sessionId, guildId: null, channelName: sessionId, userId, username });
+      recordMessage({
+        channelId: sessionId,
+        guildId: null,
+        channelName: sessionId,
+        userId,
+        username,
+      });
       updateUser(userId, username, sessionId);
     }
     trackMessage(sessionId);
@@ -727,27 +896,49 @@ export function startWeb(state: AppState): Server | null {
     });
 
     let closed = false;
-    req.on("close", () => { closed = true; });
+    req.on("close", () => {
+      closed = true;
+    });
 
     try {
-      const reply = await getLLMResponse(sessionId, message, (token) => {
-        if (!closed) {
-          res.write(`data: ${JSON.stringify({ token })}\n\n`);
-        }
-      }, userId ?? undefined);
+      const reply = await getLLMResponse(
+        sessionId,
+        message,
+        (token) => {
+          if (!closed) {
+            res.write(`data: ${JSON.stringify({ token })}\n\n`);
+          }
+        },
+        userId ?? undefined,
+        undefined,
+        supabaseUserId ?? undefined,
+      );
 
       if (!closed) {
         res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
       }
 
-      appendLog({ channelName: sessionId, userId: userId ?? "anonymous", username: username ?? "anonymous", summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
-      classifyMood(reply, message, sessionId).catch((err) => console.warn("Mood classify failed:", err));
+      appendLog({
+        channelName: sessionId,
+        userId: userId ?? "anonymous",
+        username: username ?? "anonymous",
+        summary: `**User:** ${message.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}`,
+      });
+      classifyMood(reply, message, sessionId).catch((err) =>
+        console.warn("Mood classify failed:", err),
+      );
       if (config.memory.autoExtract !== false) {
-        extractFacts(message, reply, sessionId, userId ?? undefined)
-          .catch((err) => console.warn("Fact extraction failed:", err));
+        extractFacts(message, reply, sessionId, userId ?? undefined).catch(
+          (err) => console.warn("Fact extraction failed:", err),
+        );
       }
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : typeof err === "object" && err !== null
+            ? JSON.stringify(err)
+            : String(err);
       console.error("Web chat/stream error:", errMsg);
       if (!closed) {
         res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
@@ -795,7 +986,12 @@ export function startWeb(state: AppState): Server | null {
   // Execute a tool directly via REST API
   app.post("/api/tools/:name/execute", async (req, res) => {
     const { name } = req.params;
-    const { args = {}, channelId = null, userId = null } = req.body ?? {};
+    const {
+      args = {},
+      channelId = null,
+      userId = null,
+      supabaseUserId = null,
+    } = req.body ?? {};
 
     const tool = getAllTools().find((t) => t.name === name);
     if (!tool) {
@@ -807,7 +1003,13 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const result = await executeTool(name, args, channelId, userId);
+    const result = await executeTool(
+      name,
+      args,
+      channelId,
+      userId,
+      supabaseUserId,
+    );
     const success = !result.text.startsWith("Error:");
     res.json({
       success,
@@ -876,7 +1078,8 @@ export function startWeb(state: AppState): Server | null {
     const memories: Record<string, { fact: string; savedAt: string }[]> = {};
 
     const channelFacts = getFacts(`channel:${channelId}`);
-    if (channelFacts.length > 0) memories[`channel:${channelId}`] = channelFacts;
+    if (channelFacts.length > 0)
+      memories[`channel:${channelId}`] = channelFacts;
 
     for (const userId of Object.keys(session.users)) {
       const userFacts = getFacts(`user:${userId}`);
@@ -932,7 +1135,9 @@ export function startWeb(state: AppState): Server | null {
 
     const ok = deleteFact(scope, idx);
     if (!ok) {
-      res.status(404).json({ error: "Fact not found (invalid scope or index)" });
+      res
+        .status(404)
+        .json({ error: "Fact not found (invalid scope or index)" });
       return;
     }
 
@@ -989,7 +1194,9 @@ export function startWeb(state: AppState): Server | null {
     const { scope, title } = req.params;
     const note = getNote(scope, title);
     if (!note) {
-      res.status(404).json({ error: `Note "${title}" not found in scope "${scope}"` });
+      res
+        .status(404)
+        .json({ error: `Note "${title}" not found in scope "${scope}"` });
       return;
     }
     res.json({ scope, title, ...note });
@@ -1015,7 +1222,9 @@ export function startWeb(state: AppState): Server | null {
     const { scope, title } = req.params;
     const deleted = deleteNote(scope, title);
     if (!deleted) {
-      res.status(404).json({ error: `Note "${title}" not found in scope "${scope}"` });
+      res
+        .status(404)
+        .json({ error: `Note "${title}" not found in scope "${scope}"` });
       return;
     }
     res.json({ success: true });
@@ -1031,7 +1240,11 @@ export function startWeb(state: AppState): Server | null {
     try {
       const result = await syncKnowledgeBase();
       if (!result) {
-        res.status(503).json({ error: "Knowledge base not enabled or vector store not ready" });
+        res
+          .status(503)
+          .json({
+            error: "Knowledge base not enabled or vector store not ready",
+          });
         return;
       }
       res.json({ success: true, ...result });
@@ -1072,31 +1285,56 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const discordUserId = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    const discordUserId =
+      (req.headers["x-discord-user-id"] as string | undefined) ??
+      (req.query.userId as string | undefined);
     if (!discordUserId) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for calendar" });
+      res
+        .status(400)
+        .json({
+          error:
+            "X-Discord-User-Id header or ?userId= query param required for calendar",
+        });
       return;
     }
 
     let googleConfig;
     try {
-      googleConfig = getGoogleConfig(config.tools as Record<string, Record<string, unknown>> | undefined);
+      googleConfig = getGoogleConfig(
+        config.tools as Record<string, Record<string, unknown>> | undefined,
+      );
     } catch {
-      res.status(503).json({ error: "Google not configured. Add google.clientId/clientSecret/refreshToken to settings.yaml under tools:" });
+      res
+        .status(503)
+        .json({
+          error:
+            "Google not configured. Add google.clientId/clientSecret/refreshToken to settings.yaml under tools:",
+        });
       return;
     }
 
-    const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
-    const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
+    const maxResults = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.maxResults as string, 10) || 10),
+    );
+    const daysAhead = Math.min(
+      365,
+      Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14),
+    );
 
     try {
       const calendarId = await resolveUserCalendar(googleConfig, discordUserId);
-      const events = await listEvents(googleConfig, calendarId, { maxResults, daysAhead });
+      const events = await listEvents(googleConfig, calendarId, {
+        maxResults,
+        daysAhead,
+      });
 
       const mapped = events.map((e) => ({
         uid: e.id,
         summary: e.summary ?? "Untitled",
-        description: e.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || undefined,
+        description:
+          e.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() ||
+          undefined,
         location: e.location,
         dtstart: e.start.dateTime ?? e.start.date ?? "",
         dtend: e.end.dateTime ?? e.end.date ?? "",
@@ -1104,7 +1342,11 @@ export function startWeb(state: AppState): Server | null {
 
       res.json({ events: mapped, count: mapped.length, daysAhead, maxResults });
     } catch (err) {
-      res.status(500).json({ error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}` });
+      res
+        .status(500)
+        .json({
+          error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}`,
+        });
     }
   });
 
@@ -1117,14 +1359,22 @@ export function startWeb(state: AppState): Server | null {
 
     let googleConfig;
     try {
-      googleConfig = getGoogleConfig(config.tools as Record<string, Record<string, unknown>> | undefined);
+      googleConfig = getGoogleConfig(
+        config.tools as Record<string, Record<string, unknown>> | undefined,
+      );
     } catch {
       res.status(503).json({ error: "Google not configured" });
       return;
     }
 
-    const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
-    const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
+    const maxResults = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.maxResults as string, 10) || 10),
+    );
+    const daysAhead = Math.min(
+      365,
+      Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14),
+    );
 
     try {
       const users = getAllUsers();
@@ -1133,12 +1383,18 @@ export function startWeb(state: AppState): Server | null {
       const results = await Promise.allSettled(
         userIds.map(async (userId) => {
           const calendarId = await resolveUserCalendar(googleConfig, userId);
-          const events = await listEvents(googleConfig, calendarId, { maxResults: 20, daysAhead });
+          const events = await listEvents(googleConfig, calendarId, {
+            maxResults: 20,
+            daysAhead,
+          });
           const username = users[userId]?.username ?? userId;
           return events.map((e) => ({
             uid: e.id,
             summary: e.summary ?? "Untitled",
-            description: e.description?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "").trim() || undefined,
+            description:
+              e.description
+                ?.replace(/\n?\[user:\d+(?::[^\]]+)?\]/, "")
+                .trim() || undefined,
             location: e.location,
             dtstart: e.start.dateTime ?? e.start.date ?? "",
             dtend: e.end.dateTime ?? e.end.date ?? "",
@@ -1148,27 +1404,47 @@ export function startWeb(state: AppState): Server | null {
       );
 
       const allEvents = results
-        .filter((r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled")
+        .filter(
+          (r): r is PromiseFulfilledResult<any[]> => r.status === "fulfilled",
+        )
         .flatMap((r) => r.value)
-        .sort((a, b) => (a.dtstart > b.dtstart ? 1 : a.dtstart < b.dtstart ? -1 : 0))
+        .sort((a, b) =>
+          a.dtstart > b.dtstart ? 1 : a.dtstart < b.dtstart ? -1 : 0,
+        )
         .slice(0, maxResults);
 
       res.json({ events: allEvents, count: allEvents.length, daysAhead });
     } catch (err) {
-      res.status(500).json({ error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}` });
+      res
+        .status(500)
+        .json({
+          error: `Calendar query failed: ${err instanceof Error ? err.message : "unknown"}`,
+        });
     }
   });
 
   // --- Tasks ---
 
   const getGoogleTasksConfig = () =>
-    getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
+    getGoogleConfig(
+      state.config.tools as Record<string, Record<string, unknown>> | undefined,
+    );
 
   // Helper: resolve task list for API requests (requires X-Discord-User-Id header)
-  function requireTaskUser(req: express.Request, res: express.Response): string | null {
-    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+  function requireTaskUser(
+    req: express.Request,
+    res: express.Response,
+  ): string | null {
+    const uid =
+      (req.headers["x-discord-user-id"] as string | undefined) ??
+      (req.query.userId as string | undefined);
     if (!uid) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for tasks" });
+      res
+        .status(400)
+        .json({
+          error:
+            "X-Discord-User-Id header or ?userId= query param required for tasks",
+        });
       return null;
     }
     return uid;
@@ -1176,14 +1452,21 @@ export function startWeb(state: AppState): Server | null {
 
   // List tasks, optionally filter by ?status=pending|completed|all
   app.get("/api/tasks", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
       const status = (req.query.status as string) || "all";
-      const items = await listTasks(googleConfig, taskListId, status as "all" | "pending" | "completed");
+      const items = await listTasks(
+        googleConfig,
+        taskListId,
+        status as "all" | "pending" | "completed",
+      );
       res.json({ tasks: items, count: items.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1197,23 +1480,36 @@ export function startWeb(state: AppState): Server | null {
 
   // Get single task by UID
   app.get("/api/tasks/:uid", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
       const item = await getTaskByUid(googleConfig, req.params.uid, taskListId);
-      if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
+      if (!item) {
+        res.status(404).json({ error: `Task "${req.params.uid}" not found` });
+        return;
+      }
       res.json(item);
     } catch (err) {
-      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res
+        .status(502)
+        .json({
+          error: `Tasks error: ${err instanceof Error ? err.message : String(err)}`,
+        });
     }
   });
 
   // Create task
   app.post("/api/tasks", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
     const { title, description, priority, dueDate } = req.body ?? {};
@@ -1224,118 +1520,169 @@ export function startWeb(state: AppState): Server | null {
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
-      const item = await createTask(googleConfig, taskListId, { title, description, priority, dueDate });
+      const item = await createTask(googleConfig, taskListId, {
+        title,
+        description,
+        priority,
+        dueDate,
+      });
       res.status(201).json(item);
     } catch (err) {
-      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res
+        .status(502)
+        .json({
+          error: `Tasks error: ${err instanceof Error ? err.message : String(err)}`,
+        });
     }
   });
 
   // Update task (or mark complete with { completed: true })
   // Requires X-Discord-User-Id header for user scoping and scoring pipeline
   app.put("/api/tasks/:uid", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
-    const { title, description, priority, dueDate, completed, smeqActual } = req.body ?? {};
+    const { title, description, priority, dueDate, completed, smeqActual } =
+      req.body ?? {};
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
       if (completed === true) {
-        const item = await completeTask(googleConfig, req.params.uid, taskListId);
-        if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
+        const item = await completeTask(
+          googleConfig,
+          req.params.uid,
+          taskListId,
+        );
+        if (!item) {
+          res.status(404).json({ error: `Task "${req.params.uid}" not found` });
+          return;
+        }
 
         // --- Scoring pipeline (non-blocking, best-effort) ---
-        let scoringResult: { pointsAwarded: number; score: number; newAchievements: string[] } | null = null;
+        let scoringResult: {
+          pointsAwarded: number;
+          score: number;
+          newAchievements: string[];
+        } | null = null;
         const sb = tryGetSupabaseClient(config);
         if (sb) {
           try {
             await ensureUserProfile(sb, discordUserId);
 
             const lifeEvent = await upsertLifeEvent(sb, {
-              discord_user_id:   discordUserId,
-              title:             item.title,
-              description:       item.description ?? null,
-              category:          inferCategory({ title: item.title, description: item.description }) as LifeCategory,
-              source:            "google_calendar",
-              external_uid:      item.uid,
-              priority:          item.priority,
-              due_date:          item.dueDate ?? null,
-              completed:         true,
-              completed_at:      new Date().toISOString(),
+              discord_user_id: discordUserId,
+              title: item.title,
+              description: item.description ?? null,
+              category: inferCategory({
+                title: item.title,
+                description: item.description,
+              }) as LifeCategory,
+              source: "google_calendar",
+              external_uid: item.uid,
+              priority: item.priority,
+              due_date: item.dueDate ?? null,
+              completed: true,
+              completed_at: new Date().toISOString(),
               estimated_minutes: null,
-              size_label:        null,
-              impact_level:      null,
-              irreversible:      inferIrreversible({ title: item.title, description: item.description }) || null,
-              affects_others:    inferAffectsOthers({ title: item.title, description: item.description }) || null,
-              smeq_estimate:     null,
-              tags:              null,
+              size_label: null,
+              impact_level: null,
+              irreversible:
+                inferIrreversible({
+                  title: item.title,
+                  description: item.description,
+                }) || null,
+              affects_others:
+                inferAffectsOthers({
+                  title: item.title,
+                  description: item.description,
+                }) || null,
+              smeq_estimate: null,
+              tags: null,
             });
 
             const userData = await getUserStats(sb, discordUserId);
-            const catStats = userData?.categoryStats.find((cs) => cs.category === lifeEvent?.category);
+            const catStats = userData?.categoryStats.find(
+              (cs) => cs.category === lifeEvent?.category,
+            );
             const userState: UserState = {
-              totalPoints:         userData?.profile.total_points ?? 0,
-              currentStreak:       userData?.profile.current_streak ?? 0,
-              longestStreak:       userData?.profile.longest_streak ?? 0,
-              lastCompletionDate:  userData?.profile.last_completion_date ?? null,
-              achievements:        (userData?.achievements ?? []).map((a) => a.achievement_id),
-              categoryStats: catStats ? {
-                completionCount:      catStats.completion_count,
-                avgScore:             catStats.avg_score,
-                avgHoursToComplete:   catStats.avg_hours_to_complete,
-                avgSmeqActual:        catStats.avg_smeq_actual,
-                personalBias:         catStats.personal_bias,
-              } : undefined,
+              totalPoints: userData?.profile.total_points ?? 0,
+              currentStreak: userData?.profile.current_streak ?? 0,
+              longestStreak: userData?.profile.longest_streak ?? 0,
+              lastCompletionDate:
+                userData?.profile.last_completion_date ?? null,
+              achievements: (userData?.achievements ?? []).map(
+                (a) => a.achievement_id,
+              ),
+              categoryStats: catStats
+                ? {
+                    completionCount: catStats.completion_count,
+                    avgScore: catStats.avg_score,
+                    avgHoursToComplete: catStats.avg_hours_to_complete,
+                    avgSmeqActual: catStats.avg_smeq_actual,
+                    personalBias: catStats.personal_bias,
+                  }
+                : undefined,
             };
 
             const scoreInput: ScoreInput = {
-              title:             item.title,
-              description:       item.description,
-              category:          lifeEvent?.category as LifeCategory | undefined,
-              dueDate:           item.dueDate ?? null,
-              priority:          item.priority,
-              irreversible:      lifeEvent?.irreversible ?? undefined,
-              affectsOthers:     lifeEvent?.affects_others ?? undefined,
-              smeqEstimate:      lifeEvent?.smeq_estimate ?? undefined,
-              avgSmeqActual:     catStats?.avg_smeq_actual ?? undefined,
-              personalBias:      catStats?.personal_bias ?? 1.0,
+              title: item.title,
+              description: item.description,
+              category: lifeEvent?.category as LifeCategory | undefined,
+              dueDate: item.dueDate ?? null,
+              priority: item.priority,
+              irreversible: lifeEvent?.irreversible ?? undefined,
+              affectsOthers: lifeEvent?.affects_others ?? undefined,
+              smeqEstimate: lifeEvent?.smeq_estimate ?? undefined,
+              avgSmeqActual: catStats?.avg_smeq_actual ?? undefined,
+              personalBias: catStats?.personal_bias ?? 1.0,
               categoryCompletionCount: catStats?.completion_count ?? 0,
-              streak:            userState.currentStreak,
+              streak: userState.currentStreak,
             };
 
-            const completion = processCompletion(scoreInput, userState, smeqActual != null ? Number(smeqActual) : null);
+            const completion = processCompletion(
+              scoreInput,
+              userState,
+              smeqActual != null ? Number(smeqActual) : null,
+            );
 
             await recordScoringEvent(sb, {
-              discord_user_id:    discordUserId,
-              life_event_id:      lifeEvent?.id ?? null,
+              discord_user_id: discordUserId,
+              life_event_id: lifeEvent?.id ?? null,
               score_at_completion: completion.scoreBreakdown.total,
-              points_awarded:     completion.pointsAwarded,
-              urgency_component:  completion.scoreBreakdown.urgency,
-              impact_component:   completion.scoreBreakdown.impact,
-              effort_component:   completion.scoreBreakdown.effort,
-              context_component:  completion.scoreBreakdown.context,
-              smeq_actual:        smeqActual != null ? Number(smeqActual) : null,
-              hours_until_due:    completion.scoreBreakdown.hoursUntilDue,
-              streak_at_time:     completion.updatedStreak,
+              points_awarded: completion.pointsAwarded,
+              urgency_component: completion.scoreBreakdown.urgency,
+              impact_component: completion.scoreBreakdown.impact,
+              effort_component: completion.scoreBreakdown.effort,
+              context_component: completion.scoreBreakdown.context,
+              smeq_actual: smeqActual != null ? Number(smeqActual) : null,
+              hours_until_due: completion.scoreBreakdown.hoursUntilDue,
+              streak_at_time: completion.updatedStreak,
             });
 
             await updateUserProfile(sb, discordUserId, {
-              totalPoints:         (userData?.profile.total_points ?? 0) + completion.pointsAwarded,
-              currentStreak:       completion.updatedStreak,
-              longestStreak:       completion.updatedLongestStreak,
-              lastCompletionDate:  completion.lastCompletionDate,
+              totalPoints:
+                (userData?.profile.total_points ?? 0) +
+                completion.pointsAwarded,
+              currentStreak: completion.updatedStreak,
+              longestStreak: completion.updatedLongestStreak,
+              lastCompletionDate: completion.lastCompletionDate,
             });
 
             const cat = lifeEvent?.category ?? "tasks";
             await upsertCategoryStats(sb, {
-              discord_user_id:       discordUserId,
-              category:              cat,
-              completion_count:      (catStats?.completion_count ?? 0) + 1,
-              avg_score:             completion.emaUpdates.avgScore,
+              discord_user_id: discordUserId,
+              category: cat,
+              completion_count: (catStats?.completion_count ?? 0) + 1,
+              avg_score: completion.emaUpdates.avgScore,
               avg_hours_to_complete: completion.emaUpdates.avgHoursToComplete,
-              avg_smeq_actual:       completion.emaUpdates.avgSmeqActual ?? catStats?.avg_smeq_actual ?? 65,
-              personal_bias:         completion.emaUpdates.personalBias,
+              avg_smeq_actual:
+                completion.emaUpdates.avgSmeqActual ??
+                catStats?.avg_smeq_actual ??
+                65,
+              personal_bias: completion.emaUpdates.personalBias,
             });
 
             for (const achId of completion.newAchievements) {
@@ -1343,49 +1690,89 @@ export function startWeb(state: AppState): Server | null {
             }
 
             scoringResult = {
-              pointsAwarded:   completion.pointsAwarded,
-              score:           completion.scoreBreakdown.total,
+              pointsAwarded: completion.pointsAwarded,
+              score: completion.scoreBreakdown.total,
               newAchievements: completion.newAchievements,
             };
           } catch (scoringErr) {
-            console.warn("Scoring pipeline error (non-fatal):", scoringErr instanceof Error ? scoringErr.message : String(scoringErr));
+            console.warn(
+              "Scoring pipeline error (non-fatal):",
+              scoringErr instanceof Error
+                ? scoringErr.message
+                : String(scoringErr),
+            );
           }
         }
 
         res.json({ ...item, ...(scoringResult ?? {}) });
       } else {
-        const item = await updateTask(googleConfig, req.params.uid, { title, description, priority, dueDate }, taskListId);
-        if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
+        const item = await updateTask(
+          googleConfig,
+          req.params.uid,
+          { title, description, priority, dueDate },
+          taskListId,
+        );
+        if (!item) {
+          res.status(404).json({ error: `Task "${req.params.uid}" not found` });
+          return;
+        }
         res.json(item);
       }
     } catch (err) {
-      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res
+        .status(502)
+        .json({
+          error: `Tasks error: ${err instanceof Error ? err.message : String(err)}`,
+        });
     }
   });
 
   // Delete task
   app.delete("/api/tasks/:uid", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
-      const deleted = await deleteTask(googleConfig, req.params.uid, taskListId);
-      if (!deleted) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
+      const deleted = await deleteTask(
+        googleConfig,
+        req.params.uid,
+        taskListId,
+      );
+      if (!deleted) {
+        res.status(404).json({ error: `Task "${req.params.uid}" not found` });
+        return;
+      }
       res.json({ success: true });
     } catch (err) {
-      res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
+      res
+        .status(502)
+        .json({
+          error: `Tasks error: ${err instanceof Error ? err.message : String(err)}`,
+        });
     }
   });
 
   // --- Scoring API ---
   // All scoring endpoints require X-Discord-User-Id header or ?userId= query param.
 
-  function requireScoringUser(req: express.Request, res: express.Response): string | null {
-    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+  function requireScoringUser(
+    req: express.Request,
+    res: express.Response,
+  ): string | null {
+    const uid =
+      (req.headers["x-discord-user-id"] as string | undefined) ??
+      (req.query.userId as string | undefined);
     if (!uid) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required" });
+      res
+        .status(400)
+        .json({
+          error: "X-Discord-User-Id header or ?userId= query param required",
+        });
       return null;
     }
     return uid;
@@ -1394,7 +1781,12 @@ export function startWeb(state: AppState): Server | null {
   function requireSupabase(res: express.Response) {
     const sb = tryGetSupabaseClient(config);
     if (!sb) {
-      res.status(503).json({ error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml." });
+      res
+        .status(503)
+        .json({
+          error:
+            "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.",
+        });
       return null;
     }
     return sb;
@@ -1409,7 +1801,12 @@ export function startWeb(state: AppState): Server | null {
 
     const data = await getUserStats(sb, discordUserId);
     if (!data) {
-      res.json({ exists: false, profile: null, categoryStats: [], achievements: [] });
+      res.json({
+        exists: false,
+        profile: null,
+        categoryStats: [],
+        achievements: [],
+      });
       return;
     }
     res.json({ exists: true, ...data });
@@ -1422,7 +1819,10 @@ export function startWeb(state: AppState): Server | null {
     const sb = requireSupabase(res);
     if (!sb) return;
 
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const limit = Math.min(
+      50,
+      Math.max(1, parseInt(req.query.limit as string, 10) || 20),
+    );
     const category = req.query.category as string | undefined;
 
     const [events, userData] = await Promise.all([
@@ -1430,26 +1830,28 @@ export function startWeb(state: AppState): Server | null {
       getUserStats(sb, discordUserId),
     ]);
 
-    const catStatMap = new Map((userData?.categoryStats ?? []).map((cs) => [cs.category, cs]));
+    const catStatMap = new Map(
+      (userData?.categoryStats ?? []).map((cs) => [cs.category, cs]),
+    );
 
     const scored = events.map((ev) => {
       const cs = catStatMap.get(ev.category);
       const input: ScoreInput = {
-        title:            ev.title,
-        description:      ev.description ?? undefined,
-        category:         ev.category as LifeCategory,
-        dueDate:          ev.due_date ?? undefined,
-        priority:         ev.priority,
-        impactLevel:      ev.impact_level ?? undefined,
-        irreversible:     ev.irreversible ?? undefined,
-        affectsOthers:    ev.affects_others ?? undefined,
-        smeqEstimate:     ev.smeq_estimate ?? undefined,
+        title: ev.title,
+        description: ev.description ?? undefined,
+        category: ev.category as LifeCategory,
+        dueDate: ev.due_date ?? undefined,
+        priority: ev.priority,
+        impactLevel: ev.impact_level ?? undefined,
+        irreversible: ev.irreversible ?? undefined,
+        affectsOthers: ev.affects_others ?? undefined,
+        smeqEstimate: ev.smeq_estimate ?? undefined,
         estimatedMinutes: ev.estimated_minutes ?? undefined,
-        sizeLabel:        ev.size_label ?? undefined,
-        avgSmeqActual:    cs?.avg_smeq_actual ?? undefined,
-        personalBias:     cs?.personal_bias ?? 1.0,
+        sizeLabel: ev.size_label ?? undefined,
+        avgSmeqActual: cs?.avg_smeq_actual ?? undefined,
+        personalBias: cs?.personal_bias ?? 1.0,
         categoryCompletionCount: cs?.completion_count ?? 0,
-        streak:           userData?.profile.current_streak ?? 0,
+        streak: userData?.profile.current_streak ?? 0,
       };
       return { event: ev, scoreBreakdown: scoreTask(input) };
     });
@@ -1459,7 +1861,10 @@ export function startWeb(state: AppState): Server | null {
 
     res.json({
       count: page.length,
-      tasks: page.map(({ event, scoreBreakdown }) => ({ ...event, scoreBreakdown })),
+      tasks: page.map(({ event, scoreBreakdown }) => ({
+        ...event,
+        scoreBreakdown,
+      })),
     });
   });
 
@@ -1470,7 +1875,10 @@ export function startWeb(state: AppState): Server | null {
     const sb = requireSupabase(res);
     if (!sb) return;
 
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit as string, 10) || 20),
+    );
     const events = await getRecentScoringEvents(sb, discordUserId, limit);
     res.json({ count: events.length, events });
   });
@@ -1483,7 +1891,9 @@ export function startWeb(state: AppState): Server | null {
     if (!sb) return;
 
     const data = await getUserStats(sb, discordUserId);
-    const unlockedIds = new Set((data?.achievements ?? []).map((a) => a.achievement_id));
+    const unlockedIds = new Set(
+      (data?.achievements ?? []).map((a) => a.achievement_id),
+    );
 
     res.json({
       total: ACHIEVEMENTS.length,
@@ -1491,7 +1901,9 @@ export function startWeb(state: AppState): Server | null {
       achievements: ACHIEVEMENTS.map((a) => ({
         ...a,
         unlocked: unlockedIds.has(a.id),
-        unlockedAt: data?.achievements.find((ua) => ua.achievement_id === a.id)?.unlocked_at ?? null,
+        unlockedAt:
+          data?.achievements.find((ua) => ua.achievement_id === a.id)
+            ?.unlocked_at ?? null,
       })),
     });
   });
@@ -1503,7 +1915,21 @@ export function startWeb(state: AppState): Server | null {
     const sb = requireSupabase(res);
     if (!sb) return;
 
-    const { discordUserId, title, description, category, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags } = req.body ?? {};
+    const {
+      discordUserId,
+      title,
+      description,
+      category,
+      priority,
+      dueDate,
+      estimatedMinutes,
+      sizeLabel,
+      impactLevel,
+      irreversible,
+      affectsOthers,
+      smeqEstimate,
+      tags,
+    } = req.body ?? {};
 
     if (!discordUserId || typeof discordUserId !== "string") {
       res.status(400).json({ error: "discordUserId is required" });
@@ -1515,23 +1941,24 @@ export function startWeb(state: AppState): Server | null {
     }
 
     const ev = await upsertLifeEvent(sb, {
-      discord_user_id:   discordUserId,
+      discord_user_id: discordUserId,
       title,
-      description:       description ?? null,
-      category:          (category ?? inferCategory({ title, description })) as LifeCategory,
-      source:            "manual",
-      external_uid:      null,
-      priority:          priority ?? "medium",
-      due_date:          dueDate ?? null,
-      completed:         false,
-      completed_at:      null,
+      description: description ?? null,
+      category: (category ??
+        inferCategory({ title, description })) as LifeCategory,
+      source: "manual",
+      external_uid: null,
+      priority: priority ?? "medium",
+      due_date: dueDate ?? null,
+      completed: false,
+      completed_at: null,
       estimated_minutes: estimatedMinutes ?? null,
-      size_label:        sizeLabel ?? null,
-      impact_level:      impactLevel ?? null,
-      irreversible:      irreversible ?? null,
-      affects_others:    affectsOthers ?? null,
-      smeq_estimate:     smeqEstimate ?? null,
-      tags:              tags ?? null,
+      size_label: sizeLabel ?? null,
+      impact_level: impactLevel ?? null,
+      irreversible: irreversible ?? null,
+      affects_others: affectsOthers ?? null,
+      smeq_estimate: smeqEstimate ?? null,
+      tags: tags ?? null,
     });
 
     if (!ev) {
@@ -1562,7 +1989,21 @@ export function startWeb(state: AppState): Server | null {
     if (!sb) return;
 
     const { id } = req.params;
-    const { discordUserId, title, description, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags, completed } = req.body ?? {};
+    const {
+      discordUserId,
+      title,
+      description,
+      priority,
+      dueDate,
+      estimatedMinutes,
+      sizeLabel,
+      impactLevel,
+      irreversible,
+      affectsOthers,
+      smeqEstimate,
+      tags,
+      completed,
+    } = req.body ?? {};
 
     if (!discordUserId) {
       res.status(400).json({ error: "discordUserId is required" });
@@ -1570,18 +2011,19 @@ export function startWeb(state: AppState): Server | null {
     }
 
     const patch: Partial<LifeEventRow> = {};
-    if (title !== undefined)            patch.title = title;
-    if (description !== undefined)      patch.description = description;
-    if (priority !== undefined)         patch.priority = priority;
-    if (dueDate !== undefined)          patch.due_date = dueDate;
-    if (estimatedMinutes !== undefined) patch.estimated_minutes = estimatedMinutes;
-    if (sizeLabel !== undefined)        patch.size_label = sizeLabel;
-    if (impactLevel !== undefined)      patch.impact_level = impactLevel;
-    if (irreversible !== undefined)     patch.irreversible = irreversible;
-    if (affectsOthers !== undefined)    patch.affects_others = affectsOthers;
-    if (smeqEstimate !== undefined)     patch.smeq_estimate = smeqEstimate;
-    if (tags !== undefined)             patch.tags = tags;
-    if (completed !== undefined)        patch.completed = completed;
+    if (title !== undefined) patch.title = title;
+    if (description !== undefined) patch.description = description;
+    if (priority !== undefined) patch.priority = priority;
+    if (dueDate !== undefined) patch.due_date = dueDate;
+    if (estimatedMinutes !== undefined)
+      patch.estimated_minutes = estimatedMinutes;
+    if (sizeLabel !== undefined) patch.size_label = sizeLabel;
+    if (impactLevel !== undefined) patch.impact_level = impactLevel;
+    if (irreversible !== undefined) patch.irreversible = irreversible;
+    if (affectsOthers !== undefined) patch.affects_others = affectsOthers;
+    if (smeqEstimate !== undefined) patch.smeq_estimate = smeqEstimate;
+    if (tags !== undefined) patch.tags = tags;
+    if (completed !== undefined) patch.completed = completed;
 
     const { data, error } = await sb
       .from("life_events")
@@ -1592,12 +2034,333 @@ export function startWeb(state: AppState): Server | null {
       .single();
 
     if (error) {
-      if (error.code === "PGRST116") { res.status(404).json({ error: "Life event not found" }); return; }
+      if (error.code === "PGRST116") {
+        res.status(404).json({ error: "Life event not found" });
+        return;
+      }
       res.status(500).json({ error: error.message });
       return;
     }
 
     res.json({ event: data });
+  });
+
+  // --- Quests API (Patyna write-through) ---
+  // Patyna routes quest writes through Aelora instead of writing to Supabase directly.
+  // Reads still use RLS-scoped Supabase client in Patyna; these endpoints handle mutations only.
+  // After each successful REST mutation we broadcast dataChanged (and task:top3 when relevant) to
+  // all WebSocket clients — same contract as the quests tool — so UIs refresh without relying on
+  // the LLM path.
+
+  /**
+   * Resolve Supabase Auth user identity from the request.
+   * Prefers X-Supabase-Token header (server-side JWT validation), falls back to body.supabaseUserId.
+   */
+  async function resolveSupabaseUser(
+    req: express.Request,
+    res: express.Response,
+  ): Promise<string | null> {
+    const supabaseToken = req.headers["x-supabase-token"] as string | undefined;
+    if (supabaseToken) {
+      const sb = tryGetSupabaseClient(config);
+      if (!sb) {
+        res.status(503).json({ error: "Supabase not configured" });
+        return null;
+      }
+      const {
+        data: { user },
+        error,
+      } = await sb.auth.getUser(supabaseToken);
+      if (error || !user) {
+        res.status(401).json({ error: "Invalid or expired Supabase token" });
+        return null;
+      }
+      return user.id;
+    }
+
+    const bodyUserId = req.body?.supabaseUserId ?? req.query.supabaseUserId;
+    if (bodyUserId && typeof bodyUserId === "string") {
+      return bodyUserId;
+    }
+
+    res
+      .status(401)
+      .json({
+        error:
+          "Supabase user identity required. Send X-Supabase-Token header, supabaseUserId in body, or ?supabaseUserId= query param.",
+      });
+    return null;
+  }
+
+  function requireServiceRole(res: express.Response) {
+    const sb = tryGetServiceRoleClient(config);
+    if (!sb) {
+      res
+        .status(503)
+        .json({
+          error:
+            "Supabase service-role not configured. Add supabase.serviceRoleKey to settings.yaml.",
+        });
+      return null;
+    }
+    return sb;
+  }
+
+  // GET /api/quests  -  list quests for the authenticated user
+  app.get("/api/quests", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const status = req.query.status as string | undefined;
+    const category = req.query.category as string | undefined;
+
+    const quests = await listQuests(sbService, userId, { status, category });
+    res.json({ quests, count: quests.length });
+  });
+
+  // GET /api/quests/:id  -  get a single quest by ID
+  app.get("/api/quests/:id", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const quest = await getQuestById(sbService, userId, req.params.id);
+    if (!quest) {
+      res.status(404).json({ error: `Quest "${req.params.id}" not found` });
+      return;
+    }
+
+    res.json({ quest });
+  });
+
+  // POST /api/quests  -  create a quest
+  app.post("/api/quests", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const {
+      title,
+      description,
+      category,
+      quest_type,
+      target_value,
+      difficulty,
+    } = req.body ?? {};
+
+    if (!title || typeof title !== "string") {
+      res.status(400).json({ error: "title is required" });
+      return;
+    }
+
+    const result = await createQuest(
+      sbService,
+      userId,
+      {
+        title,
+        ...(description != null ? { description } : {}),
+        ...(category != null ? { category } : {}),
+        ...(quest_type != null ? { quest_type } : {}),
+        ...(target_value != null ? { target_value } : {}),
+        ...(difficulty != null ? { difficulty } : {}),
+      },
+      config.supabase?.defaultQuestCategory
+        ? { defaultCategory: config.supabase.defaultQuestCategory }
+        : undefined,
+    );
+
+    if (!result.ok) {
+      res.status(400).json({ error: result.error, code: result.code });
+      return;
+    }
+
+    broadcastEvent("dataChanged", {
+      source: "supabase",
+      table: "quests",
+      action: "insert",
+    });
+    res.status(201).json({ quest: result.quest });
+  });
+
+  // POST /api/quests/:id/complete  -  mark a quest as completed
+  app.post("/api/quests/:id/complete", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const { id } = req.params;
+
+    const quest = await getQuestById(sbService, userId, id);
+    if (!quest) {
+      res.status(404).json({ error: `Quest "${id}" not found` });
+      return;
+    }
+
+    if (quest.status === "completed") {
+      res.json({ quest, alreadyCompleted: true });
+      return;
+    }
+
+    const completed = await updateQuest(sbService, userId, id, {
+      status: "completed",
+      current_value: quest.target_value,
+      completed_at: new Date().toISOString(),
+    });
+
+    if (!completed) {
+      res.status(500).json({ error: "Failed to complete quest" });
+      return;
+    }
+
+    await appendQuestLog(sbService, userId, id, "Completed").catch(() => {});
+
+    broadcastEvent("dataChanged", {
+      source: "supabase",
+      table: "quests",
+      action: "complete",
+    });
+    broadcastEvent("task:finish", {
+      questId: completed.id,
+      title: completed.title,
+    });
+    broadcastDemoTaskComplete({
+      questId: completed.id,
+      title: completed.title,
+    });
+    res.json({ quest: completed });
+  });
+
+  // PUT /api/quests/:id  -  update quest fields (title, description, category, is_favorite, etc.)
+  app.put("/api/quests/:id", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const { id } = req.params;
+    const existing = await getQuestById(sbService, userId, id);
+    if (!existing) {
+      res.status(404).json({ error: `Quest "${id}" not found` });
+      return;
+    }
+
+    const {
+      title,
+      description,
+      category,
+      quest_type,
+      target_value,
+      current_value,
+      difficulty,
+      status,
+      is_favorite,
+    } = req.body ?? {};
+
+    const patch: Record<string, unknown> = {};
+    if (title !== undefined) patch.title = title;
+    if (description !== undefined) patch.description = description;
+    if (category !== undefined) patch.category = category;
+    if (quest_type !== undefined) patch.quest_type = quest_type;
+    if (target_value !== undefined) patch.target_value = target_value;
+    if (current_value !== undefined) patch.current_value = current_value;
+    if (difficulty !== undefined) patch.difficulty = difficulty;
+    if (status !== undefined) patch.status = status;
+    // Only booleans — `is_favorite: null` from JSON would write NULL in Postgres and break Top 3 (strict true checks).
+    if (typeof is_favorite === "boolean") patch.is_favorite = is_favorite;
+
+    if (Object.keys(patch).length === 0) {
+      res.status(400).json({ error: "Provide at least one field to update" });
+      return;
+    }
+
+    const updated = await updateQuest(
+      sbService,
+      userId,
+      id,
+      patch as UpdateQuestInput,
+    );
+    if (!updated) {
+      res.status(500).json({ error: "Failed to update quest" });
+      return;
+    }
+
+    broadcastEvent("dataChanged", {
+      source: "supabase",
+      table: "quests",
+      action: "update",
+    });
+
+    if (existing.status !== "completed" && updated.status === "completed") {
+      broadcastEvent("task:finish", {
+        questId: updated.id,
+        title: updated.title,
+      });
+      broadcastDemoTaskComplete({
+        questId: updated.id,
+        title: updated.title,
+      });
+    }
+
+    if (typeof is_favorite === "boolean") {
+      broadcastEvent("task:top3", {
+        action: is_favorite ? "add" : "remove",
+        questId: updated.id,
+        title: updated.title,
+      });
+    }
+
+    res.json({ quest: updated });
+  });
+
+  // POST /api/quests/:id/favorite  -  toggle is_favorite
+  app.post("/api/quests/:id/favorite", async (req, res) => {
+    const sbService = requireServiceRole(res);
+    if (!sbService) return;
+
+    const userId = await resolveSupabaseUser(req, res);
+    if (!userId) return;
+
+    const { id } = req.params;
+
+    const quest = await getQuestById(sbService, userId, id);
+    if (!quest) {
+      res.status(404).json({ error: `Quest "${id}" not found` });
+      return;
+    }
+
+    const rawFav = req.body?.is_favorite;
+    const newValue = typeof rawFav === "boolean" ? rawFav : !quest.is_favorite;
+
+    const updated = await updateQuest(sbService, userId, id, {
+      is_favorite: newValue,
+    });
+    if (!updated) {
+      res.status(500).json({ error: "Failed to update favorite status" });
+      return;
+    }
+
+    broadcastEvent("dataChanged", {
+      source: "supabase",
+      table: "quests",
+      action: "update",
+    });
+    broadcastEvent("task:top3", {
+      action: newValue ? "add" : "remove",
+      questId: updated.id,
+      title: updated.title,
+    });
+
+    res.json({ quest: updated });
   });
 
   // --- Users ---
@@ -1663,23 +2426,43 @@ export function startWeb(state: AppState): Server | null {
       try {
         await classifyMood("(force reclassify)", "(force reclassify)");
         const mood = loadMood();
-        res.json(mood ? { active: true, emotion: mood.emotion, intensity: mood.intensity, label: resolveLabel(mood) } : { active: false });
+        res.json(
+          mood
+            ? {
+                active: true,
+                emotion: mood.emotion,
+                intensity: mood.intensity,
+                label: resolveLabel(mood),
+              }
+            : { active: false },
+        );
       } catch (err) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        res
+          .status(500)
+          .json({ error: err instanceof Error ? err.message : String(err) });
       }
       return;
     }
 
     // Manual mood set
     if (!emotion) {
-      res.status(400).json({ error: "emotion is required (joy, trust, fear, surprise, sadness, disgust, anger, anticipation)" });
+      res
+        .status(400)
+        .json({
+          error:
+            "emotion is required (joy, trust, fear, surprise, sadness, disgust, anger, anticipation)",
+        });
       return;
     }
 
     const { saveMood: save, PLUTCHIK_EMOTIONS } = await import("./mood.js");
     const validEmotions = Object.keys(PLUTCHIK_EMOTIONS);
     if (!validEmotions.includes(emotion)) {
-      res.status(400).json({ error: `Invalid emotion. Must be one of: ${validEmotions.join(", ")}` });
+      res
+        .status(400)
+        .json({
+          error: `Invalid emotion. Must be one of: ${validEmotions.join(", ")}`,
+        });
       return;
     }
 
@@ -1699,7 +2482,12 @@ export function startWeb(state: AppState): Server | null {
     });
 
     const mood = loadMood();
-    res.json({ active: true, emotion: mood!.emotion, intensity: mood!.intensity, label: resolveLabel(mood!) });
+    res.json({
+      active: true,
+      emotion: mood!.emotion,
+      intensity: mood!.intensity,
+      label: resolveLabel(mood!),
+    });
   });
 
   // Recent logs (for initial load)
@@ -1730,29 +2518,33 @@ export function startWeb(state: AppState): Server | null {
     const activityDir = path.join(__dirname, "..", "activity");
 
     // Serve Unity WebGL build with CORS and gzip Content-Encoding for .gz files
-    app.use("/activity", (req, res, next) => {
-      res.set("Access-Control-Allow-Origin", "*");
-      res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-      res.set("Access-Control-Allow-Headers", "Content-Type, Range");
-      if (req.method === "OPTIONS") {
-        res.sendStatus(204);
-        return;
-      }
+    app.use(
+      "/activity",
+      (req, res, next) => {
+        res.set("Access-Control-Allow-Origin", "*");
+        res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+        res.set("Access-Control-Allow-Headers", "Content-Type, Range");
+        if (req.method === "OPTIONS") {
+          res.sendStatus(204);
+          return;
+        }
 
-      // Set Content-Encoding for pre-compressed Unity build files
-      if (req.path.endsWith(".wasm.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/wasm");
-      } else if (req.path.endsWith(".js.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/javascript");
-      } else if (req.path.endsWith(".data.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/octet-stream");
-      }
+        // Set Content-Encoding for pre-compressed Unity build files
+        if (req.path.endsWith(".wasm.gz")) {
+          res.set("Content-Encoding", "gzip");
+          res.set("Content-Type", "application/wasm");
+        } else if (req.path.endsWith(".js.gz")) {
+          res.set("Content-Encoding", "gzip");
+          res.set("Content-Type", "application/javascript");
+        } else if (req.path.endsWith(".data.gz")) {
+          res.set("Content-Encoding", "gzip");
+          res.set("Content-Type", "application/octet-stream");
+        }
 
-      next();
-    }, express.static(activityDir));
+        next();
+      },
+      express.static(activityDir),
+    );
 
     // Activity config (exposes clientId only, never the secret)
     app.get("/api/activity/config", (_req, res) => {
@@ -1781,7 +2573,11 @@ export function startWeb(state: AppState): Server | null {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error("Activity: token exchange failed:", response.status, errorText);
+          console.error(
+            "Activity: token exchange failed:",
+            response.status,
+            errorText,
+          );
           res.status(response.status).json({ error: "Token exchange failed" });
           return;
         }
@@ -1800,7 +2596,9 @@ export function startWeb(state: AppState): Server | null {
   // --- Linear ---
 
   function getLinearApiKey(): string | null {
-    const tools = config.tools as Record<string, Record<string, unknown>> | undefined;
+    const tools = config.tools as
+      | Record<string, Record<string, unknown>>
+      | undefined;
     const linear = tools?.["linear"] as Record<string, string> | undefined;
     return linear?.apiKey || null;
   }
@@ -1808,7 +2606,12 @@ export function startWeb(state: AppState): Server | null {
   function requireLinear(res: express.Response): LinearClient | null {
     const apiKey = getLinearApiKey();
     if (!apiKey) {
-      res.status(503).json({ error: "Linear not configured. Add linear.apiKey to settings.yaml under tools:" });
+      res
+        .status(503)
+        .json({
+          error:
+            "Linear not configured. Add linear.apiKey to settings.yaml under tools:",
+        });
       return null;
     }
     return new LinearClient({ apiKey });
@@ -1820,9 +2623,18 @@ export function startWeb(state: AppState): Server | null {
     if (!client) return;
     try {
       const teams = await client.teams({ first: 50 });
-      res.json(teams.nodes.map(t => ({ id: t.id, name: t.name, key: t.key, description: t.description })));
+      res.json(
+        teams.nodes.map((t) => ({
+          id: t.id,
+          name: t.name,
+          key: t.key,
+          description: t.description,
+        })),
+      );
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1831,15 +2643,24 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const limit = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.limit as string, 10) || 25),
+      );
       const projects = await client.projects({ first: limit });
-      res.json(projects.nodes.map(p => ({
-        id: p.id, name: p.name, state: p.state,
-        progress: p.progress != null ? Math.round(p.progress * 100) : null,
-        description: p.description,
-      })));
+      res.json(
+        projects.nodes.map((p) => ({
+          id: p.id,
+          name: p.name,
+          state: p.state,
+          progress: p.progress != null ? Math.round(p.progress * 100) : null,
+          description: p.description,
+        })),
+      );
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1848,11 +2669,15 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const limit = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.limit as string, 10) || 25),
+      );
       const filter: Record<string, unknown> = {};
       if (req.query.team) filter.team = { key: { eq: req.query.team } };
       if (req.query.status) filter.state = { name: { eq: req.query.status } };
-      if (req.query.since) filter.updatedAt = { gte: new Date(req.query.since as string) };
+      if (req.query.since)
+        filter.updatedAt = { gte: new Date(req.query.since as string) };
 
       const issues = await client.issues({
         first: limit,
@@ -1864,16 +2689,25 @@ export function startWeb(state: AppState): Server | null {
         const state = await issue.state;
         const assignee = await issue.assignee;
         result.push({
-          id: issue.id, identifier: issue.identifier, title: issue.title,
-          status: state?.name ?? null, priority: issue.priority,
-          assignee: assignee ? { name: assignee.name, email: assignee.email } : null,
-          dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
-          createdAt: issue.createdAt, updatedAt: issue.updatedAt,
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          status: state?.name ?? null,
+          priority: issue.priority,
+          assignee: assignee
+            ? { name: assignee.name, email: assignee.email }
+            : null,
+          dueDate: issue.dueDate ?? null,
+          estimate: issue.estimate ?? null,
+          createdAt: issue.createdAt,
+          updatedAt: issue.updatedAt,
         });
       }
       res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1882,7 +2716,10 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      const limit = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.limit as string, 10) || 25),
+      );
       const me = await client.viewer;
       const filter: Record<string, unknown> = {};
       if (req.query.status) filter.state = { name: { eq: req.query.status } };
@@ -1895,14 +2732,20 @@ export function startWeb(state: AppState): Server | null {
       for (const issue of assigned.nodes) {
         const state = await issue.state;
         result.push({
-          id: issue.id, identifier: issue.identifier, title: issue.title,
-          status: state?.name ?? null, priority: issue.priority,
-          dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          status: state?.name ?? null,
+          priority: issue.priority,
+          dueDate: issue.dueDate ?? null,
+          estimate: issue.estimate ?? null,
         });
       }
       res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1921,22 +2764,35 @@ export function startWeb(state: AppState): Server | null {
       const commentData = [];
       for (const c of comments.nodes) {
         const author = await c.user;
-        commentData.push({ author: author?.name ?? "Unknown", body: c.body, createdAt: c.createdAt });
+        commentData.push({
+          author: author?.name ?? "Unknown",
+          body: c.body,
+          createdAt: c.createdAt,
+        });
       }
 
       res.json({
-        id: issue.id, identifier: issue.identifier, title: issue.title,
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
         description: issue.description ?? null,
-        status: state?.name ?? null, priority: issue.priority,
-        assignee: assignee ? { name: assignee.name, email: assignee.email } : null,
+        status: state?.name ?? null,
+        priority: issue.priority,
+        assignee: assignee
+          ? { name: assignee.name, email: assignee.email }
+          : null,
         project: proj ? { name: proj.name, id: proj.id } : null,
-        labels: labels.nodes.map(l => l.name),
-        dueDate: issue.dueDate ?? null, estimate: issue.estimate ?? null,
-        createdAt: issue.createdAt, updatedAt: issue.updatedAt,
+        labels: labels.nodes.map((l) => l.name),
+        dueDate: issue.dueDate ?? null,
+        estimate: issue.estimate ?? null,
+        createdAt: issue.createdAt,
+        updatedAt: issue.updatedAt,
         comments: commentData,
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1953,15 +2809,20 @@ export function startWeb(state: AppState): Server | null {
         const state = await issue.state;
         const assignee = await issue.assignee;
         result.push({
-          id: issue.id, identifier: issue.identifier, title: issue.title,
-          status: state?.name ?? null, priority: issue.priority,
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          status: state?.name ?? null,
+          priority: issue.priority,
           assignee: assignee?.name ?? null,
           dueDate: issue.dueDate ?? null,
         });
       }
       res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1970,13 +2831,26 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const { team, title, description, priority, dueDate, estimate, assigneeEmail, status, labels, project, parentIssueId } = req.body;
+      const {
+        team,
+        title,
+        description,
+        priority,
+        dueDate,
+        estimate,
+        assigneeEmail,
+        status,
+        labels,
+        project,
+        parentIssueId,
+      } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
       if (!team) return res.status(400).json({ error: "team is required" });
 
       const teams = await client.teams({ filter: { key: { eq: team } } });
       const teamNode = teams.nodes[0];
-      if (!teamNode) return res.status(404).json({ error: `Team '${team}' not found` });
+      if (!teamNode)
+        return res.status(404).json({ error: `Team '${team}' not found` });
 
       const input: Record<string, unknown> = { teamId: teamNode.id, title };
       if (description) input.description = description;
@@ -1990,32 +2864,54 @@ export function startWeb(state: AppState): Server | null {
 
       if (assigneeEmail) {
         const users = await client.users();
-        const match = users.nodes.find(u => u.email === assigneeEmail);
-        if (!match) return res.status(404).json({ error: `No user with email '${assigneeEmail}'` });
+        const match = users.nodes.find((u) => u.email === assigneeEmail);
+        if (!match)
+          return res
+            .status(404)
+            .json({ error: `No user with email '${assigneeEmail}'` });
         input.assigneeId = match.id;
       }
       if (status) {
-        const states = await client.workflowStates({ filter: { team: { id: { eq: teamNode.id } }, name: { eq: status } } });
+        const states = await client.workflowStates({
+          filter: { team: { id: { eq: teamNode.id } }, name: { eq: status } },
+        });
         if (states.nodes[0]) input.stateId = states.nodes[0].id;
       }
       if (labels && Array.isArray(labels) && labels.length > 0) {
-        const allLabels = await client.issueLabels({ filter: { team: { id: { eq: teamNode.id } } } });
+        const allLabels = await client.issueLabels({
+          filter: { team: { id: { eq: teamNode.id } } },
+        });
         const nameSet = new Set(labels.map((n: string) => n.toLowerCase()));
-        const ids = allLabels.nodes.filter(l => nameSet.has(l.name.toLowerCase())).map(l => l.id);
+        const ids = allLabels.nodes
+          .filter((l) => nameSet.has(l.name.toLowerCase()))
+          .map((l) => l.id);
         if (ids.length > 0) input.labelIds = ids;
       }
       if (project) {
-        const projects = await client.projects({ filter: { name: { eq: project } } });
+        const projects = await client.projects({
+          filter: { name: { eq: project } },
+        });
         if (projects.nodes[0]) input.projectId = projects.nodes[0].id;
       }
 
-      const result = await client.createIssue(input as Parameters<typeof client.createIssue>[0]);
+      const result = await client.createIssue(
+        input as Parameters<typeof client.createIssue>[0],
+      );
       const created = await result.issue;
-      if (!created) return res.status(500).json({ error: "Failed to create issue" });
+      if (!created)
+        return res.status(500).json({ error: "Failed to create issue" });
 
-      res.status(201).json({ identifier: created.identifier, title: created.title, id: created.id });
+      res
+        .status(201)
+        .json({
+          identifier: created.identifier,
+          title: created.title,
+          id: created.id,
+        });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2026,7 +2922,17 @@ export function startWeb(state: AppState): Server | null {
     try {
       const issue = await client.issue(req.params.id);
       const teamRef = await issue.team;
-      const { title, description, priority, dueDate, estimate, assigneeEmail, status, labels, project } = req.body;
+      const {
+        title,
+        description,
+        priority,
+        dueDate,
+        estimate,
+        assigneeEmail,
+        status,
+        labels,
+        project,
+      } = req.body;
 
       const input: Record<string, unknown> = {};
       if (title) input.title = title;
@@ -2037,34 +2943,52 @@ export function startWeb(state: AppState): Server | null {
 
       if (assigneeEmail) {
         const users = await client.users();
-        const match = users.nodes.find(u => u.email === assigneeEmail);
-        if (!match) return res.status(404).json({ error: `No user with email '${assigneeEmail}'` });
+        const match = users.nodes.find((u) => u.email === assigneeEmail);
+        if (!match)
+          return res
+            .status(404)
+            .json({ error: `No user with email '${assigneeEmail}'` });
         input.assigneeId = match.id;
       }
       if (status && teamRef) {
-        const states = await client.workflowStates({ filter: { team: { id: { eq: teamRef.id } }, name: { eq: status } } });
+        const states = await client.workflowStates({
+          filter: { team: { id: { eq: teamRef.id } }, name: { eq: status } },
+        });
         if (states.nodes[0]) input.stateId = states.nodes[0].id;
       }
       if (labels && Array.isArray(labels) && labels.length > 0 && teamRef) {
-        const allLabels = await client.issueLabels({ filter: { team: { id: { eq: teamRef.id } } } });
+        const allLabels = await client.issueLabels({
+          filter: { team: { id: { eq: teamRef.id } } },
+        });
         const nameSet = new Set(labels.map((n: string) => n.toLowerCase()));
-        const ids = allLabels.nodes.filter(l => nameSet.has(l.name.toLowerCase())).map(l => l.id);
+        const ids = allLabels.nodes
+          .filter((l) => nameSet.has(l.name.toLowerCase()))
+          .map((l) => l.id);
         if (ids.length > 0) input.labelIds = ids;
       }
       if (project) {
-        const projects = await client.projects({ filter: { name: { eq: project } } });
+        const projects = await client.projects({
+          filter: { name: { eq: project } },
+        });
         if (projects.nodes[0]) input.projectId = projects.nodes[0].id;
       }
 
-      if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update" });
+      if (Object.keys(input).length === 0)
+        return res.status(400).json({ error: "No fields to update" });
 
       await client.updateIssue(issue.id, input);
       const updated = await client.issue(req.params.id);
       const newState = await updated.state;
 
-      res.json({ identifier: updated.identifier, title: updated.title, status: newState?.name ?? null });
+      res.json({
+        identifier: updated.identifier,
+        title: updated.title,
+        status: newState?.name ?? null,
+      });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2078,7 +3002,9 @@ export function startWeb(state: AppState): Server | null {
       await client.deleteIssue(issue.id);
       res.json({ deleted: identifier });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2094,7 +3020,9 @@ export function startWeb(state: AppState): Server | null {
       await client.createComment({ issueId: issue.id, body });
       res.status(201).json({ identifier: issue.identifier, commented: true });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2104,8 +3032,12 @@ export function startWeb(state: AppState): Server | null {
     if (!client) return;
     try {
       const query = req.query.q as string;
-      if (!query) return res.status(400).json({ error: "q query parameter is required" });
-      const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 25));
+      if (!query)
+        return res.status(400).json({ error: "q query parameter is required" });
+      const limit = Math.min(
+        50,
+        Math.max(1, parseInt(req.query.limit as string, 10) || 25),
+      );
 
       const results = await client.searchIssues(query, { first: limit });
       const result = [];
@@ -2113,15 +3045,20 @@ export function startWeb(state: AppState): Server | null {
         const state = await issue.state;
         const assignee = await issue.assignee;
         result.push({
-          id: issue.id, identifier: issue.identifier, title: issue.title,
-          status: state?.name ?? null, priority: issue.priority,
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          status: state?.name ?? null,
+          priority: issue.priority,
           assignee: assignee?.name ?? null,
           dueDate: issue.dueDate ?? null,
         });
       }
       res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2136,20 +3073,28 @@ export function startWeb(state: AppState): Server | null {
 
       const teams = await client.teams({ filter: { key: { eq: team } } });
       const teamNode = teams.nodes[0];
-      if (!teamNode) return res.status(404).json({ error: `Team '${team}' not found` });
+      if (!teamNode)
+        return res.status(404).json({ error: `Team '${team}' not found` });
 
       const input: Record<string, unknown> = { name, teamIds: [teamNode.id] };
       if (description) input.description = description;
       if (content) input.content = content;
       if (projStatus) input.state = projStatus;
 
-      const result = await client.createProject(input as Parameters<typeof client.createProject>[0]);
+      const result = await client.createProject(
+        input as Parameters<typeof client.createProject>[0],
+      );
       const created = await result.project;
-      if (!created) return res.status(500).json({ error: "Failed to create project" });
+      if (!created)
+        return res.status(500).json({ error: "Failed to create project" });
 
-      res.status(201).json({ id: created.id, name: created.name, state: created.state });
+      res
+        .status(201)
+        .json({ id: created.id, name: created.name, state: created.state });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2158,11 +3103,22 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const projects = await client.projects({ filter: { name: { eq: req.params.name } } });
+      const projects = await client.projects({
+        filter: { name: { eq: req.params.name } },
+      });
       const proj = projects.nodes[0];
-      if (!proj) return res.status(404).json({ error: `Project '${req.params.name}' not found` });
+      if (!proj)
+        return res
+          .status(404)
+          .json({ error: `Project '${req.params.name}' not found` });
 
-      const { name, description, content, status: projStatus, targetDate } = req.body;
+      const {
+        name,
+        description,
+        content,
+        status: projStatus,
+        targetDate,
+      } = req.body;
       const input: Record<string, unknown> = {};
       if (name) input.name = name;
       if (description) input.description = description;
@@ -2170,12 +3126,15 @@ export function startWeb(state: AppState): Server | null {
       if (projStatus) input.state = projStatus;
       if (targetDate) input.targetDate = targetDate;
 
-      if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update" });
+      if (Object.keys(input).length === 0)
+        return res.status(400).json({ error: "No fields to update" });
 
       await client.updateProject(proj.id, input);
       res.json({ name: name ?? req.params.name, updated: true });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -2184,29 +3143,46 @@ export function startWeb(state: AppState): Server | null {
     const client = requireLinear(res);
     if (!client) return;
     try {
-      const projects = await client.projects({ filter: { name: { eq: req.params.name } } });
+      const projects = await client.projects({
+        filter: { name: { eq: req.params.name } },
+      });
       const proj = projects.nodes[0];
-      if (!proj) return res.status(404).json({ error: `Project '${req.params.name}' not found` });
+      if (!proj)
+        return res
+          .status(404)
+          .json({ error: `Project '${req.params.name}' not found` });
 
       const { body, health } = req.body;
       if (!body) return res.status(400).json({ error: "body is required" });
 
       const input: Record<string, unknown> = { projectId: proj.id, body };
-      if (health && ["onTrack", "atRisk", "offTrack"].includes(health)) input.health = health;
+      if (health && ["onTrack", "atRisk", "offTrack"].includes(health))
+        input.health = health;
 
-      await client.createProjectUpdate(input as Parameters<typeof client.createProjectUpdate>[0]);
-      res.status(201).json({ project: req.params.name, health: health ?? null, posted: true });
+      await client.createProjectUpdate(
+        input as Parameters<typeof client.createProjectUpdate>[0],
+      );
+      res
+        .status(201)
+        .json({
+          project: req.params.name,
+          health: health ?? null,
+          posted: true,
+        });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
   // --- Data export ---
 
   app.get("/api/export", async (req, res) => {
-    const requested = typeof req.query.sections === "string"
-      ? req.query.sections.split(",").map((s) => s.trim())
-      : null;
+    const requested =
+      typeof req.query.sections === "string"
+        ? req.query.sections.split(",").map((s) => s.trim())
+        : null;
 
     const include = (name: string) => !requested || requested.includes(name);
 
@@ -2217,7 +3193,8 @@ export function startWeb(state: AppState): Server | null {
     if (include("users")) bundle.users = getAllUsers();
     if (include("cron")) bundle.cron = getCronJobsForAPI();
     if (include("mood")) bundle.mood = loadMood();
-    if (include("personas")) bundle.personas = getPersonaDescriptions(config.persona.dir);
+    if (include("personas"))
+      bundle.personas = getPersonaDescriptions(config.persona.dir);
 
     const payload = JSON.stringify(bundle);
     const payloadBytes = Buffer.byteLength(payload, "utf-8");
@@ -2229,7 +3206,10 @@ export function startWeb(state: AppState): Server | null {
     }
 
     const date = new Date().toISOString().slice(0, 10);
-    res.setHeader("Content-Disposition", `attachment; filename=aelora-export-${date}.json`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=aelora-export-${date}.json`,
+    );
     res.type("application/json").send(payload);
   });
 
@@ -2240,7 +3220,14 @@ export function startWeb(state: AppState): Server | null {
       const { getAmbientState } = await import("./ambient/engine.js");
       res.json(getAmbientState());
     } catch {
-      res.json({ enabled: false, triggers: [], bufferStats: [], globalSendsLastHour: 0, globalRateLimitPerHour: 6, evaluationIntervalMs: 300000 });
+      res.json({
+        enabled: false,
+        triggers: [],
+        bufferStats: [],
+        globalSendsLastHour: 0,
+        globalRateLimitPerHour: 6,
+        evaluationIntervalMs: 300000,
+      });
     }
   });
 
@@ -2263,18 +3250,24 @@ export function startWeb(state: AppState): Server | null {
       }
       const ok = toggleTrigger(req.params.name, enabled);
       if (!ok) {
-        res.status(404).json({ error: `trigger "${req.params.name}" not found` });
+        res
+          .status(404)
+          .json({ error: `trigger "${req.params.name}" not found` });
         return;
       }
       res.json({ name: req.params.name, enabled });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      res
+        .status(500)
+        .json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
   const server = createServer(app);
   server.listen(config.web.port, "0.0.0.0", () => {
-    console.log(`Web: dashboard at http://0.0.0.0:${config.web.port}${basePath}/dashboard`);
+    console.log(
+      `Web: dashboard at http://0.0.0.0:${config.web.port}${basePath}/dashboard`,
+    );
   });
   return server;
 }

@@ -6,6 +6,7 @@ import type { Config } from "./config.js";
 // ============================================================
 
 let _client: SupabaseClient | null = null;
+let _serviceClient: SupabaseClient | null = null;
 
 export function getSupabaseClient(config: Config): SupabaseClient {
   if (_client) return _client;
@@ -34,6 +35,40 @@ export function getCachedSupabaseClient(): SupabaseClient | null {
   return _client;
 }
 
+/**
+ * Service-role client that bypasses RLS.
+ * Required for server-side quest CRUD where quests.user_id is a Supabase Auth UUID.
+ */
+export function getServiceRoleClient(config: Config): SupabaseClient {
+  if (_serviceClient) return _serviceClient;
+
+  if (!config.supabase?.url || !config.supabase?.serviceRoleKey) {
+    throw new Error(
+      "Supabase service role not configured. Add supabase.serviceRoleKey to settings.yaml or AELORA_SUPABASE_SERVICE_ROLE_KEY env.",
+    );
+  }
+
+  _serviceClient = createClient(
+    config.supabase.url,
+    config.supabase.serviceRoleKey,
+  );
+  return _serviceClient;
+}
+
+/** Returns the service-role client or null if not configured. */
+export function tryGetServiceRoleClient(config: Config): SupabaseClient | null {
+  try {
+    return getServiceRoleClient(config);
+  } catch {
+    return null;
+  }
+}
+
+/** Returns the already-initialized service-role client, or null. */
+export function getCachedServiceRoleClient(): SupabaseClient | null {
+  return _serviceClient;
+}
+
 // ============================================================
 // Row types (matches 001_scoring_system.sql)
 // ============================================================
@@ -43,8 +78,8 @@ export type UserProfileRow = {
   total_points: number;
   current_streak: number;
   longest_streak: number;
-  last_completion_date: string | null;  // YYYY-MM-DD
-  google_task_list_id: string | null;   // Per-user Google Task list ID
+  last_completion_date: string | null; // YYYY-MM-DD
+  google_task_list_id: string | null; // Per-user Google Task list ID
   created_at: string;
   updated_at: string;
 };
@@ -58,7 +93,7 @@ export type LifeEventRow = {
   source: "google_tasks" | "google_calendar" | "manual" | "discord" | "linear";
   external_uid: string | null;
   priority: "low" | "medium" | "high";
-  due_date: string | null;     // ISO 8601
+  due_date: string | null; // ISO 8601
   completed: boolean;
   completed_at: string | null;
   estimated_minutes: number | null;
@@ -66,7 +101,7 @@ export type LifeEventRow = {
   impact_level: "trivial" | "low" | "moderate" | "high" | "critical" | null;
   irreversible: boolean | null;
   affects_others: boolean | null;
-  smeq_estimate: number | null;  // 0-150
+  smeq_estimate: number | null; // 0-150
   tags: string[] | null;
   created_at: string;
   updated_at: string;
@@ -82,7 +117,7 @@ export type ScoringEventRow = {
   impact_component: number;
   effort_component: number;
   context_component: number;
-  smeq_actual: number | null;   // 0-150
+  smeq_actual: number | null; // 0-150
   hours_until_due: number | null;
   streak_at_time: number;
   completed_at: string;
@@ -106,6 +141,41 @@ export type AchievementRow = {
 };
 
 // ============================================================
+// Quest row types
+// ============================================================
+
+export type QuestRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  quest_type: string;
+  target_value: number;
+  current_value: number;
+  status: string;
+  difficulty: string;
+  suggested_by: string;
+  created_at: string;
+  completed_at: string | null;
+  updated_at: string;
+  is_favorite: boolean;
+};
+
+/** Coerce DB null / legacy rows to false so clients can use strict `=== true` for Top 3. */
+export function normalizeQuestRow(row: QuestRow): QuestRow {
+  return { ...row, is_favorite: row.is_favorite === true };
+}
+
+export type QuestLogRow = {
+  id: string;
+  quest_id: string;
+  user_id: string;
+  notes: string | null;
+  logged_at: string;
+};
+
+// ============================================================
 // Typed helpers
 // ============================================================
 
@@ -114,10 +184,12 @@ export async function ensureUserProfile(
   sb: SupabaseClient,
   discordUserId: string,
 ): Promise<void> {
-  await sb.from("user_profiles").upsert(
-    { discord_user_id: discordUserId },
-    { onConflict: "discord_user_id", ignoreDuplicates: true },
-  );
+  await sb
+    .from("user_profiles")
+    .upsert(
+      { discord_user_id: discordUserId },
+      { onConflict: "discord_user_id", ignoreDuplicates: true },
+    );
 }
 
 /** Get the user's Google Task list ID (null if not yet created). */
@@ -210,7 +282,7 @@ export async function updateUserProfile(
     totalPoints: number;
     currentStreak: number;
     longestStreak: number;
-    lastCompletionDate: string;  // YYYY-MM-DD
+    lastCompletionDate: string; // YYYY-MM-DD
   },
 ): Promise<void> {
   const { error } = await sb
@@ -233,7 +305,8 @@ export async function upsertCategoryStats(
   const { error } = await sb
     .from("category_stats")
     .upsert(data, { onConflict: "discord_user_id,category" });
-  if (error) console.error("Supabase upsertCategoryStats error:", error.message);
+  if (error)
+    console.error("Supabase upsertCategoryStats error:", error.message);
 }
 
 /** Unlock an achievement (no-op if already unlocked due to PK constraint). */
@@ -266,7 +339,11 @@ export async function getUserStats(
   achievements: AchievementRow[];
 } | null> {
   const [profileRes, statsRes, achievementsRes] = await Promise.all([
-    sb.from("user_profiles").select("*").eq("discord_user_id", discordUserId).single(),
+    sb
+      .from("user_profiles")
+      .select("*")
+      .eq("discord_user_id", discordUserId)
+      .single(),
     sb.from("category_stats").select("*").eq("discord_user_id", discordUserId),
     sb.from("achievements").select("*").eq("discord_user_id", discordUserId),
   ]);
@@ -322,4 +399,275 @@ export async function getRecentScoringEvents(
     return [];
   }
   return (data ?? []) as ScoringEventRow[];
+}
+
+// ============================================================
+// Quest CRUD helpers (use service-role client to bypass RLS)
+// ============================================================
+
+export type QuestFilters = {
+  status?: string;
+  category?: string;
+  limit?: number;
+};
+
+export async function listQuests(
+  sb: SupabaseClient,
+  userId: string,
+  filters: QuestFilters = {},
+): Promise<QuestRow[]> {
+  let query = sb
+    .from("quests")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(filters.limit ?? 50);
+
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.category) query = query.eq("category", filters.category);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("Supabase listQuests error:", error.message);
+    return [];
+  }
+  return ((data ?? []) as QuestRow[]).map(normalizeQuestRow);
+}
+
+export async function getQuestById(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+): Promise<QuestRow | null> {
+  const { data, error } = await sb
+    .from("quests")
+    .select("*")
+    .eq("id", questId)
+    .eq("user_id", userId)
+    .single();
+  if (error || !data) return null;
+  return normalizeQuestRow(data as QuestRow);
+}
+
+export type CreateQuestInput = {
+  title: string;
+  description?: string | null;
+  category?: string;
+  quest_type?: string;
+  target_value?: number;
+  difficulty?: string;
+  suggested_by?: string;
+};
+
+export type CreateQuestResult =
+  | { ok: true; quest: QuestRow }
+  | { ok: false; error: string; code?: string };
+
+/** Human-readable Supabase / PostgREST error for logs and tool responses. */
+function formatSupabaseError(err: {
+  message: string;
+  details?: string;
+  hint?: string;
+  code?: string;
+}): string {
+  const parts = [err.message, err.details, err.hint].filter(Boolean);
+  return parts.join(" | ");
+}
+
+/** Values allowed by typical Patyna `quests_category_check` (snake_case). */
+export const PATYNA_QUEST_CATEGORIES = [
+  "mental_health",
+  "fitness",
+  "learning",
+  "productivity",
+  "relationships",
+  "mindfulness",
+] as const;
+
+export type PatynaQuestCategory = (typeof PATYNA_QUEST_CATEGORIES)[number];
+
+/** Patyna `quests_quest_type_check` — see patyna/src/quests/quest-types.ts */
+export const PATYNA_QUEST_TYPES = ["daily", "milestone", "streak"] as const;
+
+export type PatynaQuestType = (typeof PATYNA_QUEST_TYPES)[number];
+
+/** Default when model + settings omit category (errands/shopping fit “getting things done”). */
+const DEFAULT_QUEST_CATEGORY_PATYNA: PatynaQuestCategory = "productivity";
+
+/** Matches Patyna app default (`DEFAULT_QUEST_TYPE`); not `boolean` (DB rejects it). */
+const DEFAULT_QUEST_TYPE_PATYNA: PatynaQuestType = "daily";
+
+function resolvePatynaQuestType(
+  raw: string | undefined | null,
+): PatynaQuestType {
+  const v = raw != null ? String(raw).trim().toLowerCase() : "";
+  if ((PATYNA_QUEST_TYPES as readonly string[]).includes(v))
+    return v as PatynaQuestType;
+  if (v === "boolean") return "daily";
+  if (v === "counter") return "milestone";
+  return DEFAULT_QUEST_TYPE_PATYNA;
+}
+
+export type CreateQuestOptions = {
+  /**
+   * When set, used if `input.category` is omitted. Must be one of `PATYNA_QUEST_CATEGORIES`
+   * (or your DB’s CHECK list if you changed it).
+   */
+  defaultCategory?: string;
+};
+
+export async function createQuest(
+  sb: SupabaseClient,
+  userId: string,
+  input: CreateQuestInput,
+  options?: CreateQuestOptions,
+): Promise<CreateQuestResult> {
+  // Patyna-style quests tables often mark category, quest_type, status, difficulty,
+  // target_value, current_value, suggested_by (and sometimes description) as NOT NULL.
+  // Sending only user_id + title triggers Postgres 23502 (NOT NULL violation).
+  const description =
+    input.description !== undefined &&
+    input.description !== null &&
+    String(input.description).trim() !== ""
+      ? input.description
+      : "";
+
+  const explicitCat =
+    input.category != null && String(input.category).trim() !== ""
+      ? String(input.category).trim()
+      : null;
+  const configCat =
+    options?.defaultCategory != null &&
+    String(options.defaultCategory).trim() !== ""
+      ? String(options.defaultCategory).trim()
+      : null;
+  const categoryToSend =
+    explicitCat ?? configCat ?? DEFAULT_QUEST_CATEGORY_PATYNA;
+
+  const payload: Record<string, unknown> = {
+    user_id: userId,
+    title: input.title,
+    description,
+    category: categoryToSend,
+    quest_type: resolvePatynaQuestType(input.quest_type),
+    target_value: input.target_value ?? 1,
+    current_value: 0,
+    status: "active",
+    difficulty: input.difficulty ?? "medium",
+    suggested_by: input.suggested_by ?? "user",
+    is_favorite: false,
+  };
+
+  const { data, error } = await sb
+    .from("quests")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    const msg = formatSupabaseError(error);
+    console.error("Supabase createQuest error:", msg, error.code ?? "");
+    return { ok: false, error: msg, code: error.code };
+  }
+  return { ok: true, quest: normalizeQuestRow(data as QuestRow) };
+}
+
+export type UpdateQuestInput = {
+  title?: string;
+  description?: string | null;
+  category?: string;
+  quest_type?: string;
+  target_value?: number;
+  current_value?: number;
+  status?: string;
+  difficulty?: string;
+  completed_at?: string | null;
+  is_favorite?: boolean;
+};
+
+export async function updateQuest(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+  patch: UpdateQuestInput,
+): Promise<QuestRow | null> {
+  const safe: UpdateQuestInput = { ...patch };
+  if (
+    "is_favorite" in safe &&
+    safe.is_favorite !== undefined &&
+    typeof safe.is_favorite !== "boolean"
+  ) {
+    delete (safe as Record<string, unknown>).is_favorite;
+  }
+
+  const { data, error } = await sb
+    .from("quests")
+    .update(safe)
+    .eq("id", questId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    console.error("Supabase updateQuest error:", error.message);
+    return null;
+  }
+  return normalizeQuestRow(data as QuestRow);
+}
+
+export async function deleteQuest(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+): Promise<boolean> {
+  const { error, count } = await sb
+    .from("quests")
+    .delete({ count: "exact" })
+    .eq("id", questId)
+    .eq("user_id", userId);
+
+  if (error) {
+    console.error("Supabase deleteQuest error:", error.message);
+    return false;
+  }
+  return (count ?? 0) > 0;
+}
+
+export async function appendQuestLog(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+  notes: string,
+): Promise<QuestLogRow | null> {
+  const { data, error } = await sb
+    .from("quest_logs")
+    .insert({ quest_id: questId, user_id: userId, notes })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Supabase appendQuestLog error:", error.message);
+    return null;
+  }
+  return data as QuestLogRow;
+}
+
+export async function getQuestLogs(
+  sb: SupabaseClient,
+  questId: string,
+  limit = 20,
+): Promise<QuestLogRow[]> {
+  const { data, error } = await sb
+    .from("quest_logs")
+    .select("*")
+    .eq("quest_id", questId)
+    .order("logged_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("Supabase getQuestLogs error:", error.message);
+    return [];
+  }
+  return (data ?? []) as QuestLogRow[];
 }

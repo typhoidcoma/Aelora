@@ -108,6 +108,7 @@ export async function executeTool(
   args: Record<string, unknown>,
   channelId: string | null,
   userId?: string | null,
+  supabaseUserId?: string | null,
 ): Promise<ToolResultObject> {
   const tool = registry.get(toolName);
   if (!tool) return { text: `Error: unknown tool "${toolName}"` };
@@ -118,7 +119,7 @@ export async function executeTool(
     : "(no args)";
   console.log(`Tools: executing "${toolName}" (${argSummary})`);
 
-  const context: ToolContext = { channelId, userId: userId ?? null, sendToChannel, sendFileToChannel };
+  const context: ToolContext = { channelId, userId: userId ?? null, supabaseUserId: supabaseUserId ?? null, sendToChannel, sendFileToChannel };
   const start = Date.now();
 
   try {
@@ -138,8 +139,9 @@ export async function executeToolText(
   args: Record<string, unknown>,
   channelId: string | null,
   userId?: string | null,
+  supabaseUserId?: string | null,
 ): Promise<string> {
-  const result = await executeTool(toolName, args, channelId, userId);
+  const result = await executeTool(toolName, args, channelId, userId, supabaseUserId);
   return result.text;
 }
 

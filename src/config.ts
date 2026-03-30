@@ -109,6 +109,9 @@ const supabaseSchema = z
   .object({
     url: z.string(),
     anonKey: z.string(),
+    serviceRoleKey: z.string().optional(),
+    /** Default quests.category when the LLM omits it; must satisfy DB CHECK (Patyna often disallows "tasks"). */
+    defaultQuestCategory: z.string().optional(),
   })
   .optional();
 
@@ -172,6 +175,17 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+/** Set after each successful `loadConfig()`; use `getCachedConfig()` in hot paths (e.g. tools). */
+let _loadedConfig: Config | null = null;
+
+/** Last config returned by `loadConfig()`. Throws if the app has not loaded config yet. */
+export function getCachedConfig(): Config {
+  if (!_loadedConfig) {
+    throw new Error("getCachedConfig: loadConfig() has not been called yet");
+  }
+  return _loadedConfig;
+}
+
 // ---------------------------------------------------------------------------
 // Load & validate
 // ---------------------------------------------------------------------------
@@ -213,6 +227,7 @@ export function loadConfig(path = "settings.yaml"): Config {
     throw new Error("llm.model is required (set in settings.yaml)");
   }
 
+  _loadedConfig = config;
   return config;
 }
 
@@ -237,13 +252,20 @@ function applyEnvOverrides(config: Config): void {
   }
   if (env.AELORA_EMBEDDING_API_KEY)   { config.memory.embeddingApiKey = env.AELORA_EMBEDDING_API_KEY; applied.push("AELORA_EMBEDDING_API_KEY"); }
   if (env.AELORA_EMBEDDING_BASE_URL)  { config.memory.embeddingBaseURL = env.AELORA_EMBEDDING_BASE_URL; applied.push("AELORA_EMBEDDING_BASE_URL"); }
-  if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY) {
+  if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY || env.AELORA_SUPABASE_SERVICE_ROLE_KEY) {
     config.supabase = {
       url: env.AELORA_SUPABASE_URL ?? config.supabase?.url ?? "",
       anonKey: env.AELORA_SUPABASE_ANON_KEY ?? config.supabase?.anonKey ?? "",
+      serviceRoleKey: env.AELORA_SUPABASE_SERVICE_ROLE_KEY ?? config.supabase?.serviceRoleKey,
+      defaultQuestCategory: config.supabase?.defaultQuestCategory,
     };
-    if (env.AELORA_SUPABASE_URL)      applied.push("AELORA_SUPABASE_URL");
-    if (env.AELORA_SUPABASE_ANON_KEY) applied.push("AELORA_SUPABASE_ANON_KEY");
+    if (env.AELORA_SUPABASE_URL)              applied.push("AELORA_SUPABASE_URL");
+    if (env.AELORA_SUPABASE_ANON_KEY)         applied.push("AELORA_SUPABASE_ANON_KEY");
+    if (env.AELORA_SUPABASE_SERVICE_ROLE_KEY) applied.push("AELORA_SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (env.AELORA_SUPABASE_DEFAULT_QUEST_CATEGORY && config.supabase) {
+    config.supabase.defaultQuestCategory = env.AELORA_SUPABASE_DEFAULT_QUEST_CATEGORY;
+    applied.push("AELORA_SUPABASE_DEFAULT_QUEST_CATEGORY");
   }
   if (env.AELORA_KB_DRIVE_FOLDER_ID)    { config.knowledge.driveFolderId = env.AELORA_KB_DRIVE_FOLDER_ID; applied.push("AELORA_KB_DRIVE_FOLDER_ID"); }
   if (applied.length > 0) {

@@ -22,6 +22,23 @@ interface ClaimPattern {
   tools: string[];
   pattern: RegExp;
   action: string;
+  /**
+   * When set, "tool was called" is not enough: at least one matching tool result
+   * must substantiate the claim (see `questsCompletionClaimBacked`).
+   */
+  requireSubstantiveResult?: boolean;
+}
+
+/** True when a successful `quests` call actually completed, was already complete, or deleted the quest. */
+function questsCompletionClaimBacked(records: ToolRecord[]): boolean {
+  return records.some(
+    (t) =>
+      t.name === "quests" &&
+      !t.failed &&
+      (t.result.includes("Quest completed:") ||
+        t.result.includes("Quest already completed:") ||
+        t.result.includes("Quest deleted:")),
+  );
 }
 
 const CLAIM_PATTERNS: ClaimPattern[] = [
@@ -54,6 +71,14 @@ const CLAIM_PATTERNS: ClaimPattern[] = [
     pattern:
       /\b(added (a |the )?to-?do|created (a |the )?task|completed (the |a )?task|marked .* (as )?(done|complete)|deleted (the |a )?to-?do)\b/i,
     action: "managed a todo/task",
+  },
+  {
+    tools: ["quests"],
+    pattern:
+      /\b(you'?ve completed|you completed|you'?ve finished|you finished|crossed .{0,80} off|checked .{0,80} off|marked .{0,120} (as )?(done|complete)|took .{0,80} off (your |)(list|tasks)|removed .{0,80} from (your |)(list|tasks))\b/i,
+    action: "completed or finished a Patyna quest",
+    // finish_task / list / add do not persist completion; only complete (or delete) does.
+    requireSubstantiveResult: true,
   },
   {
     tools: ["web_search"],
@@ -104,13 +129,25 @@ export function detectPhantomClaims(
   for (const claim of CLAIM_PATTERNS) {
     if (!claim.pattern.test(responseText)) continue;
 
-    const wasCalled = claim.tools.some((t) => calledTools.has(t));
+    const toolNames = claim.tools.join("/");
+    let wasCalled = claim.tools.some((t) => calledTools.has(t));
+    if (claim.requireSubstantiveResult) {
+      wasCalled = questsCompletionClaimBacked(toolRecords);
+    }
 
     if (!wasCalled) {
-      // Phantom claim: response says it did X but never called the tool
-      issues.push(
-        `You claim you ${claim.action}, but no ${claim.tools.join("/")} tool was called.`,
-      );
+      const hadAnyMatchingTool = claim.tools.some((t) => calledTools.has(t));
+      if (claim.requireSubstantiveResult && hadAnyMatchingTool) {
+        issues.push(
+          `You claim you ${claim.action}, but no Patyna quest was saved as completed in this turn. ` +
+            `If the task is in the Top 3, action=finish_task only opens the confirmation dialog — tell the user to confirm there, or call action=complete once they want it finalized. ` +
+            `Otherwise call action=complete (or delete if they wanted it removed). Do not say the quest is fully done until complete succeeds or they confirmed in the dialog.`,
+        );
+      } else {
+        issues.push(
+          `You claim you ${claim.action}, but no ${toolNames} tool was called.`,
+        );
+      }
       continue;
     }
 

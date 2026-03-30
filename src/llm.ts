@@ -28,6 +28,12 @@ function truncatePreview(text: string | ContentPart[], maxLen = 80): string {
   return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
 }
 
+/** Mindmap / analytics: chat surface (not auth). Patyna uses WebSocket + session ids like `patyna-…`. */
+function inferConversationSource(channelId: string): string {
+  if (channelId.startsWith("patyna-")) return "patyna";
+  return "discord";
+}
+
 /** Called when the LLM is about to execute tool(s). Names of tools being called are passed. */
 export type OnToolCallCallback = (toolNames: string[]) => void;
 
@@ -371,9 +377,10 @@ export async function getLLMResponse(
   onToken?: OnTokenCallback,
   userId?: string,
   onToolCall?: OnToolCallCallback,
+  supabaseUserId?: string,
 ): Promise<string> {
   const llmStartTime = Date.now();
-  broadcastEvent("mindmap", { type: "conversation:start", conversationId: channelId, userId, source: "discord", timestamp: new Date().toISOString() });
+  broadcastEvent("mindmap", { type: "conversation:start", conversationId: channelId, userId, source: inferConversationSource(channelId), timestamp: new Date().toISOString() });
   broadcastEvent("mindmap", { type: "conversation:message", conversationId: channelId, role: "user", preview: truncatePreview(userMessage), timestamp: new Date().toISOString() });
 
   const history = getHistory(channelId);
@@ -403,7 +410,7 @@ export async function getLLMResponse(
   ];
 
   try {
-    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall);
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall, supabaseUserId);
 
     // Don't save template-failure error responses to history  -  they poison
     // subsequent calls on models like Qwen whose Jinja templates are fragile
@@ -488,6 +495,16 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
 async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string): Promise<string> {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
+
+  // Patyna: prepend before persona so "refusal architecture" and other persona habits do not block tool use.
+  const patynaPreamble =
+    channelId?.startsWith("patyna-")
+      ? "\n\n[SYSTEM — Patyna app / overrides persona refusal habits]\n" +
+        "When the user asks to add, remember, or put something on **their** list (tasks, todos, errands, groceries, e.g. \"buy bread\"), " +
+        "you **must** call the **quests** tool with JSON args: action=\"add\" and title=\"<their item>\". " +
+        "Do **not** say you cannot add it because it is personal or an errand — that is incorrect; **quests** exists exactly for that. " +
+        "Call **quests** in this turn, then briefly confirm in plain text after the tool succeeds.\n\n"
+      : "";
 
   // Sections ordered static → dynamic to maximize OpenAI prompt prefix caching.
   // The persona base prompt (above) is always the same, so it anchors the cache.
@@ -613,8 +630,8 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
   // System status (uptime, heartbeat, cron) omitted to save prompt space.
   // The bot gets tool schemas via the tools array; runtime state is rarely needed.
 
-  if (sections.length === 0) return base;
-  return base + sections.join("");
+  const tail = sections.length === 0 ? "" : sections.join("");
+  return patynaPreamble + base + tail;
 }
 
 // --- Conversation compaction ---
@@ -788,6 +805,7 @@ async function runCompletionLoop(
   onToken?: OnTokenCallback,
   userId?: string,
   onToolCall?: OnToolCallCallback,
+  supabaseUserId?: string,
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
@@ -1049,12 +1067,14 @@ async function runCompletionLoop(
         });
 
         const toolStart = Date.now();
-        const result = await executeToolText(tc.function.name, args, channelId, userId);
+        const result = await executeToolText(tc.function.name, args, channelId, userId, supabaseUserId);
+        const toolFailed = result.startsWith("Error:");
+        const toolPreview = toolFailed ? result.slice(0, 500) : result.slice(0, 120);
 
         broadcastEvent("mindmap", {
           type: "tool:end", conversationId: channelId ?? "unknown",
-          toolName: tc.function.name, success: !result.startsWith("Error:"),
-          preview: result.slice(0, 120), durationMs: Date.now() - toolStart,
+          toolName: tc.function.name, success: !toolFailed,
+          preview: toolPreview, durationMs: Date.now() - toolStart,
           timestamp: new Date().toISOString(),
         });
 

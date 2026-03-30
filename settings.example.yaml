@@ -134,10 +134,24 @@ tools: {}
 # --- Supabase ---
 # Required for the scoring/gamification system. Create a free project at supabase.com
 # and run supabase/migrations/001_scoring_system.sql in the SQL editor.
+#
+# anonKey vs serviceRoleKey — NOT the same string. Same dashboard page, two different keys:
+#   • anon (public): JWT with role "anon". Safe for browsers / Patyna client. RLS applies.
+#   • service_role: different JWT with role "service_role". Server-only (Aelora backend).
+#     Bypasses RLS — never expose to clients or commit to public repos.
 
 # supabase:
 #   url: "https://your-project.supabase.co"
-#   anonKey: "your-anon-key"
+#   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.<payload-for-anon>.<signature-a>"
+#   serviceRoleKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.<payload-for-service_role>.<signature-b>"
+#   # Override default quest category for inserts when the model omits it (optional).
+#   # Patyna quests_category_check allows exactly:
+#   #   mental_health | fitness | learning | productivity | relationships | mindfulness
+#   # Built-in default if unset: productivity (good for errands/shopping). Example:
+#   # defaultQuestCategory: productivity
+#   #
+#   # quest_type for Patyna rows must be daily | milestone | streak (not boolean).
+#   # Aelora defaults new quests to daily when omitted (same as Patyna’s create-quest).
 
 # --- Agents ---
 # Sub-agents that perform multi-step tasks with LLM reasoning + tools.

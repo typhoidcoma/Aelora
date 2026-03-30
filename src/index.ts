@@ -24,7 +24,7 @@ import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
-import { tryGetSupabaseClient } from "./supabase.js";
+import { tryGetSupabaseClient, tryGetServiceRoleClient } from "./supabase.js";
 import { flushAllQueuedWrites } from "./async-write-queue.js";
 
 // Install logger first so all console output is captured
@@ -86,10 +86,13 @@ async function main(): Promise<void> {
   console.log(`LLM: ${config.llm.baseURL} / ${config.llm.model}`);
   initLLM(config);
 
-  // 3b. Initialize Supabase client (if configured)
+  // 3b. Initialize Supabase clients (if configured)
   const sb = tryGetSupabaseClient(config);
-  if (sb) console.log("Supabase: connected");
+  if (sb) console.log("Supabase: connected (anon)");
   else if (config.supabase) console.warn("Supabase: configured but failed to connect");
+  const sbService = tryGetServiceRoleClient(config);
+  if (sbService) console.log("Supabase: connected (service-role)");
+  else if (config.supabase?.serviceRoleKey) console.warn("Supabase: service-role key set but failed to connect");
 
   // 4. Load tools
   await loadTools();

@@ -15,7 +15,13 @@ import { addWSClient } from "./logger.js";
 // ============================================================
 
 type ClientMessage =
-  | { type: "init"; sessionId: string; userId?: string; username?: string }
+  | {
+      type: "init";
+      sessionId: string;
+      userId?: string;
+      username?: string;
+      supabaseUserId?: string;
+    }
   | { type: "message"; content: string }
   | { type: "clear" }
   | { type: "presence"; status: string };
@@ -31,6 +37,7 @@ type ClientState = {
   sessionId: string | null;
   userId: string | null;
   username: string | null;
+  supabaseUserId: string | null;
   busy: boolean;
 };
 
@@ -42,6 +49,48 @@ function send(ws: WebSocket, msg: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
+}
+
+/**
+ * Payload for `task:finish` (Patyna Task Complete overlay).
+ * When `dialogOnly` is true (quests `finish_task` only), the quest is not completed in Supabase — open the
+ * overlay for confirmation only; do not award XP (that stays on `demo:taskComplete` after a real complete).
+ */
+export type TaskFinishEventPayload = {
+  questId: string;
+  title: string;
+  dialogOnly?: boolean;
+};
+
+/** Broadcast an event to all connected WebSocket clients (e.g. dataChanged nudge). */
+export function broadcastEvent(event: string, data: unknown): void {
+  const msg: ServerMessage = { type: "event", event, data };
+  for (const ws of clients) {
+    send(ws, msg);
+  }
+}
+
+/**
+ * Patyna demo2: same event name as `demo2-state.completeTask` → `demo2-app.ts` celebration.
+ * Handle on the client with e.g. `case 'demo:taskComplete': eventBus.emit('demo:taskComplete', data)`.
+ * If `totalPoints` / `maxPoints` are omitted (Aelora often has no Supabase-auth → XP mapping here),
+ * merge from local state after `refreshQuestTasks()` / your scoring store before emitting to the bus.
+ */
+export type PatynaDemoTaskCompletePayload = {
+  questId: string;
+  title: string;
+  totalPoints?: number;
+  maxPoints?: number;
+  pointsEarned?: number;
+};
+
+export function broadcastDemoTaskComplete(
+  payload: PatynaDemoTaskCompletePayload,
+): void {
+  broadcastEvent("demo:taskComplete", {
+    source: "aelora",
+    ...payload,
+  });
 }
 
 // ============================================================
@@ -73,7 +122,10 @@ export function startWebSocket(server: Server, config: Config): void {
 
   wss.on("connection", (ws, req) => {
     if (clients.size >= MAX_WS_CONNECTIONS) {
-      send(ws, { type: "error", error: "Too many concurrent websocket connections." });
+      send(ws, {
+        type: "error",
+        error: "Too many concurrent websocket connections.",
+      });
       ws.close(1013, "Server busy");
       return;
     }
@@ -82,16 +134,29 @@ export function startWebSocket(server: Server, config: Config): void {
     if (config.web.apiKey) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
       const authHeader = req.headers.authorization;
-      const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-      const queryToken = config.web.auth.allowWsQueryToken ? url.searchParams.get("token") : null;
+      const bearer = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : undefined;
+      const queryToken = config.web.auth.allowWsQueryToken
+        ? url.searchParams.get("token")
+        : null;
       const token = bearer ?? queryToken;
       if (token !== config.web.apiKey) {
-        send(ws, { type: "error", error: "Unauthorized. Provide Authorization: Bearer <key> header." });
+        send(ws, {
+          type: "error",
+          error: "Unauthorized. Provide Authorization: Bearer <key> header.",
+        });
         ws.close(4001, "Unauthorized");
         return;
       }
-      if (!bearer && !!queryToken && Date.now() - lastWsQueryTokenWarningAt > 60_000) {
-        console.warn("WS: query-token auth used; migrate websocket clients to Authorization header");
+      if (
+        !bearer &&
+        !!queryToken &&
+        Date.now() - lastWsQueryTokenWarningAt > 60_000
+      ) {
+        console.warn(
+          "WS: query-token auth used; migrate websocket clients to Authorization header",
+        );
         lastWsQueryTokenWarningAt = Date.now();
       }
     }
@@ -106,10 +171,13 @@ export function startWebSocket(server: Server, config: Config): void {
       sessionId: null,
       userId: null,
       username: null,
+      supabaseUserId: null,
       busy: false,
     };
 
-    ws.on("pong", () => { (ws as any).__alive = true; });
+    ws.on("pong", () => {
+      (ws as any).__alive = true;
+    });
 
     ws.on("close", () => {
       clients.delete(ws);
@@ -133,14 +201,20 @@ export function startWebSocket(server: Server, config: Config): void {
         // ---- Init: bind session ----
         case "init": {
           if (!msg.sessionId) {
-            send(ws, { type: "error", error: "sessionId is required for init." });
+            send(ws, {
+              type: "error",
+              error: "sessionId is required for init.",
+            });
             return;
           }
           state.sessionId = msg.sessionId;
           state.userId = msg.userId ?? null;
           state.username = msg.username ?? null;
+          state.supabaseUserId = msg.supabaseUserId ?? null;
           send(ws, { type: "ready", sessionId: state.sessionId });
-          console.log(`WS: client init session=${state.sessionId} user=${state.username ?? "anonymous"}`);
+          console.log(
+            `WS: client init session=${state.sessionId} user=${state.username ?? "anonymous"}${state.supabaseUserId ? ` supabase=${state.supabaseUserId}` : ""}`,
+          );
           break;
         }
 
@@ -155,7 +229,10 @@ export function startWebSocket(server: Server, config: Config): void {
             return;
           }
           if (state.busy) {
-            send(ws, { type: "error", error: "Still processing previous message." });
+            send(ws, {
+              type: "error",
+              error: "Still processing previous message.",
+            });
             return;
           }
 
@@ -180,6 +257,8 @@ export function startWebSocket(server: Server, config: Config): void {
               msg.content,
               (token) => send(ws, { type: "token", content: token }),
               state.userId ?? undefined,
+              undefined,
+              state.supabaseUserId ?? undefined,
             );
 
             send(ws, { type: "done", reply });
@@ -191,13 +270,26 @@ export function startWebSocket(server: Server, config: Config): void {
               username: state.username ?? "anonymous",
               summary: `**User:** ${msg.content.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}`,
             });
-            classifyMood(reply, msg.content, state.sessionId ?? undefined).catch((err) => console.warn("Mood classify failed:", err));
+            classifyMood(
+              reply,
+              msg.content,
+              state.sessionId ?? undefined,
+            ).catch((err) => console.warn("Mood classify failed:", err));
             if (config.memory.autoExtract !== false) {
-              extractFacts(msg.content, reply, state.sessionId!, state.userId ?? undefined)
-                .catch((err) => console.warn("Fact extraction failed:", err));
+              extractFacts(
+                msg.content,
+                reply,
+                state.sessionId!,
+                state.userId ?? undefined,
+              ).catch((err) => console.warn("Fact extraction failed:", err));
             }
           } catch (err) {
-            const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+            const errMsg =
+              err instanceof Error
+                ? err.message
+                : typeof err === "object" && err !== null
+                  ? JSON.stringify(err)
+                  : String(err);
             console.error("WS handler error:", errMsg);
             send(ws, { type: "error", error: errMsg });
           } finally {
@@ -216,7 +308,9 @@ export function startWebSocket(server: Server, config: Config): void {
           if (state.userId && state.username) {
             updateUser(state.userId, state.username, state.sessionId);
           }
-          console.log(`WS: presence session=${state.sessionId} user=${state.username ?? "anonymous"} status=${status}`);
+          console.log(
+            `WS: presence session=${state.sessionId} user=${state.username ?? "anonymous"} status=${status}`,
+          );
           break;
         }
 
@@ -234,7 +328,10 @@ export function startWebSocket(server: Server, config: Config): void {
         }
 
         default:
-          send(ws, { type: "error", error: `Unknown message type "${(msg as any).type}".` });
+          send(ws, {
+            type: "error",
+            error: `Unknown message type "${(msg as any).type}".`,
+          });
       }
     });
   });

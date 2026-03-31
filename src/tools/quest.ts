@@ -452,7 +452,7 @@ export default defineTool({
       "Optional completion notes for complete. When non-empty, a row is written to `quest_logs`.",
       { maxLength: 8000 },
     ),
-    category: param.string("Optional category for create (default: general).", { maxLength: 200 }),
+    category: param.string("Optional category for create (default: productivity).", { maxLength: 200 }),
     quest_type: param.string(
       "Optional quest_type for create (default: daily; must be daily | milestone | streak).",
       { maxLength: 200 },

@@ -291,6 +291,8 @@ Messages trimmed from history are queued per-channel for async summarization:
 
 `POST /api/chat` and `POST /api/chat/stream` provide the same full conversation experience as Discord -stateful history, user memory, session tracking, mood classification, and daily logs. External apps supply a `sessionId` (maps to internal `channelId`) and optionally `userId`/`username` for identity. `DELETE /api/chat/:sessionId` clears conversation history. Rate-limited to 60 req/min (same as LLM test endpoints).
 
+> **Patyna (frontend client):** Patyna is also the name of an external web frontend that connects to Aelora's REST and WebSocket APIs as a standalone client. It has its own Supabase Auth for user identity and calls `/api/chat`, `/api/quests`, and other endpoints. When code comments or API descriptions reference "Patyna" in the context of requests, user IDs, or client compatibility, they mean this frontend app -not the Patyna bot persona. The persona and the frontend share a name but are independent systems.
+
 ### WebSocket Chat
 
 **File:** [src/ws.ts](src/ws.ts)
@@ -640,6 +642,7 @@ Tool file names and exported tool names are usually aligned, but not always. For
 | `date` | Natural language date resolution via chrono-node (converts "next Friday" → ISO 8601) | none |
 | `linear` | Full Linear project management: issues CRUD, sub-issues, projects, teams, search, comments, GraphQL | `linear.apiKey` |
 | `luminizer` | Image generation and restyling via DALL-E 3 / gpt-image-1 (text-to-image generation, image-to-image restyling, configurable style prompts) | `luminizer.apiKey`, `luminizer.model`, `luminizer.baseURL`, `luminizer.stylePrompt` |
+| `quest` | Patyna personal quests in Supabase (create/complete/list/set_favorite, scoped by Supabase Auth user_id) | Supabase config (`supabase.*`) |
 
 > **Tool Architecture Notes:**
 > - `google_calendar` exports CRUD functions (`createEvent`, `updateEvent`, `deleteEvent`, `listEvents`) used by `calendar` and heartbeat handlers. Its own tool registration is read-only (list events, list calendars).
@@ -1493,7 +1496,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Export (1) -~88 endpoints total.
+**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Quests (3 -create, complete, favorite), Export (1) -~91 endpoints total.
 
 ### Routing
 

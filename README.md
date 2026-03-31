@@ -42,6 +42,8 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Config Validation** - Zod-powered schema validation with clear startup errors
 - **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
+- **Quests** - Personal quest system via Supabase (create, complete, list, favorite) with completion logs, used by the Patyna frontend client
+- **External Frontend Support** - REST + WebSocket APIs designed for external frontends (e.g. Patyna web app) with their own auth, independent of Discord
 - **Security Hardening (Compat Mode)** - Bearer-first auth with deprecated query-token fallback and sensitive-route protection
 - **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with at-a-glance stat cards, achievements, calendar, scoring, live console, real-time LLM conversation visualization, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal

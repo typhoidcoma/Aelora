@@ -162,7 +162,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use save, get, list, or delete.`;
+        return `Error: unknown action "${action}". Use save, get, list, or delete.`;
     }
   },
 });

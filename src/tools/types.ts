@@ -236,7 +236,7 @@ export function defineTool<P extends Record<string, ParamSchema>>(
       if (params) {
         const errors = validateArgs(args, params);
         if (errors.length > 0) {
-          return `Invalid arguments: ${errors.join("; ")}`;
+          return `Error: invalid arguments: ${errors.join("; ")}`;
         }
       }
 
@@ -250,7 +250,7 @@ export function defineTool<P extends Record<string, ParamSchema>>(
           return toolConfig[leaf] === undefined || toolConfig[leaf] === "";
         });
         if (missing.length > 0) {
-          return `Tool "${name}" missing config: ${missing.join(", ")}. Add to settings.yaml under tools:`;
+          return `Error: tool "${name}" missing config: ${missing.join(", ")}. Add to settings.yaml under tools:`;
         }
       }
 

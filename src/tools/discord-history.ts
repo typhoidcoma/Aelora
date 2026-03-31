@@ -52,7 +52,7 @@ export default defineTool({
     let channelId = rawChannelId != null ? String(rawChannelId) : undefined;
     if (!channelId && channelName) {
       const resolved = await resolveChannelByName(channelName);
-      if (!resolved) return `Channel named "${channelName}" not found. Use list_channels to see available channels.`;
+      if (!resolved) return `Error: channel named "${channelName}" not found. Use list_channels to see available channels.`;
       channelId = resolved;
     }
 
@@ -152,7 +152,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use "fetch" or "list_channels".`;
+        return `Error: unknown action "${action}". Use "fetch" or "list_channels".`;
     }
   },
 });

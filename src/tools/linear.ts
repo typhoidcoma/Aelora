@@ -462,7 +462,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action: ${args.action}`;
+        return `Error: unknown action "${args.action}".`;
     }
   },
 });

@@ -404,7 +404,17 @@ On startup, `loadTools()` scans `src/tools/` for `.ts`/`.js` files:
 
 ### `defineTool()` API
 
-The recommended way to create tools. Handles JSON Schema generation, argument validation, and config resolution:
+The recommended way to create tools. Handles JSON Schema generation, argument validation, and config resolution.
+
+Important distinction:
+- **Recommended authoring pattern:** use `defineTool()` for new tools
+- **Runtime contract:** the registry only requires that a module export a valid `Tool` object with `definition.name`, `handler`, `enabled`, and optional `parameters`. `defineTool()` is the standard helper that produces that shape plus normalized `{ text, data }` behavior.
+
+`defineTool()` additionally enforces two helper-layer contracts before a handler runs:
+- argument validation failures return `Error: invalid arguments: ...`
+- missing required tool config returns `Error: tool "<name>" missing config: ...`
+
+That matters because `llm.ts` treats `Error:`-prefixed tool text as a failed tool call.
 
 ```typescript
 import { defineTool, param } from "./types.js";
@@ -508,15 +518,25 @@ type ToolResult = string | ToolResultObject;
 
 `normalizeToolResult()` converts both forms to `ToolResultObject`. The `data` field is omitted from the REST response when `undefined`. Error returns can stay as plain strings -`normalizeToolResult()` wraps them automatically.
 
+Runtime-required semantics:
+- failures should return `Error: ...` text so the LLM loop can recognize the tool call as failed
+- successes should return human-readable `text`, even when structured `data` is also present
+
 #### Multi-Action Tool Pattern
 
-Most tools use a single `action` enum param with a `switch` statement. See `src/tools/_example-multi-action.ts` for a complete template. Key conventions:
+Most tools use a single `action` enum param with a `switch` statement. See `src/tools/_example-multi-action.ts` for a complete template.
+
+Recommended conventions:
 
 1. **Action enum**: Always `required: true`, first param
 2. **Conditional required params**: Validate inside each `case` branch, not at the param level
 3. **Context validation**: Use `requireContext()` at the top of the handler
-4. **Error format**: Always return `"Error: ..."` strings (never throw from a handler)
-5. **Default branch**: Always include a `default:` case returning `"Error: unknown action ..."`
+4. **Error format**: Return `"Error: ..."` strings for actionable failures
+5. **Default branch**: Include a `default:` case returning `"Error: unknown action ..."`
+
+Runtime-required semantics:
+- do not throw from a handler for expected validation or action-selection errors
+- if the tool wants the LLM loop to treat a branch as failure, the returned text must begin with `Error:`
 
 ### Config Resolution
 
@@ -534,7 +554,7 @@ If required config keys are missing, the tool returns an error message instead o
 
 ### Runtime Toggle
 
-Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or the web dashboard. Changes are in-memory only (revert on restart).
+Tools can be enabled/disabled at runtime via `POST /api/tools/:name/toggle` or the web dashboard. Enabled state is persisted through `saveToolToggle()` / `loadToggleState()` in `state.ts` and restored on startup.
 
 ### REST API Tool Execution
 
@@ -596,6 +616,10 @@ curl -X POST http://localhost:3000/api/tools/memory/execute \
 **Discovery:** `GET /api/tools` lists all tools with their parameter schemas. `GET /api/tools/:name` returns a single tool's details.
 
 ### Current Tools
+
+Tool file names and exported tool names are usually aligned, but not always. For example:
+- `brave-search.ts` exports the `web_search` tool
+- `mood.ts` exports the `set_mood` tool
 
 | Tool | Description | Config |
 |------|-------------|--------|

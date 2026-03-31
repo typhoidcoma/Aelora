@@ -44,8 +44,16 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const result = saveFact(key, fact);
-        if (!result.success) return { text: "ok", data: { action: "save", scope, fact, duplicate: true } };
-        return { text: "ok", data: { action: "save", scope, fact } };
+        if (!result.success) {
+          return {
+            text: `Did not save fact in ${scope}: ${result.error ?? "already remembered"}.`,
+            data: { action: "save", scope, fact, duplicate: true, error: result.error ?? "duplicate" },
+          };
+        }
+        return {
+          text: `Remembered in ${scope}: "${fact}".`,
+          data: { action: "save", scope, fact },
+        };
       }
 
       case "list": {
@@ -99,8 +107,16 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const ok = deleteFact(key, index as number);
-        if (!ok) return { text: "ok", data: { action: "forget", scope, index, error: "invalid index" } };
-        return { text: "ok", data: { action: "forget", scope, index } };
+        if (!ok) {
+          return {
+            text: `Did not forget fact ${index} from ${scope}: invalid index.`,
+            data: { action: "forget", scope, index, error: "invalid index" },
+          };
+        }
+        return {
+          text: `Forgot fact ${index} from ${scope}.`,
+          data: { action: "forget", scope, index },
+        };
       }
 
       case "clear": {
@@ -109,7 +125,10 @@ export default defineTool({
         if (!key) return `Error: no ${scope} context available.`;
 
         const count = clearScope(key);
-        return { text: "ok", data: { action: "clear", scope, cleared: count } };
+        return {
+          text: `Cleared ${count} fact${count === 1 ? "" : "s"} from ${scope}.`,
+          data: { action: "clear", scope, cleared: count },
+        };
       }
 
       case "search": {
@@ -154,7 +173,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use save, list, forget, clear, search, or log.`;
+        return `Error: unknown action "${action}". Use save, list, forget, clear, search, or log.`;
     }
   },
 });

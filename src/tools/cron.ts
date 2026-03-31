@@ -191,7 +191,7 @@ export default defineTool({
       }
 
       default:
-        return `Unknown action "${action}". Use list, view, create, edit, toggle, trigger, or delete.`;
+        return `Error: unknown action "${action}". Use list, view, create, edit, toggle, trigger, or delete.`;
     }
   },
 });

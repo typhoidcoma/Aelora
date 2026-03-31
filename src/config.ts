@@ -109,6 +109,8 @@ const supabaseSchema = z
   .object({
     url: z.string(),
     anonKey: z.string(),
+    /** Server-only. Patyna `quests` / `quest_logs` writes use this when set (bypasses RLS). Never expose to clients. */
+    serviceRoleKey: z.string().optional(),
   })
   .optional();
 
@@ -237,13 +239,16 @@ function applyEnvOverrides(config: Config): void {
   }
   if (env.AELORA_EMBEDDING_API_KEY)   { config.memory.embeddingApiKey = env.AELORA_EMBEDDING_API_KEY; applied.push("AELORA_EMBEDDING_API_KEY"); }
   if (env.AELORA_EMBEDDING_BASE_URL)  { config.memory.embeddingBaseURL = env.AELORA_EMBEDDING_BASE_URL; applied.push("AELORA_EMBEDDING_BASE_URL"); }
-  if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY) {
+  if (env.AELORA_SUPABASE_URL || env.AELORA_SUPABASE_ANON_KEY || env.AELORA_SUPABASE_SERVICE_ROLE_KEY) {
     config.supabase = {
       url: env.AELORA_SUPABASE_URL ?? config.supabase?.url ?? "",
       anonKey: env.AELORA_SUPABASE_ANON_KEY ?? config.supabase?.anonKey ?? "",
+      serviceRoleKey:
+        env.AELORA_SUPABASE_SERVICE_ROLE_KEY ?? config.supabase?.serviceRoleKey,
     };
-    if (env.AELORA_SUPABASE_URL)      applied.push("AELORA_SUPABASE_URL");
+    if (env.AELORA_SUPABASE_URL) applied.push("AELORA_SUPABASE_URL");
     if (env.AELORA_SUPABASE_ANON_KEY) applied.push("AELORA_SUPABASE_ANON_KEY");
+    if (env.AELORA_SUPABASE_SERVICE_ROLE_KEY) applied.push("AELORA_SUPABASE_SERVICE_ROLE_KEY");
   }
   if (env.AELORA_KB_DRIVE_FOLDER_ID)    { config.knowledge.driveFolderId = env.AELORA_KB_DRIVE_FOLDER_ID; applied.push("AELORA_KB_DRIVE_FOLDER_ID"); }
   if (applied.length > 0) {

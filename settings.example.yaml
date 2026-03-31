@@ -138,6 +138,9 @@ tools: {}
 # supabase:
 #   url: "https://your-project.supabase.co"
 #   anonKey: "your-anon-key"
+#   # Required for Patyna `POST /api/quests` and complete: server-side inserts/updates use this key to bypass RLS.
+#   # (Never ship to the browser or Patyna .env — only in Aelora settings.yaml on the host.)
+#   # serviceRoleKey: "your-service-role-key"
 
 # --- Agents ---
 # Sub-agents that perform multi-step tasks with LLM reasoning + tools.

@@ -1,4 +1,4 @@
-﻿openapi: 3.1.0
+openapi: 3.1.0
 info:
   title: Aelora API
   version: 1.0.0
@@ -73,6 +73,8 @@ tags:
     description: Discord Activity (Unity WebGL) support
   - name: Scoring
     description: Task scoring system, leaderboard, achievements, and life events
+  - name: Quests
+    description: Patyna quests in Supabase (Auth user_id–scoped creates and completions)
   - name: Linear
     description: Linear project management integration (issues, projects, teams)
   - name: Knowledge Base
@@ -2521,6 +2523,151 @@ paths:
           description: Achievement list with unlock status
         "503":
           description: Supabase not configured
+
+  /api/supabase/status:
+    get:
+      tags: [Quests]
+      summary: Supabase connectivity (quests table)
+      description: |
+        Returns whether `supabase` is configured and whether Aelora can run a trivial read on `quests`.
+        HTTP 200 with `quests.readable: false` means configuration is present but PostgREST/RLS/schema blocked the query.
+      responses:
+        "200":
+          description: JSON with `configured`, `clientReady`, and `quests.readable` / error details
+
+  /api/quests:
+    post:
+      tags: [Quests]
+      summary: Create a Patyna quest
+      security:
+        - BearerAuth: []
+      description: |
+        Inserts a row into Supabase `quests` for the given Supabase Auth user id.
+        Same defaults as the `quest` tool (category, quest_type, etc.).
+
+        When `web.apiKey` is set in Aelora settings, send `Authorization: Bearer <web.apiKey>` (same as other protected `/api` routes).
+
+        The server must use `supabase.serviceRoleKey` for these writes; otherwise inserts are blocked by RLS (the API has no end-user Supabase JWT).
+
+        Example:
+
+        ```bash
+        curl -sS -X POST 'http://localhost:3000/api/quests' \
+          -H 'Content-Type: application/json' \
+          -H 'Authorization: Bearer YOUR_AELORA_API_KEY' \
+          -d '{"supabaseUserId":"UUID","title":"Finish reading","description":"Chapters 4–5","category":"school","difficulty":"medium"}'
+        ```
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                difficulty:
+                  type: string
+              required: [supabaseUserId, title]
+      responses:
+        "201":
+          description: Created quest row (JSON body matches `quests` row)
+        "400":
+          description: Invalid input or Supabase error message
+        "503":
+          description: Supabase not configured, or service role key missing for quest writes
+
+  /api/quests/{questId}/complete:
+    post:
+      tags: [Quests]
+      summary: Mark a Patyna quest complete
+      security:
+        - BearerAuth: []
+      description: |
+        Updates `quests` to completed and optionally appends `quest_logs` when `notes` is non-empty.
+        Requires the same `Authorization: Bearer` and `supabase.serviceRoleKey` setup as `POST /api/quests`.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                notes:
+                  type: string
+              required: [supabaseUserId]
+      responses:
+        "200":
+          description: |
+            `{ "success": true, "quest": {...}, "logInserted": boolean }` or includes `notesSaveError` if notes failed to persist
+        "400":
+          description: Invalid input or Supabase error
+        "404":
+          description: Quest not found for this user
+        "503":
+          description: Supabase not configured, or service role key missing for quest writes
+
+  /api/quests/{questId}/favorite:
+    post:
+      tags: [Quests]
+      summary: Set Patyna quest favorite (TOP 3)
+      security:
+        - BearerAuth: []
+      description: |
+        Updates `quests.is_favorite` for the row matching `questId` and the given Supabase Auth user.
+        Same `Authorization: Bearer` and `supabase.serviceRoleKey` requirements as `POST /api/quests` and `POST /api/quests/{questId}/complete`.
+
+        Body must include `supabaseUserId` and a boolean `is_favorite` or `isFavorite`.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                is_favorite:
+                  type: boolean
+                isFavorite:
+                  type: boolean
+                  description: Alternative camelCase key for is_favorite
+              required: [supabaseUserId]
+      responses:
+        "200":
+          description: |
+            `{ "quest": { ...row } }` — updated quest row including `is_favorite`
+        "400":
+          description: Invalid input or Supabase error
+        "404":
+          description: Quest not found for this user
+        "503":
+          description: Supabase not configured, or service role key missing for quest writes
 
   /api/life-events:
     post:

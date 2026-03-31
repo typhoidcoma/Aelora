@@ -24,7 +24,7 @@ import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
-import { tryGetSupabaseClient } from "./supabase.js";
+import { tryGetSupabaseClient, initQuestsSupabaseClient } from "./supabase.js";
 import { flushAllQueuedWrites } from "./async-write-queue.js";
 
 // Install logger first so all console output is captured
@@ -86,6 +86,7 @@ async function main(): Promise<void> {
   const sb = tryGetSupabaseClient(config);
   if (sb) console.log("Supabase: connected");
   else if (config.supabase) console.warn("Supabase: configured but failed to connect");
+  initQuestsSupabaseClient(config);
 
   // 4. Load tools
   await loadTools();

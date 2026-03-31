@@ -433,12 +433,12 @@ export default defineTool({
   description:
     "Patyna personal quests in Supabase (table `quests`). Scoped only by Supabase Auth user_id — pass the user's Auth UUID on every call; do not infer from Discord. " +
     "For team or project work, use Linear instead. Never say you created or completed a quest unless this tool returned success. " +
-    "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter). Requires Aelora Supabase to be configured.",
+    "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter), set_favorite (needs quest_id + is_favorite). Requires Aelora Supabase to be configured.",
 
   params: {
     action: param.enum(
-      "Action: create a quest, mark one complete, or list quests for the user.",
-      ["create", "complete", "list"] as const,
+      "Action: create a quest, mark one complete, list quests, or toggle favorite.",
+      ["create", "complete", "list", "set_favorite"] as const,
       { required: true },
     ),
     user_id: param.string(
@@ -447,7 +447,7 @@ export default defineTool({
     ),
     title: param.string("Quest title. Required for create.", { maxLength: 500 }),
     description: param.string("Optional description for create.", { maxLength: 4000 }),
-    quest_id: param.string("Quest row UUID. Required for complete.", {}),
+    quest_id: param.string("Quest row UUID. Required for complete and set_favorite.", {}),
     notes: param.string(
       "Optional completion notes for complete. When non-empty, a row is written to `quest_logs`.",
       { maxLength: 8000 },
@@ -465,7 +465,7 @@ export default defineTool({
       "For create: initial status (default: active). For list: filter by this status, or omit to list all.",
       { maxLength: 100 },
     ),
-    is_favorite: param.boolean("Optional; set true to mark favorite (TOP 3) on create."),
+    is_favorite: param.boolean("For create: mark as favorite. For set_favorite: the new favorite state (required)."),
     limit: param.number("For list only: max rows (1–100, default 30).", { minimum: 1, maximum: 100 }),
   },
 
@@ -487,6 +487,7 @@ export default defineTool({
       is_favorite,
       limit,
     },
+    _ctx,
   ) => {
     const sb = getQuestsSupabaseClient();
     if (!sb) {
@@ -584,8 +585,30 @@ export default defineTool({
         };
       }
 
+      case "set_favorite": {
+        const qid = (quest_id ?? "").trim();
+        if (!qid) {
+          return "Error: quest_id is required for set_favorite.";
+        }
+        if (!isValidUuid(qid)) {
+          return "Error: quest_id must be a valid UUID.";
+        }
+        if (is_favorite === undefined || is_favorite === null) {
+          return "Error: is_favorite (boolean) is required for set_favorite.";
+        }
+        const result = await setQuestFavoriteRow(sb, uid, qid, is_favorite as boolean);
+        if (!result.ok) {
+          return formatQuestFailure("setQuestFavorite", result);
+        }
+        const r = result.row;
+        return {
+          text: `Quest "${r.title}" ${r.is_favorite ? "marked as favorite" : "unmarked as favorite"}.`,
+          data: { action: "set_favorite", quest: r },
+        };
+      }
+
       default:
-        return `Error: unknown action "${String(action)}". Use create, complete, or list.`;
+        return `Error: unknown action "${String(action)}". Use create, complete, list, or set_favorite.`;
     }
   },
 });

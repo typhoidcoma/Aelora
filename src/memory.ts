@@ -321,13 +321,9 @@ function timeAgo(isoDate: string): string {
   return months <= 1 ? "last month" : `${months} months ago`;
 }
 
-/** Format a fact line with confidence and age metadata for prompt injection. */
-function formatFactLine(fact: string, scope: string): string {
-  const scopeFacts = store[scope] ?? [];
-  const factObj = scopeFacts.find((f) => f.fact === fact);
-  if (!factObj) return `- ${fact}`;
-  const conf = factObj.confidence === "stated" ? "stated" : "inferred";
-  return `- ${fact} (${conf}, ${timeAgo(factObj.savedAt)})`;
+/** Format a fact line for prompt injection. Clean prose — no metadata tags. */
+function formatFactLine(fact: string, _scope: string): string {
+  return `- ${fact}`;
 }
 
 /**
@@ -414,7 +410,7 @@ export async function getMemoryForPrompt(
         }
 
         if (sections.length > 0) {
-          return "\n\n## Memory\nThings you know from past conversations. Reference these naturally when relevant, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed. The \"(stated/inferred, time)\" tags tell you how confident you should be and how to phrase it.\n" + sections.join("\n");
+          return "\n\n## Memory\nThings you remember from past conversations. Reference these naturally, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed.\n" + sections.join("\n");
         }
       }
     } catch (err) {
@@ -467,7 +463,7 @@ function getMemoryForPromptRecency(userId: string | null, channelId: string | nu
   }
 
   if (sections.length === 0) return "";
-  return "\n\n## Memory\nThings you know from past conversations. Reference these naturally when relevant, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed. The \"(stated/inferred, time)\" tags tell you how confident you should be and how to phrase it.\n" + sections.join("\n");
+  return "\n\n## Memory\nThings you remember from past conversations. Reference these naturally, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed.\n" + sections.join("\n");
 }
 
 /**

@@ -393,7 +393,6 @@ export async function getLLMResponse(
   trimHistory(history, channelId);
 
   const allDefs = getAllDefinitions();
-  const tools = config.llm.lite ? slimDefinitions(allDefs) : allDefs;
 
   // Extract recent user messages as conversation context for semantic memory
   const recentUserMsgs = history
@@ -401,6 +400,11 @@ export async function getLLMResponse(
     .slice(-3)
     .map((m) => m.content as string)
     .join(" ");
+
+  // Filter tools by relevance to the conversation, then apply lite mode if needed
+  const filterContext = recentUserMsgs || (typeof userMessage === "string" ? userMessage : "");
+  const relevantDefs = filterToolsByRelevance(allDefs, filterContext);
+  const tools = config.llm.lite ? slimDefinitions(relevantDefs) : relevantDefs;
 
   const messages: ChatMessage[] = [
     { role: "system", content: await buildSystemPrompt(userId, channelId, recentUserMsgs || undefined) },
@@ -460,6 +464,10 @@ export type AgentLoopOptions = {
 /**
  * Run a sub-agent's completion loop with its own system prompt and tool allowlist.
  * Agents can only call tools, not other agents (prevents recursive chains).
+ *
+ * The agent's system prompt is prefixed with the persona's voice context
+ * (bootstrap + lore + soul) so agent responses stay in character. The agent's
+ * own instructions follow as a "## Agent Task" section.
  */
 export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   const {
@@ -474,8 +482,16 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
   const max = maxIterations ?? config.agents.maxIterations;
   const tools = resolveToolsForAllowlist(toolAllowlist);
 
+  // Prepend persona voice so agents stay in character.
+  // Uses the ambient prompt (bootstrap + lore + soul, no tools/skills noise).
+  // Falls back to the agent's own prompt if no persona is loaded.
+  const personaVoice = config.llm.ambientSystemPrompt;
+  const fullSystemPrompt = personaVoice
+    ? `${personaVoice}\n\n## Agent Task\n${systemPrompt}`
+    : systemPrompt;
+
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: fullSystemPrompt },
     { role: "user", content: userPrompt },
   ];
 
@@ -760,6 +776,75 @@ function getAllDefinitions(): OpenAI.Chat.Completions.ChatCompletionTool[] {
     ];
   }
   return getToolDefinitionsForOpenAI();
+}
+
+// --- Dynamic tool filtering ---
+
+/** Tools that are always included regardless of relevance scoring. */
+const CORE_TOOLS = new Set([
+  "ping", "date", "memory", "cron", "notes", "set_mood",
+]);
+
+/** Minimum number of tools to include (prevents over-filtering). */
+const MIN_TOOLS = 8;
+
+/**
+ * Filter tool definitions by relevance to the user's message.
+ * Uses lightweight keyword overlap — no embedding API calls.
+ * Core tools are always included; specialized tools need keyword relevance.
+ */
+function filterToolsByRelevance(
+  defs: OpenAI.Chat.Completions.ChatCompletionTool[],
+  userContext: string,
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  if (!userContext || defs.length <= MIN_TOOLS) return defs;
+
+  const contextTokens = new Set(
+    userContext.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((t) => t.length > 2),
+  );
+  if (contextTokens.size === 0) return defs;
+
+  type Scored = { def: OpenAI.Chat.Completions.ChatCompletionTool; score: number; core: boolean };
+
+  const scored: Scored[] = defs.map((def) => {
+    const name = def.function.name;
+    const core = CORE_TOOLS.has(name);
+
+    // Build searchable text from tool name + description
+    const searchText = `${name} ${def.function.description ?? ""}`.toLowerCase();
+    const toolTokens = searchText.replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((t) => t.length > 2);
+
+    // Count matching tokens
+    let matches = 0;
+    for (const token of toolTokens) {
+      if (contextTokens.has(token)) matches++;
+    }
+    // Boost for name match (tool name directly mentioned)
+    const nameTokens = name.toLowerCase().replace(/_/g, " ").split(/\s+/);
+    for (const nt of nameTokens) {
+      if (contextTokens.has(nt)) matches += 3;
+    }
+
+    return { def, score: matches, core };
+  });
+
+  // Always include core tools + any with relevance score > 0
+  const included = scored.filter((s) => s.core || s.score > 0);
+
+  // If we filtered too aggressively, backfill with top-scored remaining
+  if (included.length < MIN_TOOLS) {
+    const remaining = scored
+      .filter((s) => !s.core && s.score === 0)
+      .sort((a, b) => b.score - a.score);
+    while (included.length < MIN_TOOLS && remaining.length > 0) {
+      included.push(remaining.shift()!);
+    }
+  }
+
+  // If filtering didn't remove anything meaningful, just return all
+  if (included.length >= defs.length - 2) return defs;
+
+  return included.map((s) => s.def);
 }
 
 /** Shorten tool descriptions for lite mode  -  first sentence only, trim param descriptions. */

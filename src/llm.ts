@@ -31,6 +31,11 @@ function truncatePreview(text: string | ContentPart[], maxLen = 80): string {
 /** Called when the LLM is about to execute tool(s). Names of tools being called are passed. */
 export type OnToolCallCallback = (toolNames: string[]) => void;
 
+export type ToolLoopRenderResult = {
+  assistantContent: string;
+  userContent: string;
+};
+
 // --- Error detection ---
 
 function isToolTemplateError(err: unknown): boolean {
@@ -485,7 +490,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
  * Appends live system state and a live inventory of enabled tools/agents
  * so the LLM always knows the current state of its environment.
  */
-async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string): Promise<string> {
+export async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string): Promise<string> {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
 
@@ -615,6 +620,49 @@ async function buildSystemPrompt(userId?: string, channelId?: string, conversati
 
   if (sections.length === 0) return base;
   return base + sections.join("");
+}
+
+/**
+ * Render tool calls/results into assistant+user messages without using OpenAI tool roles.
+ * This preserves compatibility with providers whose chat templates break on tool-role messages.
+ */
+export function renderToolRoundMessages(
+  toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[],
+  toolResults: { name: string; result: string }[],
+  assistantPreface?: string | null,
+): ToolLoopRenderResult {
+  let assistantContent = assistantPreface ?? "";
+
+  for (const tc of toolCalls) {
+    let callStr = `<tool_call>\n<function=${tc.function.name}>\n`;
+    try {
+      const parsed = JSON.parse(safeToolArgs(tc.function.arguments));
+      for (const [key, value] of Object.entries(parsed)) {
+        const valueStr = typeof value === "object" && value !== null
+          ? JSON.stringify(value)
+          : String(value);
+        callStr += `<parameter=${key}>\n${valueStr}\n</parameter>\n`;
+      }
+    } catch {
+      // Skip malformed arguments and still preserve the function call shell.
+    }
+    callStr += `</function>\n</tool_call>`;
+    assistantContent += (assistantContent.trim() ? "\n\n" : "") + callStr;
+  }
+
+  const toolResponseParts: string[] = [];
+  for (let ti = 0; ti < toolCalls.length; ti++) {
+    let resultContent = toolResults[ti].result;
+    if (resultContent.startsWith("Error:")) {
+      resultContent = `TOOL FAILED - ${resultContent}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
+    }
+    toolResponseParts.push(`<tool_response>\n${resultContent}\n</tool_response>`);
+  }
+
+  return {
+    assistantContent,
+    userContent: toolResponseParts.join("\n"),
+  };
 }
 
 // --- Conversation compaction ---
@@ -1097,42 +1145,9 @@ async function runCompletionLoop(
         });
       }
 
-      // Pre-render assistant tool calls in Qwen template format.
-      // Bypasses broken `is sequence` test in LM Studio's Jinja engine
-      // by avoiding `tool_calls` property and `role: "tool"` messages entirely.
-      let assistantContent = content ?? "";
-      for (const tc of toolCalls) {
-        let callStr = `<tool_call>\n<function=${tc.function.name}>\n`;
-        try {
-          const parsed = JSON.parse(safeToolArgs(tc.function.arguments));
-          for (const [key, value] of Object.entries(parsed)) {
-            const valueStr = typeof value === "object" && value !== null
-              ? JSON.stringify(value)
-              : String(value);
-            callStr += `<parameter=${key}>\n${valueStr}\n</parameter>\n`;
-          }
-        } catch { /* skip args if unparseable */ }
-        callStr += `</function>\n</tool_call>`;
-        assistantContent += (assistantContent.trim() ? "\n\n" : "") + callStr;
-      }
-      messages.push({ role: "assistant", content: assistantContent } as ChatMessage);
-
-      // Pre-render tool results as user messages with <tool_response> wrapper.
-      // Matches what the Qwen template renders for role:"tool" messages.
-      // The template's backward walk (lines 72-75) skips <tool_response> user
-      // messages, so the real user query is still found correctly.
-      const toolResponseParts: string[] = [];
-      for (let ti = 0; ti < toolCalls.length; ti++) {
-        let resultContent = toolResults[ti].result;
-        if (resultContent.startsWith("Error:")) {
-          resultContent = `TOOL FAILED - ${resultContent}\nYou MUST report this failure to the user. Do NOT claim this action succeeded.`;
-        }
-        toolResponseParts.push(`<tool_response>\n${resultContent}\n</tool_response>`);
-      }
-      messages.push({
-        role: "user",
-        content: toolResponseParts.join("\n"),
-      } as ChatMessage);
+      const renderedToolRound = renderToolRoundMessages(toolCalls, toolResults, content);
+      messages.push({ role: "assistant", content: renderedToolRound.assistantContent } as ChatMessage);
+      messages.push({ role: "user", content: renderedToolRound.userContent } as ChatMessage);
 
       continue;
     }

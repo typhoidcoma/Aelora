@@ -100,22 +100,55 @@ function getTriggerConfig(trigger: AmbientTrigger, config: Config) {
   return config.ambient.triggers[configKey];
 }
 
+export function resolveAmbientPersonaContext(config: Config): string {
+  return config.llm.ambientSystemPrompt || config.llm.systemPrompt;
+}
+
+function buildAmbientSystemPrompt(config: Config): string {
+  const personaContext = resolveAmbientPersonaContext(config);
+
+  const tz = config.timezone || "UTC";
+  const now = new Date().toLocaleString("en-US", {
+    timeZone: tz,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+
+  return [
+    personaContext,
+    "",
+    `## Current Date & Time`,
+    `${now} (${tz})`,
+    "",
+    `## Ambient Mode`,
+    `You're hanging out in a group chat with friends. You see messages as they happen.`,
+    `Be yourself. Joke around, react to things, tease people, riff on ideas, be weird sometimes.`,
+    `You're not here to be helpful. You're here because you're part of the group.`,
+    ``,
+    `Rules:`,
+    `- 1-3 sentences max. Match the energy of the conversation.`,
+    `- If messages tagged [BOT] show you already spoke recently, respond SKIP.`,
+    `- If nothing grabs you, respond SKIP. Silence is fine.`,
+    `- Don't narrate the conversation or comment on group dynamics.`,
+    `- No em dashes ever.`,
+  ].join("\n");
+}
+
 /** LLM call using auxiliary model with full persona context. Accepts plain text or multimodal content. */
 async function llmEvaluate(prompt: string | ContentPart[], config: Config): Promise<string> {
   const client = getLLMClient();
   const model = getAuxiliaryModel();
 
-  // Use ambient-filtered persona (voice sections only, no tools/skills noise)
-  const personaContext = config.llm.ambientSystemPrompt || config.llm.systemPrompt;
-
   const result = await client.chat.completions.create({
     model,
-    max_completion_tokens: 8192,
+    max_completion_tokens: 1024,
     messages: [
-      {
-        role: "system",
-        content: `${personaContext}\n\n[AMBIENT MODE]\nyou're hanging out in a group chat with friends. you see messages as they happen.\nbe yourself. joke around, react to things, tease people, riff on ideas, be weird sometimes.\nyou're not here to be helpful. you're here because you're part of the group.\nif you speak, keep it to 1-3 sentences. match the energy of the conversation.\nif messages tagged [BOT] show you already spoke recently, SKIP.\nif nothing grabs you, SKIP. you don't need to talk every time.\ndon't narrate the conversation or comment on group dynamics.\nno em dashes ever.`,
-      },
+      { role: "system", content: buildAmbientSystemPrompt(config) },
       { role: "user", content: prompt },
     ],
   });

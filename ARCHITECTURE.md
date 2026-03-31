@@ -182,7 +182,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
 
 ### System Prompt Composition
 
-`buildSystemPrompt(userId?, channelId?)` assembles the prompt fresh on every request. Sections are ordered **static-first, dynamic-last** to maximize OpenAI's automatic prefix caching -if the first N tokens are identical between requests, they get a cache hit (faster, cheaper):
+`buildSystemPrompt(userId?, channelId?, conversationContext?)` assembles the prompt fresh on every request. Sections are ordered **static-first, dynamic-last** to maximize OpenAI's automatic prefix caching -if the first N tokens are identical between requests, they get a cache hit (faster, cheaper):
 
 ```
 1. [Persona composed prompt]          ← static (changes on persona switch)
@@ -204,6 +204,24 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
 
 In **lite mode** (`llm.lite: true`), the Tool/Agent Inventory and System Status sections are skipped entirely to reduce token count.
 
+Update: the live implementation in `llm.ts` has evolved beyond the simplified outline above. The current runtime order is:
+
+```
+1. Persona composed prompt
+2. ## Currently Available
+3. ## Current Mood
+4. ## Current User
+5. ## Current Session
+6. ## Memory
+7. ## Reference Material
+8. ## Recent Conversation Context
+9. ## Current Date & Time
+```
+
+Two important clarifications:
+- There is currently **no live System Status section** in the runtime prompt. That older description is stale.
+- In **lite mode**, the runtime currently skips only the Tool/Agent Inventory section. Mood, user, session, memory, KB excerpts, summaries, and current time are still included.
+
 The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId, conversationContext?)`. When the vector store is available and conversation context is provided, facts are selected by semantic relevance to the current conversation and ranked using a weighted blend of semantic score (70%), recency decay (20%), and access frequency boost (10%). Falls back to recency-based selection when vector search is unavailable.
 
 ### Tool Calling Loop
@@ -215,11 +233,11 @@ The memory section is conditionally injected by `getMemoryForPrompt(userId, chan
 3. If response is text: return as final answer
 4. Safety cap: returns error message if loop exceeds max iterations
 
-**Tool message format:** Tool results are stored as plain assistant/user messages rather than OpenAI's `tool` role format. After tools execute, the results are pushed as:
-- An `assistant` message: `[Used tools: name1, name2]` (or the model's content if any)
-- A `user` message: `[toolName]: result` for each tool
+**Tool message format:** Tool results are stored as plain assistant/user messages rather than OpenAI's `tool` role format. The current runtime re-injects tool rounds in a Qwen/LM Studio-compatible shape:
+- An `assistant` message containing the model text (if any) plus one or more `<tool_call>` blocks
+- A `user` message containing one or more `<tool_response>` blocks
 
-This avoids template errors with models like Qwen3 in LM Studio, whose Jinja chat templates cannot render `tool` role messages. The format is compatible with all OpenAI-compatible providers.
+This avoids template errors with models like Qwen3 in LM Studio, whose Jinja chat templates cannot render `tool` role messages reliably. The formatting is implemented in `renderToolRoundMessages()` in `llm.ts`.
 
 If a model's chat template is incompatible with tool *definitions*, the system falls back to retrying without tools and logs a warning.
 
@@ -234,17 +252,27 @@ Models that use extended thinking (Qwen3, DeepSeek, Grok) may emit `<think>...</
 
 `getLLMOneShot(prompt)` -stateless call with full tool support. Used by:
 - Cron jobs (`type: "llm"`)
-- Agent sub-loops
+- Dashboard or external one-shot interactions that want the full persona prompt and tool loop
+
+Agent sub-loops do **not** call `getLLMOneShot()`. They use `runAgentLoop()` with the agent's own system prompt, optional tool allowlist, and optional model override.
 
 ### Direct Client Access
 
-`getLLMClient()` and `getLLMModel()` expose the initialized OpenAI client and model name for lightweight direct calls that don't need the full system prompt or tool support (e.g. mood classification).
+`getLLMClient()`, `getLLMModel()`, and `getAuxiliaryModel()` expose initialized client/model handles for lightweight direct calls that don't need the full system prompt or tool loop. Background classification/extraction paths generally use `getAuxiliaryModel()`.
+
+### Persona Modes
+
+The codebase currently uses **three distinct persona interaction modes**:
+
+1. **Full persona path**: `getLLMResponse()` and `getLLMOneShot()` use the composed persona prompt as the base system prompt, then append dynamic runtime sections.
+2. **Ambient persona path**: the ambient engine uses `ambientSystemPrompt`, a filtered persona prompt composed from voice-relevant sections only (`bootstrap`, `lore`, `soul`). If that filtered prompt is unavailable, it falls back to the full `systemPrompt`.
+3. **No-persona auxiliary path**: mood classification, fact extraction, conversation compaction, and personality synthesis use direct lightweight prompts on the auxiliary model with no full persona prompt, no tool loop, and no conversation history.
 
 ### Lite Mode
 
 When `config.llm.lite` is `true`:
 - `slimDefinitions()` truncates tool descriptions to the first sentence and trims parameter descriptions
-- System Status and Tool/Agent Inventory sections are skipped from the system prompt
+- Tool/Agent Inventory is skipped from the system prompt
 - Tools remain fully functional -just less verbose in the schema presented to the LLM
 
 Useful for local models (4B–7B) running via LM Studio, Ollama, etc. where token budgets are tight.
@@ -962,6 +990,8 @@ Fetches and extracts readable text from URLs shared in conversations. Used by th
 
 `registerAmbientEngine(config, sendToChannel)` starts the evaluation timer and registers a heartbeat handler for status reporting. The engine runs independently of the heartbeat interval (default evaluation every 5 minutes vs 15-minute heartbeat). `stopAmbientEngine()` clears the timer. `toggleTrigger(name, enabled)` provides runtime overrides that persist until restart.
 
+Ambient evaluation does **not** use the full persona prompt by default. It uses `ambientSystemPrompt`, which is built at startup from voice-relevant persona sections only (`bootstrap`, `lore`, `soul`) so the ambient model keeps the persona's voice without carrying tools/skills instructions into lightweight group-chat evaluation.
+
 ### Rate Limiting
 
 - **Global:** max `globalRateLimitPerHour` sends across all channels (default 6)
@@ -1217,13 +1247,13 @@ Persisted to `data/current-mood.json`. Survives restarts.
 After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
 
 1. Checks throttle -skips if mood was updated less than 30 seconds ago
-2. Makes a lightweight direct LLM call (`max_completion_tokens: 300`, no tools, no persona)
+2. Makes a lightweight direct LLM call (`max_completion_tokens: 300`, no tools, no full persona prompt)
 3. Uses `enable_thinking: false` and a `/no_think` prefix in the user message to suppress extended thinking on models like Qwen3
 4. Parses JSON response by extracting the first `{...}` object found anywhere in the output (tolerates models that emit surrounding text)
 5. Validates against Plutchik's emotions enum
 6. Calls `saveMood()` → persists to disk + broadcasts SSE event
 
-The classification uses `getLLMClient()` and `getLLMModel()` from `llm.ts` for a minimal API call -no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
+The classification uses `getLLMClient()` and `getAuxiliaryModel()` from `llm.ts` for a minimal API call -no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
 
 ### Manual Override
 

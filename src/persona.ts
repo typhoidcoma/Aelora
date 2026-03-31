@@ -220,6 +220,21 @@ export function loadPersona(
   return { files, composedPrompt, activePersona, botName: resolvedBotName, loadedAt: new Date() };
 }
 
+/**
+ * Compose a reduced persona prompt for ambient/group-chat evaluation.
+ * Defaults to identity/voice sections only, excluding tools/skills noise.
+ */
+export function composeAmbientPrompt(
+  persona: PersonaState,
+  sectionAllowlist = ["bootstrap", "lore", "soul"],
+): string {
+  const allowedSections = new Set(sectionAllowlist);
+  return persona.files
+    .filter((f) => f.meta.enabled && allowedSections.has(f.meta.section))
+    .map((f) => substituteVariables(f.rawContent, { botName: persona.botName }))
+    .join("\n\n");
+}
+
 // --- File CRUD ---
 
 export function getFileContent(

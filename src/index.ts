@@ -1,6 +1,6 @@
 import { installLogger } from "./logger.js";
 import { loadConfig } from "./config.js";
-import { loadPersona, substituteVariables, type PersonaState } from "./persona.js";
+import { loadPersona, composeAmbientPrompt, type PersonaState } from "./persona.js";
 import { initLLM, getLLMOneShot, setSystemStateProvider, saveConversations } from "./llm.js";
 import { loadTools } from "./tool-registry.js";
 import { loadAgents } from "./agent-registry.js";
@@ -70,12 +70,8 @@ async function main(): Promise<void> {
       personaState = loadPersona(config.persona.dir, { botName: config.persona.botName }, config.persona.activePersona);
       config.llm.systemPrompt = personaState.composedPrompt;
 
-      // Compose ambient-specific prompt: voice-relevant sections only (no tools/skills)
-      const ambientSections = new Set(["bootstrap", "lore", "soul"]);
-      config.llm.ambientSystemPrompt = personaState.files
-        .filter((f) => f.meta.enabled && ambientSections.has(f.meta.section))
-        .map((f) => substituteVariables(f.rawContent, { botName: personaState!.botName }))
-        .join("\n\n");
+      // Compose ambient-specific prompt: voice-relevant sections only (no tools/skills).
+      config.llm.ambientSystemPrompt = composeAmbientPrompt(personaState);
     } catch (err) {
       console.error(`Persona: failed to load "${config.persona.activePersona}":`, err);
       console.warn("Persona: continuing without persona system");

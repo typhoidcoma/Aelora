@@ -47,8 +47,6 @@ export const converseTrigger: AmbientTrigger = {
       {
         type: "text",
         text: `${urlSection}
-you're part of this group. if something grabs you, say it in 1-3 sentences.
-
 good reasons to talk:
 - something made you laugh or you have a good comeback
 - you can riff on what someone said or take it somewhere unexpected
@@ -63,9 +61,7 @@ bad reasons to talk:
 - you'd be narrating what happened
 - you'd be repeating something [BOT] already said
 - you'd be offering help nobody asked for
-- you'd be giving a "fun fact" that reads like a wikipedia sidebar
-
-if nothing hits, respond with exactly SKIP. silence is fine.`,
+- you'd be giving a "fun fact" that reads like a wikipedia sidebar`,
       },
     ];
 

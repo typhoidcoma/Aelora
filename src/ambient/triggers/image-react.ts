@@ -73,7 +73,7 @@ export const imageReactTrigger: AmbientTrigger = {
       })),
       {
         type: "text",
-        text: `\nif the image catches your eye, react to it like a friend would. be funny, be surprised, roast it, hype it up, whatever fits. engage with what's actually in the image. don't mention that it was ignored or unreacted.\n\nif it's not worth commenting on, respond SKIP.`,
+        text: `\nif the image catches your eye, react to it like a friend would. be funny, be surprised, roast it, hype it up, whatever fits. engage with what's actually in the image. don't mention that it was ignored or unreacted.`,
       },
     ];
 

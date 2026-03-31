@@ -76,6 +76,7 @@ async function main(): Promise<void> {
     "memory",
     "notes",
     "ping",
+    "quest",
     "scoring",
     "set_mood",
     "tasks",

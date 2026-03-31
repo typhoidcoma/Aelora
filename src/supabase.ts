@@ -7,6 +7,9 @@ import type { Config } from "./config.js";
 
 let _client: SupabaseClient | null = null;
 
+/** Service-role client for Patyna `quests` only; bypasses RLS. Set via `initQuestsSupabaseClient`. */
+let _questsClient: SupabaseClient | null = null;
+
 export function getSupabaseClient(config: Config): SupabaseClient {
   if (_client) return _client;
 
@@ -32,6 +35,32 @@ export function tryGetSupabaseClient(config: Config): SupabaseClient | null {
 /** Returns the already-initialized client, or null if not yet initialized. */
 export function getCachedSupabaseClient(): SupabaseClient | null {
   return _client;
+}
+
+/**
+ * When `supabase.serviceRoleKey` is set in config, initializes a second client for quest writes.
+ * Call once at startup after `tryGetSupabaseClient` (needs URL + anon for the main client).
+ */
+export function initQuestsSupabaseClient(config: Config): void {
+  _questsClient = null;
+  const url = config.supabase?.url?.trim();
+  const key = config.supabase?.serviceRoleKey?.trim();
+  if (!url || !key) return;
+  _questsClient = createClient(url, key);
+  console.log("Supabase: service-role client enabled for Patyna quests (server writes bypass RLS)");
+}
+
+/**
+ * Client for `quests` / `quest_logs`: service role if configured, otherwise anon (RLS applies).
+ */
+export function getQuestsSupabaseClient(): SupabaseClient | null {
+  if (_questsClient) return _questsClient;
+  return _client;
+}
+
+/** True when `supabase.serviceRoleKey` was set and quest writes use the service-role client (bypasses RLS). */
+export function hasQuestsServiceRoleClient(): boolean {
+  return _questsClient != null;
 }
 
 // ============================================================

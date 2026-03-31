@@ -47,6 +47,8 @@ import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } f
 import { LinearClient } from "@linear/sdk";
 import {
   tryGetSupabaseClient,
+  getQuestsSupabaseClient,
+  hasQuestsServiceRoleClient,
   ensureUserProfile,
   upsertLifeEvent,
   recordScoringEvent,
@@ -69,6 +71,14 @@ import {
   type ScoreInput,
   type UserState,
 } from "./scoring.js";
+import {
+  createQuestRow,
+  completeQuestRow,
+  setQuestFavoriteRow,
+  isValidUuid,
+  probeQuestsTable,
+  type QuestDbFailure,
+} from "./tools/quest.js";
 
 export type AppState = {
   config: Config;
@@ -1064,7 +1074,19 @@ export function startWeb(state: AppState): Server | null {
     }
   });
 
-  // --- Calendar (per-user, requires X-Discord-User-Id) ---
+  // --- Calendar (per-user; Patyna may send ?discordUserId= or ?supabaseUserId=) ---
+
+  /** Dashboard / Patyna: header or ?userId= | ?discordUserId= | ?supabaseUserId= */
+  function resolveApiUserId(req: express.Request): string | undefined {
+    const h = (req.headers["x-discord-user-id"] as string | undefined)?.trim();
+    if (h) return h;
+    const q = req.query;
+    for (const key of ["userId", "discordUserId", "supabaseUserId"] as const) {
+      const v = q[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return undefined;
+  }
 
   app.get("/api/calendar/events", async (req, res) => {
     if (!isToolEnabled("calendar")) {
@@ -1072,9 +1094,12 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
 
-    const discordUserId = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    const discordUserId = resolveApiUserId(req);
     if (!discordUserId) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for calendar" });
+      res.status(400).json({
+        error:
+          "User id required: X-Discord-User-Id header or query ?userId=, ?discordUserId=, or ?supabaseUserId= (calendar)",
+      });
       return;
     }
 
@@ -1087,7 +1112,11 @@ export function startWeb(state: AppState): Server | null {
     }
 
     const maxResults = Math.min(50, Math.max(1, parseInt(req.query.maxResults as string, 10) || 10));
-    const daysAhead = Math.min(365, Math.max(1, parseInt(req.query.daysAhead as string, 10) || 14));
+    const daysRaw = req.query.days ?? req.query.daysAhead;
+    const daysAhead = Math.min(
+      365,
+      Math.max(1, parseInt(typeof daysRaw === "string" ? daysRaw : String(daysRaw ?? ""), 10) || 14),
+    );
 
     try {
       const calendarId = await resolveUserCalendar(googleConfig, discordUserId);
@@ -1164,19 +1193,25 @@ export function startWeb(state: AppState): Server | null {
   const getGoogleTasksConfig = () =>
     getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
 
-  // Helper: resolve task list for API requests (requires X-Discord-User-Id header)
+  // Helper: resolve task list for API requests (same user id aliases as calendar / scoring)
   function requireTaskUser(req: express.Request, res: express.Response): string | null {
-    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    const uid = resolveApiUserId(req);
     if (!uid) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required for tasks" });
+      res.status(400).json({
+        error:
+          "User id required: X-Discord-User-Id header or ?userId=, ?discordUserId=, or ?supabaseUserId= (tasks)",
+      });
       return null;
     }
     return uid;
   }
 
   // List tasks, optionally filter by ?status=pending|completed|all
-  app.get("/api/tasks", async (req, res) => {
-    if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
+  const handleTasksList = async (req: express.Request, res: express.Response): Promise<void> => {
+    if (!isToolEnabled("tasks")) {
+      res.status(404).json({ error: "Tasks tool is not enabled" });
+      return;
+    }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
     try {
@@ -1193,7 +1228,11 @@ export function startWeb(state: AppState): Server | null {
         res.status(502).json({ error: `Tasks error: ${msg}` });
       }
     }
-  });
+  };
+
+  app.get("/api/tasks", handleTasksList);
+  // Patyna aelora-client compatibility (same as /api/tasks)
+  app.get("/api/todos", handleTasksList);
 
   // Get single task by UID
   app.get("/api/tasks/:uid", async (req, res) => {
@@ -1380,12 +1419,15 @@ export function startWeb(state: AppState): Server | null {
   });
 
   // --- Scoring API ---
-  // All scoring endpoints require X-Discord-User-Id header or ?userId= query param.
+  // User id: header or ?userId= | ?discordUserId= | ?supabaseUserId= (Patyna sends discordUserId)
 
   function requireScoringUser(req: express.Request, res: express.Response): string | null {
-    const uid = (req.headers["x-discord-user-id"] as string | undefined) ?? (req.query.userId as string | undefined);
+    const uid = resolveApiUserId(req);
     if (!uid) {
-      res.status(400).json({ error: "X-Discord-User-Id header or ?userId= query param required" });
+      res.status(400).json({
+        error:
+          "User id required: X-Discord-User-Id header or ?userId=, ?discordUserId=, or ?supabaseUserId= (scoring)",
+      });
       return null;
     }
     return uid;
@@ -1394,11 +1436,306 @@ export function startWeb(state: AppState): Server | null {
   function requireSupabase(res: express.Response) {
     const sb = tryGetSupabaseClient(config);
     if (!sb) {
-      res.status(503).json({ error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml." });
+      res.status(503).json({
+        error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.",
+        source: "aelora_config",
+      });
       return null;
     }
     return sb;
   }
+
+  /** Patyna quests: uses service role when `supabase.serviceRoleKey` is set (bypasses RLS). */
+  function requireSupabaseForQuests(res: express.Response) {
+    const sb = getQuestsSupabaseClient();
+    if (!sb) {
+      res.status(503).json({
+        error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.",
+        source: "aelora_config",
+      });
+      return null;
+    }
+    return sb;
+  }
+
+  /**
+   * Quest creates/completions must use the service-role Supabase client; anon inserts/updates hit RLS
+   * from this server (no end-user JWT). Patyna should call with `Authorization: Bearer <web.apiKey>` when
+   * `web.apiKey` is set, and settings must include `supabase.serviceRoleKey`.
+   */
+  function requireQuestWriteSupabase(res: express.Response) {
+    const sb = requireSupabaseForQuests(res);
+    if (!sb) return null;
+    if (!hasQuestsServiceRoleClient()) {
+      res.status(503).json({
+        error:
+          "Patyna quest writes require supabase.serviceRoleKey in settings.yaml. " +
+          "This API inserts and updates `quests` on behalf of signed-in users; the service role bypasses RLS. " +
+          "The anon key alone cannot perform those writes from the server.",
+        source: "aelora_config",
+        hint:
+          "Supabase Dashboard → Project Settings → API → service_role key. Keep it server-only (never in Patyna .env or the browser).",
+      });
+      return null;
+    }
+    return sb;
+  }
+
+  function jsonQuestFailure(
+    res: express.Response,
+    failure: QuestDbFailure,
+    extra?: Record<string, unknown>,
+  ): void {
+    res.status(failure.httpStatus).json({
+      error: failure.error,
+      ...(failure.code ? { code: failure.code } : {}),
+      ...(failure.hint ? { hint: failure.hint } : {}),
+      ...(failure.details ? { details: failure.details } : {}),
+      source: "supabase",
+      ...extra,
+    });
+  }
+
+  // GET /api/supabase/status  -  whether Aelora can read `quests` (connectivity + schema/RLS)
+  app.get("/api/supabase/status", async (_req, res) => {
+    const url = config.supabase?.url;
+    const hasKey = !!(config.supabase?.anonKey && String(config.supabase.anonKey).length > 0);
+    if (!url || !hasKey) {
+      res.json({
+        configured: false,
+        quests: null,
+        message: "Add supabase.url and supabase.anonKey in settings.yaml.",
+      });
+      return;
+    }
+
+    const sb = getQuestsSupabaseClient();
+    if (!sb) {
+      res.json({
+        configured: true,
+        clientReady: false,
+        quests: { readable: false, error: "Supabase client did not initialize (check URL and keys)." },
+      });
+      return;
+    }
+
+    const probe = await probeQuestsTable(sb);
+    if (probe.ok) {
+      res.json({
+        configured: true,
+        clientReady: true,
+        quests: { readable: true },
+        questsUseServiceRole: !!config.supabase?.serviceRoleKey?.trim(),
+      });
+      return;
+    }
+
+    res.json({
+      configured: true,
+      clientReady: true,
+      quests: {
+        readable: false,
+        error: probe.error,
+        ...(probe.code ? { code: probe.code } : {}),
+        ...(probe.hint ? { hint: probe.hint } : {}),
+      },
+      questsUseServiceRole: !!config.supabase?.serviceRoleKey?.trim(),
+    });
+  });
+
+  // --- Patyna quests (Supabase Auth user_id; same writes as `quest` tool) ---
+
+  function pickBodyString(body: unknown, ...keys: string[]): string | undefined {
+    if (!body || typeof body !== "object") return undefined;
+    const o = body as Record<string, unknown>;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return undefined;
+  }
+
+  function pickBodyBoolean(body: unknown, ...keys: string[]): boolean | undefined {
+    if (!body || typeof body !== "object") return undefined;
+    const o = body as Record<string, unknown>;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === "boolean") return v;
+      if (v === 0 || v === 1) return v === 1;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        if (s === "true" || s === "1") return true;
+        if (s === "false" || s === "0") return false;
+      }
+    }
+    return undefined;
+  }
+
+  // POST /api/quests  -  create quest (Patyna aelora-client)
+  app.post("/api/quests", async (req, res) => {
+    const sb = requireQuestWriteSupabase(res);
+    if (!sb) return;
+
+    const body = req.body;
+    const uidRaw = pickBodyString(
+      body,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+    const titleRaw = pickBodyString(body, "title", "name", "taskTitle", "task_title", "label");
+    const description = pickBodyString(body, "description", "body", "details");
+    const category = pickBodyString(body, "category");
+    const difficulty = pickBodyString(body, "difficulty");
+    const questType = pickBodyString(body, "quest_type", "questType");
+
+    if (!uidRaw) {
+      const ct = req.headers["content-type"] ?? "";
+      console.warn(
+        "Web: POST /api/quests missing user id (body keys:",
+        body && typeof body === "object" ? Object.keys(body as object).join(", ") : typeof body,
+        "content-type:",
+        ct,
+        ")",
+      );
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint:
+          "Send a JSON body with Content-Type: application/json. " +
+          "Accepted user id keys: supabaseUserId, userId, supabase_user_id.",
+      });
+      return;
+    }
+    if (!isValidUuid(uidRaw)) {
+      res.status(400).json({
+        error: "supabaseUserId must be a valid UUID",
+        received: uidRaw.slice(0, 80),
+      });
+      return;
+    }
+    if (!titleRaw) {
+      res.status(400).json({
+        error: "title is required",
+        hint: "Accepted keys: title, name, taskTitle, label.",
+      });
+      return;
+    }
+
+    const result = await createQuestRow(sb, uidRaw, {
+      title: titleRaw,
+      description,
+      category,
+      difficulty,
+      quest_type: questType,
+    });
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result);
+      return;
+    }
+
+    res.status(201).json(result.row);
+  });
+
+  // POST /api/quests/:questId/complete  -  mark complete (optional notes → quest_logs)
+  app.post("/api/quests/:questId/complete", async (req, res) => {
+    const sb = requireQuestWriteSupabase(res);
+    if (!sb) return;
+
+    const { questId } = req.params;
+    const body = req.body;
+    const uidRaw = pickBodyString(
+      body,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+    const notes = pickBodyString(body, "notes", "note", "message");
+
+    if (!uidRaw) {
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint: "JSON body; keys: supabaseUserId, userId, supabase_user_id.",
+      });
+      return;
+    }
+    const uid = uidRaw;
+    if (!isValidUuid(uid)) {
+      res.status(400).json({ error: "supabaseUserId must be a valid UUID", received: uid.slice(0, 80) });
+      return;
+    }
+    if (!questId || !isValidUuid(questId)) {
+      res.status(400).json({ error: "questId must be a valid UUID" });
+      return;
+    }
+
+    const result = await completeQuestRow(sb, uid, questId, {
+      notes: typeof notes === "string" ? notes : undefined,
+    });
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result, { success: false });
+      return;
+    }
+
+    res.json({
+      success: true,
+      quest: result.row,
+      logInserted: result.logInserted,
+      ...(result.notesSaveError ? { notesSaveError: result.notesSaveError } : {}),
+    });
+  });
+
+  // POST /api/quests/:questId/favorite  -  set is_favorite (TOP 3) for Patyna
+  app.post("/api/quests/:questId/favorite", async (req, res) => {
+    const sb = requireQuestWriteSupabase(res);
+    if (!sb) return;
+
+    const { questId } = req.params;
+    const body = req.body;
+    const uidRaw = pickBodyString(
+      body,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+    const favoriteRaw = pickBodyBoolean(body, "is_favorite", "isFavorite");
+
+    if (!uidRaw) {
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint: "JSON body; keys: supabaseUserId, userId, supabase_user_id.",
+      });
+      return;
+    }
+    if (!isValidUuid(uidRaw)) {
+      res.status(400).json({ error: "supabaseUserId must be a valid UUID", received: uidRaw.slice(0, 80) });
+      return;
+    }
+    if (!questId || !isValidUuid(questId)) {
+      res.status(400).json({ error: "questId must be a valid UUID" });
+      return;
+    }
+    if (favoriteRaw === undefined) {
+      res.status(400).json({
+        error: "is_favorite is required (boolean).",
+        hint: "Send is_favorite: true | false in the JSON body (or isFavorite).",
+      });
+      return;
+    }
+
+    const result = await setQuestFavoriteRow(sb, uidRaw, questId, favoriteRaw);
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result);
+      return;
+    }
+
+    res.json({ quest: result.row });
+  });
 
   // GET /api/scoring/stats  -  XP, streak, achievements, category breakdown
   app.get("/api/scoring/stats", async (req, res) => {

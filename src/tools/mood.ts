@@ -2,6 +2,8 @@ import { defineTool, param } from "./types.js";
 import {
   saveMood,
   resolveLabel,
+  resolveDyad,
+  areOpposites,
   PLUTCHIK_EMOTIONS,
   type PrimaryEmotion,
   type Intensity,
@@ -14,7 +16,7 @@ const intensities: Intensity[] = ["low", "mid", "high"];
 export default defineTool({
   name: "set_mood",
   description:
-    "Manually override your current emotional state. Use this when you want to express an intentional mood shift that auto-detection might miss.",
+    "Manually override your current emotional state using Plutchik's wheel. Adjacent pairs form dyads: joy+trust=love, trust+fear=submission, fear+surprise=awe, surprise+sadness=disapproval, sadness+disgust=remorse, disgust+anger=contempt, anger+anticipation=aggressiveness, anticipation+joy=optimism.",
 
   params: {
     emotion: param.enum(
@@ -36,18 +38,33 @@ export default defineTool({
   },
 
   handler: async ({ emotion, intensity, secondary, note }) => {
+    const pri = emotion as PrimaryEmotion;
+    const sec = secondary as PrimaryEmotion | undefined;
+
     const mood: MoodState = {
-      emotion: emotion as PrimaryEmotion,
+      emotion: pri,
       intensity: (intensity as Intensity) ?? "mid",
-      ...(secondary ? { secondary: secondary as PrimaryEmotion } : {}),
+      ...(sec ? { secondary: sec } : {}),
       ...(note ? { note } : {}),
       updatedAt: new Date().toISOString(),
     };
 
     saveMood(mood);
+
+    const label = resolveLabel(mood);
+    const dyad = resolveDyad(pri, sec);
+    const warnings: string[] = [];
+
+    if (sec && areOpposites(pri, sec)) {
+      warnings.push(`Warning: ${pri} and ${sec} are opposing emotions on Plutchik's wheel.`);
+    }
+
+    const moodText = dyad ? `${dyad} (${label})` : label;
+    const text = [`Mood updated to ${moodText}.`, ...warnings].join(" ");
+
     return {
-      text: `Mood updated to ${resolveLabel(mood)}.`,
-      data: { action: "set_mood", label: resolveLabel(mood), ...mood },
+      text,
+      data: { action: "set_mood", label, dyad, ...mood },
     };
   },
 });

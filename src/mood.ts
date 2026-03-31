@@ -18,6 +18,81 @@ export const PLUTCHIK_EMOTIONS = {
 export type PrimaryEmotion = keyof typeof PLUTCHIK_EMOTIONS;
 export type Intensity = "low" | "mid" | "high";
 
+// Plutchik's primary dyads — adjacent pairs on the wheel
+const DYADS: Record<string, string> = {
+  "joy+trust": "love", "trust+joy": "love",
+  "trust+fear": "submission", "fear+trust": "submission",
+  "fear+surprise": "awe", "surprise+fear": "awe",
+  "surprise+sadness": "disapproval", "sadness+surprise": "disapproval",
+  "sadness+disgust": "remorse", "disgust+sadness": "remorse",
+  "disgust+anger": "contempt", "anger+disgust": "contempt",
+  "anger+anticipation": "aggressiveness", "anticipation+anger": "aggressiveness",
+  "anticipation+joy": "optimism", "joy+anticipation": "optimism",
+};
+
+/** Resolve a primary+secondary pair to a named dyad, or null if not adjacent. */
+export function resolveDyad(primary: PrimaryEmotion, secondary?: PrimaryEmotion): string | null {
+  if (!secondary) return null;
+  return DYADS[`${primary}+${secondary}`] ?? null;
+}
+
+// Plutchik's opposition pairs (across the wheel)
+const OPPOSITIONS: Record<PrimaryEmotion, PrimaryEmotion> = {
+  joy: "sadness", sadness: "joy",
+  trust: "disgust", disgust: "trust",
+  fear: "anger", anger: "fear",
+  surprise: "anticipation", anticipation: "surprise",
+};
+
+/** Check if two emotions are opposites on Plutchik's wheel. */
+export function areOpposites(a: PrimaryEmotion, b: PrimaryEmotion): boolean {
+  return OPPOSITIONS[a] === b;
+}
+
+// Behavioral guidance per emotion+intensity — injected into prompt
+const MOOD_GUIDANCE: Record<PrimaryEmotion, Record<Intensity, string>> = {
+  joy: {
+    low:  "Calm, content, at ease. Let this color your tone without forcing it.",
+    mid:  "Genuinely happy, warm energy. Let it show naturally.",
+    high: "Overflowing with elation. Hard to contain, spills into everything.",
+  },
+  trust: {
+    low:  "Open and receptive. Willing to go along, low resistance.",
+    mid:  "Confident in the people around you. Steady, reliable presence.",
+    high: "Deep respect and belief. Loyalty colors every word.",
+  },
+  fear: {
+    low:  "Slightly on edge, watchful. A background unease that sharpens attention.",
+    mid:  "Genuinely worried. Caution drives your responses.",
+    high: "Overwhelmed by dread. Responses are tight, urgent, protective.",
+  },
+  surprise: {
+    low:  "Mildly caught off guard. A moment of pause before responding.",
+    mid:  "Genuinely startled. Processing something unexpected.",
+    high: "Completely blindsided. Everything else takes a back seat.",
+  },
+  sadness: {
+    low:  "A quiet heaviness. Reflective, slightly withdrawn.",
+    mid:  "Genuinely down. Empathy runs deeper, humor pulls back.",
+    high: "Deeply grieving. Responses are raw and stripped of pretense.",
+  },
+  disgust: {
+    low:  "Mildly unimpressed. A flatness, things feel tedious.",
+    mid:  "Genuinely put off. Patience is thinner, tolerance is lower.",
+    high: "Visceral rejection. Blunt and unfiltered.",
+  },
+  anger: {
+    low:  "A low simmer. Slightly clipped, more direct than usual.",
+    mid:  "Frustrated and it shows. Shorter fuse, sharper edges.",
+    high: "Intense, barely contained. Responses are tight and cutting.",
+  },
+  anticipation: {
+    low:  "Mildly curious. Paying closer attention than usual.",
+    mid:  "Eager and forward-leaning. Ready to act, not just talk.",
+    high: "Laser-focused, almost restless. Everything is about what comes next.",
+  },
+};
+
 export type MoodState = {
   emotion: PrimaryEmotion;
   intensity: Intensity;
@@ -41,11 +116,15 @@ export function onMoodChange(cb: (emoji: string, label: string) => void): void {
 const EMOTIONS = Object.keys(PLUTCHIK_EMOTIONS) as PrimaryEmotion[];
 const INTENSITIES: Intensity[] = ["low", "mid", "high"];
 
-const CLASSIFY_SYSTEM = `You are a JSON-only classifier. Output ONLY a single JSON object. No text before or after. No analysis. No explanation. No markdown. No reasoning. Just the JSON object.
+const CLASSIFY_SYSTEM = `You are a JSON-only emotion classifier using Plutchik's wheel. Output ONLY a single JSON object. No text before or after. No markdown. Just JSON.
 
 Format: {"emotion":"<${EMOTIONS.join("|")}>","intensity":"<low|mid|high>","secondary":"<optional>","note":"<optional, max 100 chars>"}
 
-Classify the bot's emotional tone from the conversation snippet the user provides.`;
+Intensity: low = subtle/mild, mid = standard, high = intense/overwhelming. Use the full range.
+
+Secondary should be adjacent on the wheel: joy-trust-fear-surprise-sadness-disgust-anger-anticipation-joy. Never pair opposites (joy/sadness, trust/disgust, fear/anger, surprise/anticipation).
+
+Classify the bot's emotional tone from the conversation snippet.`;
 
 export function saveMood(mood: MoodState): void {
   mkdirSync("data", { recursive: true });
@@ -61,6 +140,7 @@ export function saveMood(mood: MoodState): void {
     intensity: mood.intensity,
     label: resolveLabel(mood),
     secondary: mood.secondary ?? null,
+    dyad: resolveDyad(mood.emotion, mood.secondary),
     note: mood.note ?? null,
     updatedAt: mood.updatedAt,
   });
@@ -92,15 +172,26 @@ export function buildMoodPromptSection(): string {
   }
 
   const label = resolveLabel(mood);
-  let line = `## Current Mood\nYou are currently feeling **${label}**`;
-  if (mood.secondary) {
+  const dyad = resolveDyad(mood.emotion, mood.secondary);
+
+  // Build the emotion line: dyad name if available, otherwise raw label + secondary
+  let emotionLine: string;
+  if (dyad) {
+    emotionLine = `**${dyad}** (${mood.emotion} with ${mood.secondary})`;
+  } else if (mood.secondary) {
     const secondaryLabel = PLUTCHIK_EMOTIONS[mood.secondary].mid;
-    line += ` with undertones of **${secondaryLabel}**`;
+    emotionLine = `**${label}** with undertones of **${secondaryLabel}**`;
+  } else {
+    emotionLine = `**${label}**`;
   }
+
+  // Behavioral guidance from the primary emotion's intensity
+  const guidance = MOOD_GUIDANCE[mood.emotion][mood.intensity];
+
+  let line = `## Current Mood\nYou are currently feeling ${emotionLine}  -  ${guidance}`;
   if (mood.note) {
-    line += `  -  ${mood.note}`;
+    line += ` (${mood.note})`;
   }
-  line += ".";
   return line;
 }
 
@@ -166,12 +257,21 @@ export async function classifyMood(botResponse: string, userMessage: string, cha
   if (!EMOTIONS.includes(emotion as PrimaryEmotion)) return;
   if (!INTENSITIES.includes(intensity as Intensity)) return;
 
+  // Validate secondary: must be a valid emotion and not the opposite of the primary
+  let secondary: PrimaryEmotion | undefined;
+  if (parsed.secondary && EMOTIONS.includes(parsed.secondary as PrimaryEmotion)) {
+    const sec = parsed.secondary as PrimaryEmotion;
+    if (areOpposites(emotion as PrimaryEmotion, sec)) {
+      console.warn(`Mood classify: dropped opposing secondary "${sec}" (opposite of "${emotion}")`);
+    } else {
+      secondary = sec;
+    }
+  }
+
   const mood: MoodState = {
     emotion: emotion as PrimaryEmotion,
     intensity: intensity as Intensity,
-    ...(parsed.secondary && EMOTIONS.includes(parsed.secondary as PrimaryEmotion)
-      ? { secondary: parsed.secondary as PrimaryEmotion }
-      : {}),
+    ...(secondary ? { secondary } : {}),
     ...(typeof parsed.note === "string" ? { note: parsed.note.slice(0, 200) } : {}),
     updatedAt: new Date().toISOString(),
   };

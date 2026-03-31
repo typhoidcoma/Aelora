@@ -34,7 +34,7 @@ import { reboot } from "./lifecycle.js";
 import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMessage } from "./sessions.js";
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
-import { loadMood, resolveLabel, classifyMood } from "./mood.js";
+import { loadMood, resolveLabel, resolveDyad, classifyMood } from "./mood.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
@@ -1649,6 +1649,7 @@ export function startWeb(state: AppState): Server | null {
       intensity: mood.intensity,
       label: resolveLabel(mood),
       secondary: mood.secondary ?? null,
+      dyad: resolveDyad(mood.emotion, mood.secondary),
       note: mood.note ?? null,
       updatedAt: mood.updatedAt,
     });

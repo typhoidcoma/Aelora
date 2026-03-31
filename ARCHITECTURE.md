@@ -191,7 +191,7 @@ Uses the `openai` npm package. Any OpenAI-compatible endpoint works -configured 
    ### Tools / ### Agents
 
 3. ## Current Mood                     ← semi-static (changes on mood shift)
-   You are currently feeling **serenity**
+   You are currently feeling **serenity**  -  Calm, content, at ease.
 
 4. ## Memory                           ← semi-static (changes on fact save)
    ### About this user / channel       ← ranked by semantic relevance + recency + access frequency
@@ -636,7 +636,7 @@ Tool file names and exported tool names are usually aligned, but not always. For
 | `google_tasks` | Admin-level raw Google Tasks API (list/add/complete/update/delete on explicit list IDs) — use `tasks` for user-facing task management | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
 | `scoring` | Scoring tool: stats, leaderboard, achievements, rate_effort, set_metadata, add_event (Supabase) | `google.*` |
-| `set_mood` | Manual emotional state override (Plutchik's wheel: 8 emotions × 3 intensities) | none |
+| `set_mood` | Manual emotional state override (Plutchik's wheel: 8 emotions × 3 intensities, dyad resolution for adjacent pairs, opposition warnings) | none |
 | `date` | Natural language date resolution via chrono-node (converts "next Friday" → ISO 8601) | none |
 | `linear` | Full Linear project management: issues CRUD, sub-issues, projects, teams, search, comments, GraphQL | `linear.apiKey` |
 | `luminizer` | Image generation and restyling via DALL-E 3 / gpt-image-1 (text-to-image generation, image-to-image restyling, configurable style prompts) | `luminizer.apiKey`, `luminizer.model`, `luminizer.baseURL`, `luminizer.stylePrompt` |
@@ -1235,7 +1235,7 @@ Supabase is optional. If not configured, the scoring tool returns an error and b
 
 **Files:** [src/mood.ts](src/mood.ts), [src/tools/mood.ts](src/tools/mood.ts)
 
-Tracks the bot's emotional state using Plutchik's wheel of emotions -8 primary emotions at 3 intensity levels (24 distinct states). The mood is auto-classified after each Discord response and displayed live on the dashboard.
+Tracks the bot's emotional state using Plutchik's wheel of emotions -8 primary emotions at 3 intensity levels (24 distinct states), with dyad resolution, opposition validation, and behavioral guidance injected into every prompt.
 
 ### Plutchik's Wheel
 
@@ -1250,7 +1250,30 @@ Tracks the bot's emotional state using Plutchik's wheel of emotions -8 primary e
 | Anger | annoyance | anger | rage |
 | Anticipation | interest | anticipation | vigilance |
 
-Blends are supported via an optional `secondary` emotion (e.g. joy + trust = love).
+### Dyads (Combination Emotions)
+
+When a primary and secondary emotion are adjacent on the wheel, they resolve to a named **dyad**:
+
+| Primary | + Secondary | = Dyad |
+|---------|-------------|--------|
+| Joy | Trust | **Love** |
+| Trust | Fear | **Submission** |
+| Fear | Surprise | **Awe** |
+| Surprise | Sadness | **Disapproval** |
+| Sadness | Disgust | **Remorse** |
+| Disgust | Anger | **Contempt** |
+| Anger | Anticipation | **Aggressiveness** |
+| Anticipation | Joy | **Optimism** |
+
+`resolveDyad(primary, secondary)` returns the dyad name or null if the pair isn't adjacent. Both orderings are supported (joy+trust and trust+joy both resolve to "love").
+
+### Opposition Pairs
+
+Emotions directly across the wheel are opposites:
+
+- Joy ↔ Sadness, Trust ↔ Disgust, Fear ↔ Anger, Surprise ↔ Anticipation
+
+`areOpposites(a, b)` checks this. The auto-classifier drops a secondary emotion if it opposes the primary (treated as a classification error). The `set_mood` tool allows opposing pairs but returns a warning.
 
 ### MoodState
 
@@ -1258,7 +1281,7 @@ Blends are supported via an optional `secondary` emotion (e.g. joy + trust = lov
 type MoodState = {
   emotion: PrimaryEmotion;    // One of 8 primary emotions
   intensity: Intensity;        // "low" | "mid" | "high"
-  secondary?: PrimaryEmotion;  // Optional blend
+  secondary?: PrimaryEmotion;  // Optional blend (adjacent on wheel)
   note?: string;               // Brief context (max 200 chars)
   updatedAt: string;           // ISO timestamp
 };
@@ -1271,32 +1294,49 @@ Persisted to `data/current-mood.json`. Survives restarts.
 After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
 
 1. Checks throttle -skips if mood was updated less than 30 seconds ago
-2. Makes a lightweight direct LLM call (`max_completion_tokens: 300`, no tools, no full persona prompt)
+2. Makes a lightweight direct LLM call (`max_completion_tokens: 512`, no tools, no full persona prompt)
 3. Uses `enable_thinking: false` and a `/no_think` prefix in the user message to suppress extended thinking on models like Qwen3
-4. Parses JSON response by extracting the first `{...}` object found anywhere in the output (tolerates models that emit surrounding text)
-5. Validates against Plutchik's emotions enum
-6. Calls `saveMood()` → persists to disk + broadcasts SSE event
+4. The classifier prompt is Plutchik-aware: includes intensity scale guidance, wheel adjacency order for secondaries, and explicit opposition exclusion
+5. Parses JSON response by extracting the first `{...}` object found anywhere in the output (tolerates models that emit surrounding text)
+6. Validates against Plutchik's emotions enum; drops secondary if it opposes primary
+7. Calls `saveMood()` → persists to disk + broadcasts SSE event (includes `dyad` field)
 
 The classification uses `getLLMClient()` and `getAuxiliaryModel()` from `llm.ts` for a minimal API call -no system prompt, no tools, no history. Just a classifier prompt and the bot's response text.
 
 ### Manual Override
 
-The `set_mood` tool allows the bot to express intentional mood shifts that auto-detection might miss. It bypasses the classification throttle. This is a secondary mechanism -auto-classification handles the baseline.
+The `set_mood` tool allows the bot to express intentional mood shifts that auto-detection might miss. Its description lists all 8 dyad combinations so the LLM knows which pairs produce named blends. If the primary and secondary are opposites, the tool response includes a warning. Bypasses the classification throttle.
+
+### Behavioral Guidance
+
+`MOOD_GUIDANCE` maps each of the 24 emotion+intensity combinations to a one-line behavioral cue that tells the model how the emotion should color its tone:
+
+- `joy/low`: "Calm, content, at ease. Let this color your tone without forcing it."
+- `anger/high`: "Intense, barely contained. Responses are tight and cutting."
+- `sadness/mid`: "Genuinely down. Empathy runs deeper, humor pulls back."
+
+The guidance is generic enough to work across all personas but specific enough to meaningfully influence output.
 
 ### System Prompt Injection
 
-`buildMoodPromptSection()` adds the current mood to every LLM request:
+`buildMoodPromptSection()` adds the current mood to every LLM request. When a dyad is resolved, the compound name appears with the constituent emotions in parentheses. Behavioral guidance is always appended:
 
 ```
 ## Current Mood
-You are currently feeling **serenity** with undertones of **trust**.
+You are currently feeling **love** (joy with trust)  -  Genuinely happy, warm energy. Let it show naturally.
+```
+
+Without a dyad (primary only):
+```
+## Current Mood
+You are currently feeling **serenity**  -  Calm, content, at ease. Let this color your tone without forcing it.
 ```
 
 When no mood is set yet: `No mood set yet -it will be detected automatically from your responses.`
 
 ### Live Dashboard
 
-`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place -colored dot, emotion label, and secondary emotion.
+`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The broadcast includes `dyad` (the resolved combination name, or null). The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place -colored dot, emotion label, and secondary emotion.
 
 Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust, blue for sadness, red for anger, etc.).
 

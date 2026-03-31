@@ -2158,7 +2158,11 @@ paths:
     get:
       tags: [System]
       summary: Current mood
-      description: Returns the bot's current emotional state using Plutchik's wheel of emotions. Updated automatically after each Discord response via mood classification.
+      description: |
+        Returns the bot's current emotional state using Plutchik's wheel of emotions.
+        Updated automatically after each Discord response via mood classification.
+        When primary and secondary emotions are adjacent on the wheel, they resolve to a
+        named dyad (e.g. joy+trust = love, anger+anticipation = aggressiveness).
       responses:
         "200":
           description: Mood state (active=false when no mood has been set yet)
@@ -2182,7 +2186,11 @@ paths:
                   secondary:
                     type: string
                     nullable: true
-                    description: Optional secondary emotion for blends
+                    description: Optional secondary emotion for blends (adjacent on wheel)
+                  dyad:
+                    type: string
+                    nullable: true
+                    description: Named combination when primary+secondary are adjacent (e.g. "love", "optimism", "awe"). Null when no secondary or pair is not adjacent.
                   note:
                     type: string
                     nullable: true

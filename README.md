@@ -36,7 +36,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Image Generation** - DALL-E 3 / gpt-image-1 via the luminizer tool (text-to-image generation, image-to-image restyling, configurable style prompts)
 - **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup, knowledge base sync
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
-- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities), auto-classified per response, manual set/reclassify via API
+- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations, opposition validation), auto-classified per response with behavioral guidance injected into every prompt
 - **Data Export** - JSON bundle of all bot data via API or dashboard
 - **File Logging** - Optional daily log files with automatic rotation
 - **Config Validation** - Zod-powered schema validation with clear startup errors

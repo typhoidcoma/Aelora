@@ -101,7 +101,7 @@ The active persona card shows a colored dot + the specific emotion label (e.g., 
 
 After each bot response in Discord or the web chat:
 
-1. **Throttle check**  -  skips if mood was updated less than 30 seconds ago (prevents API spam during rapid messages)
+1. **Throttle check**  -  skips if mood was updated less than 5 seconds ago (prevents API spam during rapid messages)
 2. **Lightweight LLM call**  -  sends the user's message + bot's response to the classifier with a minimal system prompt
 3. **JSON parse**  -  extracts `{ emotion, intensity, secondary?, note? }`
 4. **Validation**  -  confirms emotion and intensity are valid Plutchik values
@@ -114,7 +114,7 @@ The classifier prompt explicitly names all 8 emotions and 3 intensities. It asks
 The bot has a `set_mood` tool it can call to express intentional mood shifts:
 
 - Useful when auto-detection might miss subtle shifts (e.g., the bot decides to adopt a contemplative tone)
-- Bypasses the 30-second throttle
+- Bypasses the 5-second throttle
 - Takes the same parameters: emotion, intensity, optional secondary, optional note
 
 The bot uses this when it *wants* to shift mood, not just when it *happens* to.
@@ -177,6 +177,10 @@ Emotional continuity across restarts. If the bot was feeling content before a se
 
 Simpler models (happy/sad/neutral) lack the resolution needed for persona work. Plutchik gives us 24 states with built-in intensity gradients and meaningful blends, while still being small enough for reliable LLM classification. More complex models (like the PAD model or dimensional approaches) are harder to classify into and harder to display.
 
+### Why a 5-second cooldown (changed from 30s)?
+
+The original 30-second cooldown was too conservative for real-time 3D mesh animation. 5 seconds prevents API spam while allowing timely corrections to the heuristic stream. The heuristic layer (zero API cost) handles the high-frequency updates.
+
 ---
 
 ## 9. API Reference
@@ -186,12 +190,13 @@ Simpler models (happy/sad/neutral) lack the resolution needed for persona work. 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/mood` | Current mood state (or `{ active: false }`) |
+| `GET` | `/api/emotion` | Current emotion as continuous 8D vector (floats 0.0–1.0) |
 
 ### Server-Sent Events
 
-Event name: `mood`
+Two event types are pushed to `/api/logs/stream`:
 
-Pushed to `/api/logs/stream` whenever mood changes. Payload:
+**Event: `mood`** — discrete mood label, pushed whenever mood changes:
 
 ```json
 {
@@ -204,6 +209,24 @@ Pushed to `/api/logs/stream` whenever mood changes. Payload:
   "updatedAt": "2026-02-24T12:34:56.789Z"
 }
 ```
+
+**Event: `emotion`** — continuous vector for 3D mesh animation, pushed 1-3x/sec during streaming (heuristic) and after each LLM classification:
+
+```json
+{
+  "joy": 0.66,
+  "trust": 0.25,
+  "fear": 0,
+  "surprise": 0,
+  "sadness": 0,
+  "disgust": 0,
+  "anger": 0,
+  "anticipation": 0,
+  "conversationId": "channel-123"
+}
+```
+
+During active conversation, heuristic vectors flow at high frequency (lexicon-based, zero API cost). After each response, an LLM-classified vector arrives with higher accuracy to correct any drift.
 
 ### LLM Tool
 
@@ -222,8 +245,9 @@ Pushed to `/api/logs/stream` whenever mood changes. Payload:
 
 | File | Role |
 |------|------|
-| `src/mood.ts` | Core engine  -  Plutchik map, classify, save, load, resolve labels, prompt builder |
+| `src/mood.ts` | Core engine — Plutchik map, classify, save, load, resolve labels, prompt builder |
+| `src/emotion-vector.ts` | Continuous 8D vectors, `StreamEmotionAnalyzer` (heuristic lexicon), `moodStateToVector()` |
 | `src/tools/mood.ts` | LLM tool definition for manual `set_mood` |
-| `src/web.ts` | REST endpoint (`GET /api/mood`) |
-| `public/app.js` | Dashboard display  -  color mapping, live SSE updates, persona card rendering |
+| `src/web.ts` | REST endpoints (`GET /api/mood`, `GET /api/emotion`) |
+| `public/app.js` | Dashboard display — color mapping, live SSE updates, persona card rendering |
 | `data/current-mood.json` | Persisted mood state |

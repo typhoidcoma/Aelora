@@ -79,6 +79,12 @@ tags:
     description: Linear project management integration (issues, projects, teams)
   - name: Knowledge Base
     description: Google Drive knowledge base sync, search, and file management
+  - name: Emotion
+    description: |
+      Real-time continuous emotion vectors for 3D mesh animation.
+      Uses Plutchik's 8 primary emotions as 0.0–1.0 float dimensions.
+      Vectors are broadcast via SSE/WebSocket as `"emotion"` events during
+      conversation streaming (heuristic, ~1-3x/sec) and after LLM classification.
   - name: Ambient
     description: Ambient awareness engine status, buffers, and trigger management
   - name: WebSocket
@@ -101,7 +107,8 @@ tags:
       - `{ "type": "token", "content": "..." }` - streamed response chunk
       - `{ "type": "done", "reply": "..." }` - full response
       - `{ "type": "error", "error": "..." }` - error message
-      - `{ "type": "event", "event": "mood", "data": {...} }` - live broadcast event
+      - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update
+      - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats for 3D mesh)
 
 components:
   securitySchemes:
@@ -114,6 +121,47 @@ components:
       name: token
 
   schemas:
+    EmotionVector:
+      type: object
+      description: |
+        Continuous 8-dimensional emotion vector based on Plutchik's wheel.
+        Each dimension ranges from 0.0 (absent) to 1.0 (maximum intensity).
+        Multiple dimensions can be active simultaneously for blended emotions.
+      properties:
+        joy:
+          type: number
+          minimum: 0
+          maximum: 1
+        trust:
+          type: number
+          minimum: 0
+          maximum: 1
+        fear:
+          type: number
+          minimum: 0
+          maximum: 1
+        surprise:
+          type: number
+          minimum: 0
+          maximum: 1
+        sadness:
+          type: number
+          minimum: 0
+          maximum: 1
+        disgust:
+          type: number
+          minimum: 0
+          maximum: 1
+        anger:
+          type: number
+          minimum: 0
+          maximum: 1
+        anticipation:
+          type: number
+          minimum: 0
+          maximum: 1
+      required: [joy, trust, fear, surprise, sadness, disgust, anger, anticipation]
+
     Error:
       type: object
       properties:
@@ -2155,6 +2203,30 @@ paths:
                           type: string
                         enabled:
                           type: boolean
+
+  /api/emotion:
+    get:
+      tags: [Emotion]
+      summary: Current emotion vector
+      description: |
+        Returns the bot's current emotional state as a continuous 8-dimensional vector
+        derived from Plutchik's wheel. Each dimension is a float from 0.0 to 1.0.
+
+        This endpoint returns a point-in-time snapshot. For real-time updates during
+        conversation, listen for `"emotion"` events on the SSE stream (`/api/logs/stream`)
+        or WebSocket (`/ws`).
+
+        **Event flow during a conversation:**
+        1. Conversation starts — initial vector broadcast (current mood converted)
+        2. During streaming — heuristic vectors ~1-3x/sec (lexicon-based, zero API cost)
+        3. After response — LLM-classified vector (high accuracy, 5s cooldown)
+      responses:
+        "200":
+          description: Emotion vector with all 8 Plutchik dimensions as floats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmotionVector"
 
   /api/mood:
     get:

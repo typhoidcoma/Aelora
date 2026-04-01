@@ -83,7 +83,8 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║                                                                    ║
   ║  sessions.ts ─── conversation tracking     mood.ts ─── emotion     ║
   ║  users.ts ────── profile tracking          classification          ║
-  ║  daily-log.ts ── activity logging          (auto after each reply) ║
+  ║  daily-log.ts ── activity logging          emotion-vector.ts ───   ║
+  ║                                            real-time 8D vectors    ║
   ║  logger.ts ───── console capture + SSE broadcast + file logging    ║
   ║  scoring.ts ──── pure 0-100 scoring engine (no I/O)               ║
   ║  supabase.ts ─── Supabase client singleton + typed helpers         ║
@@ -1236,9 +1237,9 @@ Supabase is optional. If not configured, the scoring tool returns an error and b
 
 ## Mood System
 
-**Files:** [src/mood.ts](src/mood.ts), [src/tools/mood.ts](src/tools/mood.ts)
+**Files:** [src/mood.ts](src/mood.ts), [src/tools/mood.ts](src/tools/mood.ts), [src/emotion-vector.ts](src/emotion-vector.ts)
 
-Tracks the bot's emotional state using Plutchik's wheel of emotions -8 primary emotions at 3 intensity levels (24 distinct states), with dyad resolution, opposition validation, and behavioral guidance injected into every prompt.
+Tracks the bot's emotional state using Plutchik's wheel of emotions — 8 primary emotions at 3 intensity levels (24 distinct states), with dyad resolution, opposition validation, and behavioral guidance injected into every prompt. A real-time emotion vector pipeline provides continuous float-based emotion data for 3D mesh animation.
 
 ### Plutchik's Wheel
 
@@ -1296,7 +1297,7 @@ Persisted to `data/current-mood.json`. Survives restarts.
 
 After each Discord response, `classifyMood(botResponse, userMessage)` runs asynchronously (fire-and-forget):
 
-1. Checks throttle -skips if mood was updated less than 30 seconds ago
+1. Checks throttle — skips if mood was updated less than 5 seconds ago
 2. Makes a lightweight direct LLM call (`max_completion_tokens: 512`, no tools, no full persona prompt)
 3. Uses `enable_thinking: false` and a `/no_think` prefix in the user message to suppress extended thinking on models like Qwen3
 4. The classifier prompt is Plutchik-aware: includes intensity scale guidance, wheel adjacency order for secondaries, and explicit opposition exclusion
@@ -1339,9 +1340,35 @@ When no mood is set yet: `No mood set yet -it will be detected automatically fro
 
 ### Live Dashboard
 
-`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The broadcast includes `dyad` (the resolved combination name, or null). The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place -colored dot, emotion label, and secondary emotion.
+`saveMood()` calls `broadcastEvent("mood", { ... })` which sends a named SSE event to all connected dashboard clients. The broadcast includes `dyad` (the resolved combination name, or null). The frontend listens for `mood` events on the existing `/api/logs/stream` EventSource and updates the active persona card in-place — colored dot, emotion label, and secondary emotion.
 
 Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust, blue for sadness, red for anger, etc.).
+
+### Real-Time Emotion Vectors
+
+In addition to discrete mood events, `saveMood()` also broadcasts a continuous **EmotionVector** — an object with all 8 Plutchik emotions as floats from 0.0 to 1.0. This is designed for 3D mesh animation where smooth, multi-dimensional emotion data is needed.
+
+```typescript
+type EmotionVector = {
+  joy: number; trust: number; fear: number; surprise: number;
+  sadness: number; disgust: number; anger: number; anticipation: number;
+};
+```
+
+**Two sources of emotion vectors:**
+
+1. **Heuristic stream analysis** (`StreamEmotionAnalyzer` in `emotion-vector.ts`) — hooks into the LLM token stream during response generation. Every ~30 tokens, a lightweight lexicon-based analysis (~200 keywords mapped to partial vectors) plus punctuation/caps signals produces an emotion vector, smoothed via exponential moving average (alpha 0.3) to prevent jitter. Broadcasts `"emotion"` events 1-3x/sec during streaming. **Zero API cost.**
+
+2. **LLM classification** — the existing `classifyMood()` result is converted to a vector via `moodStateToVector()` and broadcast as an `"emotion"` event alongside the discrete `"mood"` event. This corrects any heuristic drift with ground-truth accuracy.
+
+**Event flow during a conversation:**
+1. Conversation starts → initial emotion vector broadcast (current mood converted)
+2. During streaming → heuristic vectors ~1-3x/sec
+3. After response → LLM-classified vector (5s cooldown)
+
+**REST endpoint:** `GET /api/emotion` returns the current EmotionVector derived from the persisted mood state.
+
+The `"mood"` event (discrete labels) and `"emotion"` event (continuous vectors) are independent — clients can listen to either or both.
 
 ---
 

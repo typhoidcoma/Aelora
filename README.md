@@ -37,6 +37,7 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup, knowledge base sync
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations, opposition validation), auto-classified per response with behavioral guidance injected into every prompt
+- **Real-Time Emotion Vectors** - Continuous 8D emotion vectors (one float per Plutchik emotion) broadcast during LLM streaming via heuristic lexicon analysis (~1-3x/sec, zero API cost) and refined by LLM classification — designed for 3D mesh animation
 - **Data Export** - JSON bundle of all bot data via API or dashboard
 - **File Logging** - Optional daily log files with automatic rotation
 - **Config Validation** - Zod-powered schema validation with clear startup errors
@@ -495,7 +496,7 @@ When `web.apiKey` is not configured, public routes stay open and sensitive route
 - **Users** - Profile table with detail overlay, facts viewer, cascading delete
 - **Export** - JSON export of all bot data
 - **Activity Preview** - Test Unity WebGL build locally
-- **Mood** - Live emotion indicator via SSE, manual set/reclassify
+- **Mood** - Live emotion indicator via SSE, manual set/reclassify, real-time emotion vector stream for 3D clients
 - **Console** - Live log stream via SSE
 
 </details>
@@ -518,6 +519,7 @@ src/
 |-- cron.ts                     # Cron scheduler with cached state + queued persistence
 |-- sessions.ts                 # Session tracking and persistence
 |-- memory.ts                   # Fact store with semantic search + ranked injection
+|-- emotion-vector.ts            # Continuous emotion vectors + stream heuristic analyzer
 |-- logger.ts                   # Console capture + SSE/WS broadcast + bounded clients
 |-- web.ts                      # Express dashboard + REST API
 |-- ws.ts                       # WebSocket chat server (bearer-first auth)

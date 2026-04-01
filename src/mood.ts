@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { broadcastEvent } from "./logger.js";
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
+import { moodStateToVector } from "./emotion-vector.js";
 
 // Plutchik's 8 primary emotions with intensity levels (low → mid → high)
 export const PLUTCHIK_EMOTIONS = {
@@ -102,7 +103,7 @@ export type MoodState = {
 };
 
 const MOOD_FILE = "data/current-mood.json";
-const CLASSIFY_COOLDOWN_MS = 30 * 1000; // 30 seconds minimum between API calls
+const CLASSIFY_COOLDOWN_MS = 5 * 1000; // 5 seconds minimum between API calls
 
 const MOOD_EMOJI: Record<PrimaryEmotion, string> = {
   joy: "✨", trust: "🤝", fear: "😰", surprise: "😲",
@@ -144,6 +145,9 @@ export function saveMood(mood: MoodState): void {
     note: mood.note ?? null,
     updatedAt: mood.updatedAt,
   });
+
+  // Push continuous emotion vector for 3D mesh clients
+  broadcastEvent("emotion", moodStateToVector(mood));
 
   // Update Discord bot status with emoji + mood label
   if (moodChangeCallback) {

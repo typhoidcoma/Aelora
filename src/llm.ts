@@ -8,7 +8,8 @@ import {
 } from "./tool-registry.js";
 import { getMemoryForPrompt } from "./memory.js";
 import { searchKnowledgeBase } from "./knowledge-base.js";
-import { buildMoodPromptSection } from "./mood.js";
+import { buildMoodPromptSection, loadMood } from "./mood.js";
+import { StreamEmotionAnalyzer, moodStateToVector } from "./emotion-vector.js";
 import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
 import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
@@ -411,8 +412,17 @@ export async function getLLMResponse(
     ...history,
   ];
 
+  // Create emotion stream analyzer for real-time 3D mesh updates
+  const currentMood = loadMood();
+  const emotionAnalyzer = new StreamEmotionAnalyzer(
+    channelId,
+    currentMood ? moodStateToVector(currentMood) : undefined,
+  );
+  // Emit initial emotion state so the client knows a conversation is active
+  broadcastEvent("emotion", { ...(currentMood ? moodStateToVector(currentMood) : {}), conversationId: channelId });
+
   try {
-    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall);
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall, emotionAnalyzer);
 
     // Don't save template-failure error responses to history  -  they poison
     // subsequent calls on models like Qwen whose Jinja templates are fragile
@@ -921,6 +931,7 @@ async function runCompletionLoop(
   onToken?: OnTokenCallback,
   userId?: string,
   onToolCall?: OnToolCallCallback,
+  emotionAnalyzer?: StreamEmotionAnalyzer,
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
 
@@ -1048,6 +1059,7 @@ async function runCompletionLoop(
           if (delta.content) {
             contentAccum += delta.content;
             thinkFilter.push(delta.content);
+            emotionAnalyzer?.push(delta.content);
           }
 
           if (delta.tool_calls) {
@@ -1089,6 +1101,7 @@ async function runCompletionLoop(
       }
 
       thinkFilter.flush();
+      emotionAnalyzer?.flush();
       const streamMs = Date.now() - apiStart;
       console.log(`LLM: stream complete ${streamMs}ms`);
       broadcastEvent("mindmap", { type: "llm:iteration", conversationId: channelId ?? "unknown", iteration: i + 1, durationMs: streamMs, timestamp: new Date().toISOString() });

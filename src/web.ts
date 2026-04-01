@@ -35,6 +35,7 @@ import { getAllSessions, getSession, deleteSession, clearAllSessions, recordMess
 import { getAllMemory, getFacts, deleteFact, clearScope } from "./memory.js";
 import { saveActivePersona } from "./state.js";
 import { loadMood, resolveLabel, resolveDyad, classifyMood } from "./mood.js";
+import { moodStateToVector, zeroVector } from "./emotion-vector.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { appendLog } from "./daily-log.js";
 import { listAllNotes, listNotesByScope, getNote, upsertNote, deleteNote } from "./tools/notes.js";
@@ -1990,6 +1991,12 @@ export function startWeb(state: AppState): Server | null {
       note: mood.note ?? null,
       updatedAt: mood.updatedAt,
     });
+  });
+
+  // Current emotion as continuous vector (for 3D mesh clients)
+  app.get("/api/emotion", (_req, res) => {
+    const mood = loadMood();
+    res.json(mood ? moodStateToVector(mood) : zeroVector());
   });
 
   // Set mood manually or trigger re-classification

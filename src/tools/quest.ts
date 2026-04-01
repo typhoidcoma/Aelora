@@ -433,7 +433,8 @@ export default defineTool({
   description:
     "Personal quests in Supabase (table `quests`). The user_id is automatically resolved from the chat session when available (e.g. Patyna frontend). " +
     "For team or project work, use Linear instead. Never say you created or completed a quest unless this tool returned success. " +
-    "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter), set_favorite (needs quest_id + is_favorite). Requires Aelora Supabase to be configured.",
+    "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter), set_favorite (needs quest_id + is_favorite). " +
+    "When creating: infer category, difficulty, and quest_type from what the user said. Use defaults for anything not mentioned. Do NOT ask the user to fill in optional fields — just create the quest and confirm. Only ask for clarification if the title itself is unclear.",
 
   params: {
     action: param.enum(

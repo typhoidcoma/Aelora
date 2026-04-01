@@ -431,7 +431,7 @@ function formatQuestLine(q: QuestRow, index: number): string {
 export default defineTool({
   name: "quest",
   description:
-    "Patyna personal quests in Supabase (table `quests`). Scoped only by Supabase Auth user_id — pass the user's Auth UUID on every call; do not infer from Discord. " +
+    "Personal quests in Supabase (table `quests`). The user_id is automatically resolved from the chat session when available (e.g. Patyna frontend). " +
     "For team or project work, use Linear instead. Never say you created or completed a quest unless this tool returned success. " +
     "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter), set_favorite (needs quest_id + is_favorite). Requires Aelora Supabase to be configured.",
 
@@ -442,8 +442,7 @@ export default defineTool({
       { required: true },
     ),
     user_id: param.string(
-      "Supabase Auth user UUID (from Patyna). Required for every action.",
-      { required: true },
+      "Supabase Auth user UUID. Optional when the chat session already provides a userId (e.g. Patyna frontend). Only pass this to override the session user.",
     ),
     title: param.string("Quest title. Required for create.", { maxLength: 500 }),
     description: param.string("Optional description for create.", { maxLength: 4000 }),
@@ -487,7 +486,7 @@ export default defineTool({
       is_favorite,
       limit,
     },
-    _ctx,
+    ctx,
   ) => {
     const sb = getQuestsSupabaseClient();
     if (!sb) {
@@ -499,10 +498,12 @@ export default defineTool({
       );
     }
 
-    const uid = (user_id ?? "").trim();
-    if (!isValidUuid(uid)) {
-      return "Error: user_id must be a valid UUID (Supabase Auth id).";
+    // Resolve user ID: explicit param > ctx.userId (from chat session) > error
+    const rawUid = (user_id ?? ctx.userId ?? "").trim();
+    if (!isValidUuid(rawUid)) {
+      return "Error: user_id must be a valid UUID. Pass it explicitly or ensure the chat session provides a userId.";
     }
+    const uid = rawUid;
 
     switch (action) {
       case "create": {

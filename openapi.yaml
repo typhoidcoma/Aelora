@@ -81,10 +81,13 @@ tags:
     description: Google Drive knowledge base sync, search, and file management
   - name: Emotion
     description: |
-      Real-time continuous emotion vectors for 3D mesh animation.
+      Real-time continuous emotion vectors for 3D mesh animation (Unity frontend).
       Uses Plutchik's 8 primary emotions as 0.0–1.0 float dimensions.
-      Vectors are broadcast via SSE/WebSocket as `"emotion"` events during
-      conversation streaming (heuristic, ~1-3x/sec) and after LLM classification.
+
+      Three sources broadcast `"emotion"` events via SSE/WebSocket:
+      - `source: "user"` — immediate heuristic reaction to incoming user text (before LLM processes)
+      - `source: "stream"` — heuristic analysis of bot's streaming response (~1-3x/sec)
+      - `source: "llm"` — LLM-classified mood converted to vector (after response, 5s cooldown)
   - name: Ambient
     description: Ambient awareness engine status, buffers, and trigger management
   - name: WebSocket
@@ -107,8 +110,8 @@ tags:
       - `{ "type": "token", "content": "..." }` - streamed response chunk
       - `{ "type": "done", "reply": "..." }` - full response
       - `{ "type": "error", "error": "..." }` - error message
-      - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update
-      - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats for 3D mesh)
+      - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update (Plutchik label + intensity)
+      - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats + source: user|stream|llm)
 
 components:
   securitySchemes:
@@ -127,6 +130,8 @@ components:
         Continuous 8-dimensional emotion vector based on Plutchik's wheel.
         Each dimension ranges from 0.0 (absent) to 1.0 (maximum intensity).
         Multiple dimensions can be active simultaneously for blended emotions.
+
+        When broadcast as an SSE/WebSocket event, includes `source` and optionally `conversationId`.
       properties:
         joy:
           type: number
@@ -160,6 +165,22 @@ components:
           type: number
           minimum: 0
           maximum: 1
+        source:
+          type: string
+          enum: [user, stream, llm]
+          description: |
+            What triggered this emotion vector:
+            - `user` — heuristic reaction to incoming user text (immediate, before LLM)
+            - `stream` — heuristic analysis of bot's streaming response (~1-3x/sec)
+            - `llm` — LLM-classified mood converted to vector (after response)
+            Only present in SSE/WebSocket broadcasts, not in GET /api/emotion responses.
+        conversationId:
+          type: string
+          nullable: true
+          description: |
+            Channel or session ID for the conversation that triggered the emotion.
+            Present on `user` and `stream` sources. Absent on `llm` source (global bot mood).
+            Not present in GET /api/emotion responses.
       required: [joy, trust, fear, surprise, sadness, disgust, anger, anticipation]
 
     Error:
@@ -2217,9 +2238,10 @@ paths:
         or WebSocket (`/ws`).
 
         **Event flow during a conversation:**
-        1. Conversation starts — initial vector broadcast (current mood converted)
-        2. During streaming — heuristic vectors ~1-3x/sec (lexicon-based, zero API cost)
-        3. After response — LLM-classified vector (high accuracy, 5s cooldown)
+        1. User sends message — immediate `source: "user"` reaction from heuristic text analysis
+        2. Conversation starts — initial vector broadcast (`source: "stream"`, current mood)
+        3. During streaming — heuristic vectors ~1-3x/sec (`source: "stream"`, zero API cost)
+        4. After response — LLM-classified vector (`source: "llm"`, high accuracy, 5s cooldown)
       responses:
         "200":
           description: Emotion vector with all 8 Plutchik dimensions as floats

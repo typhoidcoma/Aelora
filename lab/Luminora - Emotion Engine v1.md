@@ -161,13 +161,15 @@ This ensures the persona's emotional state influences its responses naturally. T
 
 The emotion engine tracks the *bot's* emotional state, not the user's. The bot is a persona with its own emotional continuity. Tracking the user's emotions would be surveillance; tracking the bot's is characterization.
 
+However, the real-time emotion vector system *does* analyze incoming user text via `analyzeUserText()` — not to track the user's emotional state, but to generate an immediate avatar **reaction** to what the user says. This is animation data for the 3D frontend, not stored mood state.
+
 ### Why auto-classify instead of always manual?
 
 Requiring the bot to manually set its mood every message would be intrusive and unreliable. Auto-classification captures the natural emotional tone of responses without the bot having to think about it. The manual tool exists as an escape hatch for intentional shifts.
 
-### Why a 30-second cooldown?
+### Why a 5-second cooldown?
 
-Prevents rapid-fire messages from spamming the classifier API. Mood doesn't need to shift every message  -  emotional states have natural persistence. The cooldown also keeps API costs low.
+Prevents rapid-fire messages from spamming the classifier API while still allowing timely corrections for the real-time emotion stream. The heuristic layer (zero API cost) handles high-frequency updates between classifications.
 
 ### Why persist to disk instead of memory?
 
@@ -210,7 +212,7 @@ Two event types are pushed to `/api/logs/stream`:
 }
 ```
 
-**Event: `emotion`** — continuous vector for 3D mesh animation, pushed 1-3x/sec during streaming (heuristic) and after each LLM classification:
+**Event: `emotion`** — continuous vector for 3D mesh animation (Unity frontend). Three sources identified by the `source` field:
 
 ```json
 {
@@ -222,11 +224,18 @@ Two event types are pushed to `/api/logs/stream`:
   "disgust": 0,
   "anger": 0,
   "anticipation": 0,
-  "conversationId": "channel-123"
+  "conversationId": "channel-123",
+  "source": "user"
 }
 ```
 
-During active conversation, heuristic vectors flow at high frequency (lexicon-based, zero API cost). After each response, an LLM-classified vector arrives with higher accuracy to correct any drift.
+| Source | Trigger | Timing | Cost |
+|--------|---------|--------|------|
+| `"user"` | Incoming user text analyzed via `analyzeUserText()` | Immediate, before LLM | Zero |
+| `"stream"` | Bot's streaming response analyzed via `StreamEmotionAnalyzer` | ~1-3x/sec during streaming | Zero |
+| `"llm"` | LLM mood classification converted via `moodStateToVector()` | After response, 5s cooldown | 1 API call |
+
+Note: `"llm"` source does not include `conversationId` (represents global bot mood). User and stream sources include it.
 
 ### LLM Tool
 
@@ -245,9 +254,11 @@ During active conversation, heuristic vectors flow at high frequency (lexicon-ba
 
 | File | Role |
 |------|------|
-| `src/mood.ts` | Core engine — Plutchik map, classify, save, load, resolve labels, prompt builder |
-| `src/emotion-vector.ts` | Continuous 8D vectors, `StreamEmotionAnalyzer` (heuristic lexicon), `moodStateToVector()` |
+| `src/mood.ts` | Core engine — Plutchik map, classify (5s cooldown), save, load, resolve labels, prompt builder |
+| `src/emotion-vector.ts` | Continuous 8D vectors, `scanText()` (shared lexicon helper), `analyzeUserText()` (user-text reactions), `StreamEmotionAnalyzer` (streaming heuristic), `moodStateToVector()` |
 | `src/tools/mood.ts` | LLM tool definition for manual `set_mood` |
+| `src/llm.ts` | Creates `StreamEmotionAnalyzer` per conversation, calls `analyzeUserText()` on incoming messages |
+| `src/ws.ts` | WebSocket handler, calls `analyzeUserText()` on incoming messages (immediate reaction) |
 | `src/web.ts` | REST endpoints (`GET /api/mood`, `GET /api/emotion`) |
-| `public/app.js` | Dashboard display — color mapping, live SSE updates, persona card rendering |
+| `public/app.js` | Dashboard display — color mapping, live SSE mood updates, persona card rendering |
 | `data/current-mood.json` | Persisted mood state |

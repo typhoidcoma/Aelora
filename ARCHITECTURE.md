@@ -1346,7 +1346,9 @@ Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust,
 
 ### Real-Time Emotion Vectors
 
-In addition to discrete mood events, `saveMood()` also broadcasts a continuous **EmotionVector** — an object with all 8 Plutchik emotions as floats from 0.0 to 1.0. This is designed for 3D mesh animation where smooth, multi-dimensional emotion data is needed.
+**File:** [src/emotion-vector.ts](src/emotion-vector.ts)
+
+In addition to discrete mood events, the system broadcasts continuous **EmotionVector** objects — all 8 Plutchik emotions as floats from 0.0 to 1.0. Designed for the Unity 3D frontend (42 blend shapes, built-in emotion engine) which connects directly to `/ws`.
 
 ```typescript
 type EmotionVector = {
@@ -1355,20 +1357,35 @@ type EmotionVector = {
 };
 ```
 
-**Two sources of emotion vectors:**
+**Three sources of emotion vectors**, identified by the `source` field:
 
-1. **Heuristic stream analysis** (`StreamEmotionAnalyzer` in `emotion-vector.ts`) — hooks into the LLM token stream during response generation. Every ~30 tokens, a lightweight lexicon-based analysis (~200 keywords mapped to partial vectors) plus punctuation/caps signals produces an emotion vector, smoothed via exponential moving average (alpha 0.3) to prevent jitter. Broadcasts `"emotion"` events 1-3x/sec during streaming. **Zero API cost.**
+1. **User text reaction** (`analyzeUserText()` in `emotion-vector.ts`, `source: "user"`) — runs the lexicon scanner on the **incoming user message** and broadcasts immediately, before the LLM even starts processing. The avatar reacts to what the user says in real time.
 
-2. **LLM classification** — the existing `classifyMood()` result is converted to a vector via `moodStateToVector()` and broadcast as an `"emotion"` event alongside the discrete `"mood"` event. This corrects any heuristic drift with ground-truth accuracy.
+2. **Heuristic stream analysis** (`StreamEmotionAnalyzer` in `emotion-vector.ts`, `source: "stream"`) — hooks into the LLM token stream during response generation. Every ~30 tokens, a lightweight lexicon-based analysis (~200 keywords mapped to partial vectors) plus punctuation/caps signals produces an emotion vector, smoothed via exponential moving average (alpha 0.3) to prevent jitter. Broadcasts `"emotion"` events 1-3x/sec during streaming. **Zero API cost.**
+
+3. **LLM classification** (`saveMood()` in `mood.ts`, `source: "llm"`) — the existing `classifyMood()` result is converted to a vector via `moodStateToVector()` and broadcast as an `"emotion"` event alongside the discrete `"mood"` event. Corrects any heuristic drift with ground-truth accuracy. Does not include `conversationId` (represents global bot mood).
+
+Both user-text and stream-heuristic analyses share a `scanText()` helper that performs the lexicon scan + punctuation analysis. The `StreamEmotionAnalyzer` adds EMA smoothing on top for temporal continuity during streaming.
 
 **Event flow during a conversation:**
-1. Conversation starts → initial emotion vector broadcast (current mood converted)
-2. During streaming → heuristic vectors ~1-3x/sec
-3. After response → LLM-classified vector (5s cooldown)
+1. User sends message → `source: "user"` reaction (immediate, before LLM)
+2. Conversation starts → `source: "stream"` initial vector (current mood converted)
+3. During streaming → `source: "stream"` heuristic vectors ~1-3x/sec
+4. After response → `source: "llm"` LLM-classified vector (5s cooldown)
 
-**REST endpoint:** `GET /api/emotion` returns the current EmotionVector derived from the persisted mood state.
+**Broadcast payload:**
+```json
+{
+  "joy": 0.66, "trust": 0.25, "fear": 0, "surprise": 0,
+  "sadness": 0, "disgust": 0, "anger": 0, "anticipation": 0,
+  "conversationId": "channel-123",
+  "source": "user"
+}
+```
 
-The `"mood"` event (discrete labels) and `"emotion"` event (continuous vectors) are independent — clients can listen to either or both.
+**REST endpoint:** `GET /api/emotion` returns the current EmotionVector derived from the persisted mood state (no `source` or `conversationId` fields).
+
+The `"mood"` event (discrete labels) and `"emotion"` event (continuous vectors) are independent — clients can listen to either or both. The Unity frontend uses the emotion vectors; the web dashboard uses the discrete mood events.
 
 ---
 

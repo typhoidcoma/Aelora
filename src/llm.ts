@@ -9,7 +9,7 @@ import {
 import { getMemoryForPrompt } from "./memory.js";
 import { searchKnowledgeBase } from "./knowledge-base.js";
 import { buildMoodPromptSection, loadMood } from "./mood.js";
-import { StreamEmotionAnalyzer, moodStateToVector } from "./emotion-vector.js";
+import { StreamEmotionAnalyzer, moodStateToVector, analyzeUserText } from "./emotion-vector.js";
 import { getUser } from "./users.js";
 import { getSession } from "./sessions.js";
 import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
@@ -412,6 +412,9 @@ export async function getLLMResponse(
     ...history,
   ];
 
+  // Immediate emotion reaction to user text (before LLM processes)
+  if (typeof userMessage === "string") analyzeUserText(userMessage, channelId);
+
   // Create emotion stream analyzer for real-time 3D mesh updates
   const currentMood = loadMood();
   const emotionAnalyzer = new StreamEmotionAnalyzer(
@@ -419,7 +422,7 @@ export async function getLLMResponse(
     currentMood ? moodStateToVector(currentMood) : undefined,
   );
   // Emit initial emotion state so the client knows a conversation is active
-  broadcastEvent("emotion", { ...(currentMood ? moodStateToVector(currentMood) : {}), conversationId: channelId });
+  broadcastEvent("emotion", { ...(currentMood ? moodStateToVector(currentMood) : {}), conversationId: channelId, source: "stream" });
 
   try {
     const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall, emotionAnalyzer);

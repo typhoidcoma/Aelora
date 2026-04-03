@@ -147,7 +147,7 @@ export function saveMood(mood: MoodState): void {
   });
 
   // Push continuous emotion vector for 3D mesh clients
-  broadcastEvent("emotion", moodStateToVector(mood));
+  broadcastEvent("emotion", { ...moodStateToVector(mood), source: "llm" });
 
   // Update Discord bot status with emoji + mood label
   if (moodChangeCallback) {

@@ -128,9 +128,72 @@ const EMOTION_LEXICON: Record<string, PartialVector> = {
   chaos: { fear: 0.4, anger: 0.3, surprise: 0.3 }, peace: { trust: 0.5, joy: 0.3 },
 };
 
-// ── Stream Emotion Analyzer ──────────────────────────────────────────────────
+// ── Shared Text Analysis ─────────────────────────────────────────────────────
 
 const WORD_RE = /[a-z']+/g;
+
+/**
+ * Scan text for emotional signals using the lexicon + punctuation heuristics.
+ * Returns a normalized EmotionVector, or null if no signal was detected.
+ */
+function scanText(text: string): EmotionVector | null {
+  const lower = text.toLowerCase();
+  const sample = zeroVector();
+  let hits = 0;
+
+  // Lexicon scan
+  const words = lower.match(WORD_RE);
+  if (words) {
+    for (const w of words) {
+      const entry = EMOTION_LEXICON[w];
+      if (entry) {
+        hits++;
+        for (const k of EMOTION_KEYS) {
+          if (entry[k]) sample[k] += entry[k];
+        }
+      }
+    }
+  }
+
+  // Punctuation signals (run on original text for case detection)
+  const exclamations = (text.match(/!/g) || []).length;
+  const questions = (text.match(/\?/g) || []).length;
+  const capsWords = (text.match(/\b[A-Z]{2,}\b/g) || []).length;
+  const ellipses = (text.match(/\.{3,}/g) || []).length;
+
+  if (exclamations > 0) { sample.surprise += 0.15 * exclamations; sample.joy += 0.1 * exclamations; hits++; }
+  if (questions > 0) { sample.anticipation += 0.15 * questions; hits++; }
+  if (capsWords > 0) { sample.anger += 0.2 * capsWords; hits++; }
+  if (ellipses > 0) { sample.sadness += 0.1 * ellipses; sample.anticipation += 0.1 * ellipses; hits++; }
+
+  if (hits === 0) return null;
+
+  // Normalize to 0–1 range
+  let maxVal = 0;
+  for (const k of EMOTION_KEYS) { if (sample[k] > maxVal) maxVal = sample[k]; }
+  if (maxVal > 1) {
+    for (const k of EMOTION_KEYS) { sample[k] /= maxVal; }
+  }
+
+  return sample;
+}
+
+// ── User Text Analysis ───────────────────────────────────────────────────────
+
+/**
+ * Analyze incoming user text and broadcast an immediate emotion reaction.
+ * Returns the vector if emotional signal was detected, null otherwise.
+ */
+export function analyzeUserText(text: string, conversationId: string): EmotionVector | null {
+  if (typeof text !== "string") return null;
+  const vector = scanText(text);
+  if (!vector) return null;
+  broadcastEvent("emotion", { ...vector, conversationId, source: "user" });
+  return vector;
+}
+
+// ── Stream Emotion Analyzer ──────────────────────────────────────────────────
+
 const TOKEN_WINDOW = 30; // analyze every N tokens
 const EMA_ALPHA = 0.3;   // smoothing factor (0 = no change, 1 = instant snap)
 
@@ -163,46 +226,11 @@ export class StreamEmotionAnalyzer {
   }
 
   private analyze(): void {
-    const text = this.buffer.toLowerCase();
+    const text = this.buffer;
     this.buffer = "";
 
-    const sample = zeroVector();
-    let hits = 0;
-
-    // Lexicon scan
-    const words = text.match(WORD_RE);
-    if (words) {
-      for (const w of words) {
-        const entry = EMOTION_LEXICON[w];
-        if (entry) {
-          hits++;
-          for (const k of EMOTION_KEYS) {
-            if (entry[k]) sample[k] += entry[k];
-          }
-        }
-      }
-    }
-
-    // Punctuation signals
-    const exclamations = (text.match(/!/g) || []).length;
-    const questions = (text.match(/\?/g) || []).length;
-    const capsWords = (text.match(/\b[A-Z]{2,}\b/g) || []).length;
-    const ellipses = (text.match(/\.{3,}/g) || []).length;
-
-    if (exclamations > 0) { sample.surprise += 0.15 * exclamations; sample.joy += 0.1 * exclamations; hits++; }
-    if (questions > 0) { sample.anticipation += 0.15 * questions; hits++; }
-    if (capsWords > 0) { sample.anger += 0.2 * capsWords; hits++; }
-    if (ellipses > 0) { sample.sadness += 0.1 * ellipses; sample.anticipation += 0.1 * ellipses; hits++; }
-
-    // No signal — don't update
-    if (hits === 0) return;
-
-    // Normalize sample to 0–1 range
-    let maxVal = 0;
-    for (const k of EMOTION_KEYS) { if (sample[k] > maxVal) maxVal = sample[k]; }
-    if (maxVal > 1) {
-      for (const k of EMOTION_KEYS) { sample[k] /= maxVal; }
-    }
+    const sample = scanText(text);
+    if (!sample) return;
 
     // EMA smooth into current vector
     for (const k of EMOTION_KEYS) {
@@ -210,6 +238,6 @@ export class StreamEmotionAnalyzer {
     }
 
     // Broadcast
-    broadcastEvent("emotion", { ...this.current, conversationId: this.conversationId });
+    broadcastEvent("emotion", { ...this.current, conversationId: this.conversationId, source: "stream" });
   }
 }

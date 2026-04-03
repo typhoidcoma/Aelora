@@ -5,6 +5,7 @@ import { getLLMResponse, clearSession } from "./llm.js";
 import { deleteSession } from "./sessions.js";
 import { recordMessage } from "./sessions.js";
 import { classifyMood } from "./mood.js";
+import { analyzeUserText } from "./emotion-vector.js";
 import { appendLog } from "./daily-log.js";
 import { updateUser } from "./users.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
@@ -160,6 +161,9 @@ export function startWebSocket(server: Server, config: Config): void {
           }
 
           state.busy = true;
+
+          // Immediate emotion reaction to user text (before LLM processes)
+          analyzeUserText(msg.content, state.sessionId);
 
           // Track session and user
           if (state.userId && state.username) {

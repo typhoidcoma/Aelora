@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { defineTool, param } from "./types.js";
 import { getQuestsSupabaseClient } from "../supabase.js";
+import { broadcastEvent } from "../logger.js";
 
 /**
  * Patyna `quests` / `quest_logs` (Supabase). Shared by the `quest` tool and `/api/quests`.
@@ -257,7 +258,9 @@ export async function createQuestRow(
     console.error("quests: createQuestRow:", f.code, f.error);
     return f;
   }
-  return { ok: true, row: data as QuestRow };
+  const row = data as QuestRow;
+  broadcastEvent("quest", { action: "created", quest: row });
+  return { ok: true, row };
 }
 
 export async function completeQuestRow(
@@ -330,6 +333,7 @@ export async function completeQuestRow(
     }
   }
 
+  broadcastEvent("quest", { action: "completed", quest: row });
   return { ok: true, row, logInserted, ...(notesSaveError ? { notesSaveError } : {}) };
 }
 
@@ -357,6 +361,120 @@ export async function listQuestRows(
     return f;
   }
   return { ok: true, rows: (data ?? []) as QuestRow[] };
+}
+
+type OkUpdate = { ok: true; row: QuestRow };
+
+export type UpdateQuestInput = {
+  title?: string;
+  description?: string | null;
+  category?: string;
+  quest_type?: string;
+  target_value?: number;
+  current_value?: number;
+  status?: string;
+  difficulty?: string;
+  suggested_by?: string;
+  is_favorite?: boolean;
+};
+
+export async function updateQuestRow(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+  input: UpdateQuestInput,
+): Promise<OkUpdate | QuestDbFailure> {
+  const { data: existing, error: fetchErr } = await sb
+    .from(QUEST_TABLE)
+    .select("id")
+    .eq("id", questId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    const f = questDbFailureFromSupabaseError(fetchErr, "updateQuest(fetch)");
+    console.error("quests: updateQuestRow fetch:", f.code, f.error);
+    return f;
+  }
+  if (!existing) {
+    return { ok: false, error: "Quest not found for this user_id.", httpStatus: 404 };
+  }
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.title !== undefined) updates.title = input.title.trim();
+  if (input.description !== undefined) updates.description = input.description?.trim() ?? null;
+  if (input.category !== undefined) updates.category = input.category.trim();
+  if (input.quest_type !== undefined) updates.quest_type = normalizeQuestType(input.quest_type);
+  if (input.target_value !== undefined) updates.target_value = input.target_value;
+  if (input.current_value !== undefined) updates.current_value = input.current_value;
+  if (input.status !== undefined) updates.status = input.status.trim();
+  if (input.difficulty !== undefined) updates.difficulty = input.difficulty.trim();
+  if (input.suggested_by !== undefined) updates.suggested_by = input.suggested_by.trim();
+  if (input.is_favorite !== undefined) updates.is_favorite = input.is_favorite;
+
+  if (Object.keys(updates).length <= 1) {
+    return { ok: false, error: "No fields to update.", httpStatus: 400 };
+  }
+
+  const { data, error } = await sb
+    .from(QUEST_TABLE)
+    .update(updates)
+    .eq("id", questId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+
+  if (error) {
+    const f = questDbFailureFromSupabaseError(error, "updateQuest(update)");
+    console.error("quests: updateQuestRow update:", f.code, f.error);
+    return f;
+  }
+  const row = data as QuestRow;
+  broadcastEvent("quest", { action: "updated", quest: row });
+  return { ok: true, row };
+}
+
+type OkDelete = { ok: true; id: string; title: string };
+
+export async function deleteQuestRow(
+  sb: SupabaseClient,
+  userId: string,
+  questId: string,
+): Promise<OkDelete | QuestDbFailure> {
+  // Fetch first to confirm existence and get title for confirmation message
+  const { data: existing, error: fetchErr } = await sb
+    .from(QUEST_TABLE)
+    .select("id,title")
+    .eq("id", questId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (fetchErr) {
+    const f = questDbFailureFromSupabaseError(fetchErr, "deleteQuest(fetch)");
+    console.error("quests: deleteQuestRow fetch:", f.code, f.error);
+    return f;
+  }
+  if (!existing) {
+    return { ok: false, error: "Quest not found for this user_id.", httpStatus: 404 };
+  }
+
+  // Delete associated quest_logs first (foreign key)
+  await sb.from(QUEST_LOG_TABLE).delete().eq("quest_id", questId);
+
+  const { error } = await sb
+    .from(QUEST_TABLE)
+    .delete()
+    .eq("id", questId)
+    .eq("user_id", userId);
+
+  if (error) {
+    const f = questDbFailureFromSupabaseError(error, "deleteQuest(delete)");
+    console.error("quests: deleteQuestRow delete:", f.code, f.error);
+    return f;
+  }
+  const title = (existing as { title: string }).title;
+  broadcastEvent("quest", { action: "deleted", id: questId, title });
+  return { ok: true, id: questId, title };
 }
 
 type OkFavorite = { ok: true; row: QuestRow };
@@ -404,7 +522,9 @@ export async function setQuestFavoriteRow(
     console.error("quests: setQuestFavoriteRow update:", f.code, f.error);
     return f;
   }
-  return { ok: true, row: data as QuestRow };
+  const row = data as QuestRow;
+  broadcastEvent("quest", { action: "updated", quest: row });
+  return { ok: true, row };
 }
 
 function sbError(prefix: string, message: string): string {
@@ -432,14 +552,21 @@ export default defineTool({
   name: "quest",
   description:
     "Personal quests in Supabase (table `quests`). The user_id is automatically resolved from the chat session when available (e.g. Patyna frontend). " +
-    "For team or project work, use Linear instead. Never say you created or completed a quest unless this tool returned success. " +
-    "Actions: create (needs title), complete (needs quest_id; optional notes → `quest_logs`), list (optional status filter), set_favorite (needs quest_id + is_favorite). " +
-    "When creating: infer category, difficulty, and quest_type from what the user said. Use defaults for anything not mentioned. Do NOT ask the user to fill in optional fields — just create the quest and confirm. Only ask for clarification if the title itself is unclear.",
+    "For team or project work, use Linear instead. Never say you created or completed a quest unless this tool returned success.\n\n" +
+    "Actions: create, complete, list, update, delete, set_favorite.\n\n" +
+    "**Creating quests:** Before creating, ask follow-up questions to make the quest as detailed and useful as possible. " +
+    "Ask about: what success looks like (to set target_value and description), how hard it is (difficulty), " +
+    "whether it's a one-off or recurring (quest_type: daily/milestone/streak), and any relevant category. " +
+    "Craft a clear, motivating title and a rich description from the conversation. " +
+    "Only skip follow-ups if the user is clearly in a hurry or gave enough detail already.\n\n" +
+    "**Updating quests:** Use update to change any field — title, description, category, difficulty, quest_type, target_value, current_value, status, suggested_by, is_favorite. " +
+    "Only the fields you pass will be changed.\n\n" +
+    "**Deleting quests:** Use delete to permanently remove a quest and its logs. Confirm with the user before deleting.",
 
   params: {
     action: param.enum(
-      "Action: create a quest, mark one complete, list quests, or toggle favorite.",
-      ["create", "complete", "list", "set_favorite"] as const,
+      "Action: create, complete, list, update, delete, or set_favorite.",
+      ["create", "complete", "list", "update", "delete", "set_favorite"] as const,
       { required: true },
     ),
     user_id: param.string(
@@ -447,7 +574,7 @@ export default defineTool({
     ),
     title: param.string("Quest title. Required for create.", { maxLength: 500 }),
     description: param.string("Optional description for create.", { maxLength: 4000 }),
-    quest_id: param.string("Quest row UUID. Required for complete and set_favorite.", {}),
+    quest_id: param.string("Quest row UUID. Required for complete, update, delete, and set_favorite.", {}),
     notes: param.string(
       "Optional completion notes for complete. When non-empty, a row is written to `quest_logs`.",
       { maxLength: 8000 },
@@ -587,6 +714,54 @@ export default defineTool({
         };
       }
 
+      case "update": {
+        const qid = (quest_id ?? "").trim();
+        if (!qid) {
+          return "Error: quest_id is required for update.";
+        }
+        if (!isValidUuid(qid)) {
+          return "Error: quest_id must be a valid UUID.";
+        }
+        const result = await updateQuestRow(sb, uid, qid, {
+          title: title as string | undefined,
+          description: description as string | undefined,
+          category: category as string | undefined,
+          quest_type: quest_type as string | undefined,
+          target_value: target_value as number | undefined,
+          current_value: current_value as number | undefined,
+          status: status as string | undefined,
+          difficulty: difficulty as string | undefined,
+          suggested_by: suggested_by as string | undefined,
+          is_favorite: is_favorite as boolean | undefined,
+        });
+        if (!result.ok) {
+          return formatQuestFailure("updateQuest", result);
+        }
+        const r = result.row;
+        return {
+          text: `Updated quest "${r.title}" (id: ${r.id}, status=${r.status}, ${r.current_value}/${r.target_value}).`,
+          data: { action: "update", quest: r },
+        };
+      }
+
+      case "delete": {
+        const qid = (quest_id ?? "").trim();
+        if (!qid) {
+          return "Error: quest_id is required for delete.";
+        }
+        if (!isValidUuid(qid)) {
+          return "Error: quest_id must be a valid UUID.";
+        }
+        const result = await deleteQuestRow(sb, uid, qid);
+        if (!result.ok) {
+          return formatQuestFailure("deleteQuest", result);
+        }
+        return {
+          text: `Deleted quest "${result.title}" (id: ${result.id}) and its associated logs.`,
+          data: { action: "delete", id: result.id, title: result.title },
+        };
+      }
+
       case "set_favorite": {
         const qid = (quest_id ?? "").trim();
         if (!qid) {
@@ -610,7 +785,7 @@ export default defineTool({
       }
 
       default:
-        return `Error: unknown action "${String(action)}". Use create, complete, list, or set_favorite.`;
+        return `Error: unknown action "${String(action)}". Use create, complete, list, update, delete, or set_favorite.`;
     }
   },
 });

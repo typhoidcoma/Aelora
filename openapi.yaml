@@ -74,7 +74,17 @@ tags:
   - name: Scoring
     description: Task scoring system, leaderboard, achievements, and life events
   - name: Quests
-    description: Patyna quests in Supabase (Auth user_id–scoped creates and completions)
+    description: |
+      Patyna quests in Supabase (Auth user_id–scoped). Full CRUD via REST and LLM tool.
+
+      **LLM tool actions:** create, complete, list, update, delete, set_favorite.
+      The bot asks follow-up questions when creating quests to fill in details.
+
+      **Real-time events:** All quest mutations broadcast a `"quest"` event via SSE/WebSocket:
+      ```json
+      { "action": "created|completed|updated|deleted", "quest": {...} }
+      ```
+      Unity/frontend clients listen for `{ type: "event", event: "quest", data }` on `/ws` to update UI without polling.
   - name: Linear
     description: Linear project management integration (issues, projects, teams)
   - name: Knowledge Base
@@ -112,6 +122,7 @@ tags:
       - `{ "type": "error", "error": "..." }` - error message
       - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update (Plutchik label + intensity)
       - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats + source: user|stream|llm)
+      - `{ "type": "event", "event": "quest", "data": {...} }` - quest mutation (action: created|completed|updated|deleted + quest row)
 
 components:
   securitySchemes:
@@ -182,6 +193,78 @@ components:
             Present on `user` and `stream` sources. Absent on `llm` source (global bot mood).
             Not present in GET /api/emotion responses.
       required: [joy, trust, fear, surprise, sadness, disgust, anger, anticipation]
+
+    QuestRow:
+      type: object
+      description: A quest row from the Supabase `quests` table.
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        category:
+          type: string
+        quest_type:
+          type: string
+          enum: [daily, milestone, streak]
+        target_value:
+          type: number
+        current_value:
+          type: number
+        status:
+          type: string
+        difficulty:
+          type: string
+        suggested_by:
+          type: string
+        is_favorite:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    QuestEvent:
+      type: object
+      description: |
+        Broadcast via SSE (`"quest"` event) and WebSocket (`{ type: "event", event: "quest", data }`)
+        whenever a quest is created, completed, updated, or deleted — from both REST API and LLM tool.
+      properties:
+        action:
+          type: string
+          enum: [created, completed, updated, deleted]
+          description: What happened to the quest.
+        quest:
+          $ref: "#/components/schemas/QuestRow"
+          description: Full quest row (present for created, completed, updated). Absent for deleted.
+        id:
+          type: string
+          format: uuid
+          description: Quest ID (present for deleted).
+        title:
+          type: string
+          description: Quest title (present for deleted).
+      required: [action]
 
     Error:
       type: object
@@ -2646,6 +2729,7 @@ paths:
       description: |
         Inserts a row into Supabase `quests` for the given Supabase Auth user id.
         Same defaults as the `quest` tool (category, quest_type, etc.).
+        On success, broadcasts a `"quest"` event (`action: "created"`) to all SSE/WebSocket clients.
 
         When `web.apiKey` is set in Aelora settings, send `Authorization: Bearer <web.apiKey>` (same as other protected `/api` routes).
 
@@ -2694,6 +2778,7 @@ paths:
         - BearerAuth: []
       description: |
         Updates `quests` to completed and optionally appends `quest_logs` when `notes` is non-empty.
+        On success, broadcasts a `"quest"` event (`action: "completed"`) to all SSE/WebSocket clients.
         Requires the same `Authorization: Bearer` and `supabase.serviceRoleKey` setup as `POST /api/quests`.
       parameters:
         - name: questId
@@ -2734,6 +2819,7 @@ paths:
         - BearerAuth: []
       description: |
         Updates `quests.is_favorite` for the row matching `questId` and the given Supabase Auth user.
+        On success, broadcasts a `"quest"` event (`action: "updated"`) to all SSE/WebSocket clients.
         Same `Authorization: Bearer` and `supabase.serviceRoleKey` requirements as `POST /api/quests` and `POST /api/quests/{questId}/complete`.
 
         Body must include `supabaseUserId` and a boolean `is_favorite` or `isFavorite`.

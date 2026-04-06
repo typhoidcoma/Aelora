@@ -76,6 +76,9 @@ import {
   createQuestRow,
   completeQuestRow,
   setQuestFavoriteRow,
+  listQuestRows,
+  updateQuestRow,
+  deleteQuestRow,
   isValidUuid,
   probeQuestsTable,
   type QuestDbFailure,
@@ -1736,6 +1739,157 @@ export function startWeb(state: AppState): Server | null {
     }
 
     res.json({ quest: result.row });
+  });
+
+  // GET /api/quests  -  list quests for a user
+  app.get("/api/quests", async (req, res) => {
+    const sb = requireSupabaseForQuests(res);
+    if (!sb) return;
+
+    const uidRaw = pickBodyString(
+      req.query,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+    if (!uidRaw) {
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint: "Query param: ?supabaseUserId=<uuid> (or userId, user_id).",
+      });
+      return;
+    }
+    if (!isValidUuid(uidRaw)) {
+      res.status(400).json({ error: "supabaseUserId must be a valid UUID", received: uidRaw.slice(0, 80) });
+      return;
+    }
+
+    const status = pickBodyString(req.query, "status") ?? "all";
+    const limitRaw = pickBodyString(req.query, "limit");
+    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 50, 1), 100) : 50;
+
+    const result = await listQuestRows(sb, uidRaw, { status, limit });
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result);
+      return;
+    }
+
+    res.json(result.rows);
+  });
+
+  // PUT /api/quests/:questId  -  update a quest
+  app.put("/api/quests/:questId", async (req, res) => {
+    const sb = requireQuestWriteSupabase(res);
+    if (!sb) return;
+
+    const { questId } = req.params;
+    const body = req.body;
+    const uidRaw = pickBodyString(
+      body,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+
+    if (!uidRaw) {
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint: "JSON body; keys: supabaseUserId, userId, supabase_user_id.",
+      });
+      return;
+    }
+    if (!isValidUuid(uidRaw)) {
+      res.status(400).json({ error: "supabaseUserId must be a valid UUID", received: uidRaw.slice(0, 80) });
+      return;
+    }
+    if (!questId || !isValidUuid(questId)) {
+      res.status(400).json({ error: "questId must be a valid UUID" });
+      return;
+    }
+
+    const title = pickBodyString(body, "title");
+    const description = pickBodyString(body, "description", "body", "details");
+    const category = pickBodyString(body, "category");
+    const questType = pickBodyString(body, "quest_type", "questType");
+    const status = pickBodyString(body, "status");
+    const difficulty = pickBodyString(body, "difficulty");
+    const suggestedBy = pickBodyString(body, "suggested_by", "suggestedBy");
+    const isFavorite = pickBodyBoolean(body, "is_favorite", "isFavorite");
+
+    const o = body as Record<string, unknown>;
+    const targetValue = typeof o.target_value === "number" ? o.target_value
+      : typeof o.targetValue === "number" ? o.targetValue : undefined;
+    const currentValue = typeof o.current_value === "number" ? o.current_value
+      : typeof o.currentValue === "number" ? o.currentValue : undefined;
+
+    const result = await updateQuestRow(sb, uidRaw, questId, {
+      title,
+      description,
+      category,
+      quest_type: questType,
+      target_value: targetValue,
+      current_value: currentValue,
+      status,
+      difficulty,
+      suggested_by: suggestedBy,
+      is_favorite: isFavorite,
+    });
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result);
+      return;
+    }
+
+    res.json({ quest: result.row });
+  });
+
+  // DELETE /api/quests/:questId  -  delete a quest and its logs
+  app.delete("/api/quests/:questId", async (req, res) => {
+    const sb = requireQuestWriteSupabase(res);
+    if (!sb) return;
+
+    const { questId } = req.params;
+    const uidRaw = pickBodyString(
+      req.body,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    ) ?? pickBodyString(
+      req.query,
+      "supabaseUserId",
+      "supabase_user_id",
+      "userId",
+      "user_id",
+    );
+
+    if (!uidRaw) {
+      res.status(400).json({
+        error: "supabaseUserId is required (Supabase Auth user UUID).",
+        hint: "JSON body or query param; keys: supabaseUserId, userId, supabase_user_id.",
+      });
+      return;
+    }
+    if (!isValidUuid(uidRaw)) {
+      res.status(400).json({ error: "supabaseUserId must be a valid UUID", received: uidRaw.slice(0, 80) });
+      return;
+    }
+    if (!questId || !isValidUuid(questId)) {
+      res.status(400).json({ error: "questId must be a valid UUID" });
+      return;
+    }
+
+    const result = await deleteQuestRow(sb, uidRaw, questId);
+
+    if (!result.ok) {
+      jsonQuestFailure(res, result);
+      return;
+    }
+
+    res.json({ ok: true, id: result.id, title: result.title });
   });
 
   // GET /api/scoring/stats  -  XP, streak, achievements, category breakdown

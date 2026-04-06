@@ -2721,6 +2721,46 @@ paths:
           description: JSON with `configured`, `clientReady`, and `quests.readable` / error details
 
   /api/quests:
+    get:
+      tags: [Quests]
+      summary: List quests for a user
+      security:
+        - BearerAuth: []
+      description: |
+        Returns quests for the given Supabase Auth user. Filterable by status, with configurable limit.
+        Does not require `supabase.serviceRoleKey` (read-only).
+      parameters:
+        - name: supabaseUserId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Supabase Auth user UUID (also accepts `userId`, `user_id`)
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, completed, all]
+            default: all
+          description: Filter by quest status
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Max number of quests to return
+      responses:
+        "200":
+          description: Array of quest rows, ordered by created_at descending
+        "400":
+          description: Missing or invalid user ID
+        "503":
+          description: Supabase not configured
     post:
       tags: [Quests]
       summary: Create a Patyna quest
@@ -2769,6 +2809,105 @@ paths:
           description: Invalid input or Supabase error message
         "503":
           description: Supabase not configured, or service role key missing for quest writes
+
+  /api/quests/{questId}:
+    put:
+      tags: [Quests]
+      summary: Update a quest
+      security:
+        - BearerAuth: []
+      description: |
+        Updates fields on an existing quest. Only provided fields are changed; omitted fields are untouched.
+        Requires `supabase.serviceRoleKey`. Broadcasts a `"quest"` event (`action: "updated"`).
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supabaseUserId]
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                quest_type:
+                  type: string
+                  enum: [daily, milestone, streak]
+                target_value:
+                  type: number
+                current_value:
+                  type: number
+                status:
+                  type: string
+                difficulty:
+                  type: string
+                suggested_by:
+                  type: string
+                is_favorite:
+                  type: boolean
+      responses:
+        "200":
+          description: "`{ \"quest\": { ...row } }` — updated quest row"
+        "400":
+          description: Invalid input, no fields to update, or Supabase error
+        "404":
+          description: Quest not found for this user
+        "503":
+          description: Supabase not configured, or service role key missing
+    delete:
+      tags: [Quests]
+      summary: Delete a quest
+      security:
+        - BearerAuth: []
+      description: |
+        Deletes a quest and its associated quest_logs. Requires `supabase.serviceRoleKey`.
+        Broadcasts a `"quest"` event (`action: "deleted"`).
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: supabaseUserId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Supabase Auth user UUID (alternative to JSON body)
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: "`{ \"ok\": true, \"id\": \"<uuid>\", \"title\": \"...\" }`"
+        "400":
+          description: Missing or invalid user/quest ID
+        "404":
+          description: Quest not found for this user
+        "503":
+          description: Supabase not configured, or service role key missing
 
   /api/quests/{questId}/complete:
     post:

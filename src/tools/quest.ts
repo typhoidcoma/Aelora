@@ -52,6 +52,120 @@ type QuestInsert = {
 
 /** Must satisfy `quests_category_check` (see Supabase migration). */
 const DEFAULT_CATEGORY = "productivity";
+const ALLOWED_CATEGORIES = new Set(["productivity", "health", "finance", "social", "work"]);
+
+const CATEGORY_SYNONYMS: Record<string, string> = {
+  errands: "productivity",
+  chores: "productivity",
+  tasks: "productivity",
+  todo: "productivity",
+  organize: "productivity",
+  planning: "productivity",
+  shopping: "productivity",
+  cleaning: "productivity",
+  admin: "productivity",
+  money: "finance",
+  budget: "finance",
+  saving: "finance",
+  investing: "finance",
+  bills: "finance",
+  taxes: "finance",
+  debt: "finance",
+  banking: "finance",
+  exercise: "health",
+  fitness: "health",
+  wellness: "health",
+  medical: "health",
+  doctor: "health",
+  therapy: "health",
+  diet: "health",
+  sleep: "health",
+  nutrition: "health",
+  mental: "health",
+  mindfulness: "health",
+  meditation: "health",
+  selfcare: "health",
+  career: "work",
+  job: "work",
+  professional: "work",
+  office: "work",
+  project: "work",
+  meeting: "work",
+  study: "work",
+  learning: "work",
+  education: "work",
+  school: "work",
+  training: "work",
+  friends: "social",
+  family: "social",
+  relationships: "social",
+  dating: "social",
+  community: "social",
+  networking: "social",
+  party: "social",
+  hangout: "social",
+  volunteer: "social",
+};
+
+/** Keyword → category mapping for fuzzy substring matching. */
+const CATEGORY_KEYWORDS: Record<string, string> = {
+  gym: "health",
+  run: "health",
+  walk: "health",
+  cook: "health",
+  water: "health",
+  weight: "health",
+  vitamin: "health",
+  dentist: "health",
+  pay: "finance",
+  rent: "finance",
+  loan: "finance",
+  invest: "finance",
+  save: "finance",
+  earn: "work",
+  hire: "work",
+  interview: "work",
+  resume: "work",
+  deadline: "work",
+  homework: "work",
+  exam: "work",
+  call: "social",
+  visit: "social",
+  gift: "social",
+  birthday: "social",
+  clean: "productivity",
+  fix: "productivity",
+  buy: "productivity",
+  mail: "productivity",
+  laundry: "productivity",
+  grocery: "productivity",
+};
+
+/** Coerce legacy/invalid values so inserts never hit `quests_category_check`. */
+function normalizeCategory(raw: string | undefined): string {
+  const c = (raw ?? "").trim().toLowerCase();
+  if (!c) return DEFAULT_CATEGORY;
+  if (ALLOWED_CATEGORIES.has(c)) return c;
+  if (c in CATEGORY_SYNONYMS) return CATEGORY_SYNONYMS[c];
+
+  // Check if any synonym is a substring of the input or vice versa
+  for (const [syn, cat] of Object.entries(CATEGORY_SYNONYMS)) {
+    if (c.includes(syn) || syn.includes(c)) return cat;
+  }
+
+  // Check keyword matches against the input
+  for (const [kw, cat] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (c.includes(kw)) return cat;
+  }
+
+  // Check if any allowed category is a substring of the input
+  for (const cat of ALLOWED_CATEGORIES) {
+    if (c.includes(cat)) return cat;
+  }
+
+  return DEFAULT_CATEGORY;
+}
+
 /** Must satisfy `quests.quest_type` CHECK: daily | milestone | streak (not legacy "task"). */
 const DEFAULT_QUEST_TYPE = "daily";
 const ALLOWED_QUEST_TYPES = new Set(["daily", "milestone", "streak"]);
@@ -222,7 +336,7 @@ export async function createQuestRow(
     user_id: userId,
     title: input.title.trim(),
     description: input.description?.trim() ?? null,
-    category: (input.category ?? DEFAULT_CATEGORY).trim(),
+    category: normalizeCategory(input.category),
     quest_type: normalizeQuestType(input.quest_type),
     target_value: input.target_value ?? DEFAULT_TARGET,
     current_value: input.current_value ?? DEFAULT_CURRENT,
@@ -411,7 +525,7 @@ export async function updateQuestRow(
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.title !== undefined) updates.title = input.title.trim();
   if (input.description !== undefined) updates.description = input.description?.trim() ?? null;
-  if (input.category !== undefined) updates.category = input.category.trim();
+  if (input.category !== undefined) updates.category = normalizeCategory(input.category);
   if (input.quest_type !== undefined) updates.quest_type = normalizeQuestType(input.quest_type);
   if (input.target_value !== undefined) updates.target_value = input.target_value;
   if (input.current_value !== undefined) updates.current_value = input.current_value;
@@ -587,7 +701,7 @@ export default defineTool({
       "Optional completion notes for complete. When non-empty, a row is written to `quest_logs`.",
       { maxLength: 8000 },
     ),
-    category: param.string("Optional category for create (default: productivity).", { maxLength: 200 }),
+    category: param.string("Optional category for create (default: productivity; must be productivity | health | finance | social | work).", { maxLength: 200 }),
     quest_type: param.string(
       "Optional quest_type for create (default: daily; must be daily | milestone | streak).",
       { maxLength: 200 },

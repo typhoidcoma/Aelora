@@ -1779,8 +1779,8 @@ export function startWeb(state: AppState): Server | null {
     res.json(result.rows);
   });
 
-  // PUT /api/quests/:questId  -  update a quest
-  app.put("/api/quests/:questId", async (req, res) => {
+  // PUT|PATCH /api/quests/:questId  -  update a quest
+  const updateQuestHandler: express.RequestHandler<{ questId: string }> = async (req, res) => {
     const sb = requireQuestWriteSupabase(res);
     if (!sb) return;
 
@@ -1844,7 +1844,9 @@ export function startWeb(state: AppState): Server | null {
     }
 
     res.json({ quest: result.row });
-  });
+  };
+  app.put("/api/quests/:questId", updateQuestHandler);
+  app.patch("/api/quests/:questId", updateQuestHandler);
 
   // DELETE /api/quests/:questId  -  delete a quest and its logs
   app.delete("/api/quests/:questId", async (req, res) => {

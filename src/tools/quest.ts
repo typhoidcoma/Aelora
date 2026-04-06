@@ -247,6 +247,14 @@ export async function createQuestRow(
     };
   }
 
+  // Ensure a profile row exists for this user so the FK on quests.user_id is satisfied.
+  const { error: profileErr } = await sb
+    .from("profiles")
+    .upsert({ id: userId }, { onConflict: "id", ignoreDuplicates: true });
+  if (profileErr) {
+    console.warn("quests: profile upsert warning (non-fatal):", profileErr.message);
+  }
+
   const { data, error } = await sb
     .from(QUEST_TABLE)
     .insert(insert)

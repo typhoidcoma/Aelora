@@ -197,7 +197,7 @@ function main(): void {
 
   assert(tools.length === 1, "responses tool mapping preserves tool count");
   assert(tools[0].name === "memory", "responses tool mapping preserves tool name");
-  assert(tools[0].strict === true, "responses tool mapping enables strict validation");
+  assert(tools[0].strict === false, "responses tool mapping keeps non-strict validation for current Aelora schemas");
 
   if (failed > 0) {
     console.error(`\n${failed} test(s) failed.`);

@@ -85,7 +85,11 @@ export function mapChatToolsToResponsesTools(
     name: tool.function.name,
     description: tool.function.description ?? null,
     parameters: (tool.function.parameters as Record<string, unknown>) ?? null,
-    strict: true,
+    // Aelora's existing tool schemas include optional properties in the normal
+    // Chat Completions style. Responses strict mode requires a stricter JSON
+    // Schema contract than these exported tool definitions currently provide.
+    // Keep strict off so we preserve compatibility without redesigning all tools.
+    strict: false,
   }));
 }
 

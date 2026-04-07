@@ -1,6 +1,6 @@
 ---
 order: 15
-enabled: true
+enabled: false
 label: "Execution Protocol"
 section: execution
 description: "How Aelora handles tool use, delegation, and team coordination."

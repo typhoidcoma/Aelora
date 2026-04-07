@@ -38,6 +38,8 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       apiKey: "test-key",
       model: "test-model",
       auxiliaryModel: "aux-model",
+      runtime: "auto",
+      supportsResponses: false,
       systemPrompt: "BASE PROMPT",
       ambientSystemPrompt: "",
       maxTokens: 4096,
@@ -147,9 +149,12 @@ async function main(): Promise<void> {
   const persona = loadPersona("persona", { botName: "Aelora" }, "aelora");
   const ambientPrompt = composeAmbientPrompt(persona);
   assert(ambientPrompt.includes("# Operating Instructions"), "ambient prompt includes bootstrap");
-  assert(ambientPrompt.includes("Digital Ronin"), "ambient prompt includes shared lore");
+  assert(ambientPrompt.includes("Growth over engagement"), "ambient prompt includes shared lore");
   assert(ambientPrompt.includes("# Soul: Aelora"), "ambient prompt includes soul");
   assert(!ambientPrompt.includes("# Tools & Agents"), "ambient prompt excludes tools instructions");
+  assert(!ambientPrompt.includes("# Skills"), "ambient prompt excludes disabled skills layer");
+  assert(persona.composedPrompt.length < 30000, "trimmed persona prompt is materially smaller than previous baseline", persona.composedPrompt.length);
+  assert(ambientPrompt.length <= persona.composedPrompt.length, "ambient prompt does not exceed full prompt");
 
   section("System Prompt Composition");
   const uniqueId = `persona-llm-test-${Date.now()}`;
@@ -171,15 +176,21 @@ async function main(): Promise<void> {
     source: "test",
   });
 
-  initLLM(makeConfig());
+  initLLM(makeConfig({ systemPrompt: persona.composedPrompt, ambientSystemPrompt: ambientPrompt }));
   const prompt = await buildSystemPrompt(userId, channelId, "architecture persona prompt flow");
-  assert(prompt.startsWith("BASE PROMPT"), "system prompt starts with base prompt");
+  assert(prompt.startsWith("# Operating Instructions"), "system prompt starts with trimmed persona bootstrap");
   assert(prompt.includes("## Current Mood"), "system prompt includes mood section");
   assert(prompt.includes("## Current User"), "system prompt includes current user section");
   assert(prompt.includes("## Current Session"), "system prompt includes current session section");
   assert(prompt.includes("## Memory"), "system prompt includes memory section");
   assert(prompt.includes(uniqueFact), "system prompt includes relevant memory fact");
   assert(prompt.includes("## Current Date & Time"), "system prompt includes current date/time section");
+  assert(prompt.includes("Growth over engagement"), "system prompt includes trimmed lore values");
+  assert(prompt.includes("Warm, direct, capable"), "system prompt includes Aelora voice core");
+  assert(prompt.includes("Use tool calls for real actions."), "system prompt retains tool integrity guidance");
+  assert(!prompt.includes("# Tools & Agents"), "system prompt excludes disabled tools persona layer");
+  assert(!prompt.includes("# Shared Tool Instructions"), "system prompt excludes disabled shared tools layer");
+  assert(!prompt.includes("# Skills"), "system prompt excludes disabled skills layer");
 
   section("Lite Mode Prompt");
   initLLM(makeConfig({ lite: true, systemPrompt: "LITE BASE PROMPT" }));

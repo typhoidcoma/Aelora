@@ -32,6 +32,8 @@ const llmSchema = z.object({
   apiKey: z.string().default(""),
   model: z.string().default(""),
   auxiliaryModel: z.string().default(""),
+  runtime: z.enum(["auto", "responses", "chat"]).default("auto"),
+  supportsResponses: z.boolean().optional(),
   systemPrompt: z.string().default("You are a helpful assistant."),
   ambientSystemPrompt: z.string().default(""),
   maxTokens: z.number().int().positive().default(16384),

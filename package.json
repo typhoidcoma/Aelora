@@ -22,7 +22,7 @@
     "build": "tsc",
     "start": "node dist/boot.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/scoring.test.ts && tsx src/persona-llm.test.ts && tsx src/tool-architecture.test.ts",
+    "test": "tsx src/scoring.test.ts && tsx src/persona-llm.test.ts && tsx src/tool-architecture.test.ts && tsx src/llm-runtime.test.ts",
     "check": "npm run build && npm run lint && npm run test"
   },
   "dependencies": {

@@ -15,6 +15,7 @@ import { getSession } from "./sessions.js";
 import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
 import { queueTextWrite } from "./async-write-queue.js";
 import { broadcastEvent } from "./logger.js";
+import { selectProviderRuntime } from "./llm/runtime-selector.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -937,22 +938,20 @@ async function runCompletionLoop(
   emotionAnalyzer?: StreamEmotionAnalyzer,
 ): Promise<string> {
   const resolvedModel = model ?? config.llm.model;
+  const runtime = selectProviderRuntime(config);
+  let activeTools = tools;
 
   // Tool call JSON (long prompts + URLs) can exceed a low token cap.
   // Reasoning models also consume hidden tokens, so use a generous floor.
   const TOKEN_FLOOR_WITH_TOOLS = 16384;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const baseParams: any = {
-    model: resolvedModel,
-    messages,
-    ...(tools.length > 0
-      ? { tools, max_completion_tokens: Math.max(config.llm.maxTokens || TOKEN_FLOOR_WITH_TOOLS, TOKEN_FLOOR_WITH_TOOLS) }
-      : config.llm.maxTokens
-        ? { max_completion_tokens: config.llm.maxTokens }
-        : {}),
-  };
+  const resolveMaxOutputTokens = (): number | undefined =>
+    activeTools.length > 0
+      ? Math.max(config.llm.maxTokens || TOKEN_FLOOR_WITH_TOOLS, TOKEN_FLOOR_WITH_TOOLS)
+      : config.llm.maxTokens || undefined;
 
-  console.log(`LLM: request start (model=${baseParams.model}, messages=${messages.length}, tools=${tools.length}, max_tokens=${baseParams.max_completion_tokens ?? "unset"})`);
+  console.log(
+    `LLM: request start (runtime=${runtime.kind}, model=${resolvedModel}, messages=${messages.length}, tools=${activeTools.length}, max_tokens=${resolveMaxOutputTokens() ?? "unset"})`,
+  );
 
   const allToolRecords: ToolRecord[] = [];
   let intentNudgeFired = false;
@@ -975,7 +974,7 @@ async function runCompletionLoop(
    * Returns true if recovery was initiated (caller should `continue`),
    * false if recovery isn't possible (caller should return error).
    */
-  async function autoRecoverHistory(): Promise<boolean> {
+    async function autoRecoverHistory(): Promise<boolean> {
     if (!channelId || historyCleared) return false;
 
     const lastUserContent = getLastUserContent();
@@ -993,13 +992,12 @@ async function runCompletionLoop(
 
     // Re-add tools since the issue was history, not tools
     if (tools.length > 0) {
-      baseParams.tools = tools;
+      activeTools = tools;
       toolsDropped = false;
     }
-    baseParams.messages = messages;
     historyCleared = true;
 
-    console.log(`LLM: retrying with clean slate (messages=${messages.length}, tools=${tools.length})`);
+    console.log(`LLM: retrying with clean slate (messages=${messages.length}, tools=${activeTools.length})`);
     return true;
   }
 
@@ -1023,145 +1021,76 @@ async function runCompletionLoop(
   for (let i = 0; i < maxIterations; i++) {
     let content: string | null;
     let toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined;
+    const apiStart = Date.now();
+    const thinkFilter = onToken ? new ThinkBlockFilter(onToken) : null;
 
-    if (onToken) {
-      // --- Streaming path ---
-      const apiStart = Date.now();
-      let stream;
-      try {
-        stream = (await client.chat.completions.create({ ...baseParams, stream: true } as any)) as any;
-      } catch (err) {
-        if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
-          contextTrimmed = true;
-          continue;
-        }
-        if (isToolTemplateError(err)) {
-          if (baseParams.tools) {
-            console.warn("LLM: model template error, retrying without tools");
-            delete baseParams.tools;
-            toolsDropped = true;
-            continue;
-          }
-          if (await autoRecoverHistory()) continue;
-          console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
-          return "(I encountered a formatting issue and couldn't process that request.)";
-        } else {
-          throw err;
-        }
-      }
-
-      let contentAccum = "";
-      const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
-      const thinkFilter = new ThinkBlockFilter(onToken);
-
-      try {
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta;
-          if (!delta) continue;
-
-          if (delta.content) {
-            contentAccum += delta.content;
-            thinkFilter.push(delta.content);
-            emotionAnalyzer?.push(delta.content);
-          }
-
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              if (!toolCallAccum.has(tc.index)) {
-                toolCallAccum.set(tc.index, { id: "", name: "", arguments: "" });
-              }
-              const accum = toolCallAccum.get(tc.index)!;
-              if (tc.id) accum.id = tc.id;
-              if (tc.function?.name) accum.name += tc.function.name;
-              if (tc.function?.arguments) accum.arguments += tc.function.arguments;
+    try {
+      const result = await runtime.runTurn({
+        client,
+        model: resolvedModel,
+        messages,
+        tools: activeTools,
+        maxOutputTokens: resolveMaxOutputTokens(),
+        stream: !!onToken,
+        userId,
+        onTextDelta: onToken
+          ? (delta) => {
+              thinkFilter?.push(delta);
+              emotionAnalyzer?.push(delta);
             }
-          }
+          : undefined,
+      });
 
-          // Capture usage from final chunk (if API supports it)
-          const chunkAny = chunk as unknown as { usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } };
-          if (chunkAny.usage) {
-            const u = chunkAny.usage;
-            console.log(`LLM: tokens (in=${u.prompt_tokens}, out=${u.completion_tokens}, total=${u.total_tokens})`);
-          }
-        }
-      } catch (streamErr) {
-        if (!contextTrimmed && isContextSizeError(streamErr) && trimForContext()) {
-          contextTrimmed = true;
-          continue;
-        }
-        if (isToolTemplateError(streamErr)) {
-          if (baseParams.tools) {
-            console.warn("LLM: model template error during streaming, retrying without tools");
-            delete baseParams.tools;
-            toolsDropped = true;
-            continue;
-          }
-          if (await autoRecoverHistory()) continue;
-          console.warn("LLM: model template rejected message format during streaming:", (streamErr as Error).message ?? streamErr);
-          return "(I encountered a formatting issue and couldn't process that request.)";
-        }
-        throw streamErr;
-      }
-
-      thinkFilter.flush();
+      thinkFilter?.flush();
       emotionAnalyzer?.flush();
-      const streamMs = Date.now() - apiStart;
-      console.log(`LLM: stream complete ${streamMs}ms`);
-      broadcastEvent("mindmap", { type: "llm:iteration", conversationId: channelId ?? "unknown", iteration: i + 1, durationMs: streamMs, timestamp: new Date().toISOString() });
 
-      content = stripThinkBlocks(contentAccum) || null;
+      const apiMs = Date.now() - apiStart;
+      if (result.usage?.totalTokens !== undefined) {
+        console.log(
+          `LLM: response ${apiMs}ms (in=${result.usage.inputTokens ?? "?"}, out=${result.usage.outputTokens ?? "?"}, total=${result.usage.totalTokens})`,
+        );
+      } else {
+        console.log(`LLM: response ${apiMs}ms`);
+      }
+      broadcastEvent("mindmap", {
+        type: "llm:iteration",
+        conversationId: channelId ?? "unknown",
+        iteration: i + 1,
+        durationMs: apiMs,
+        timestamp: new Date().toISOString(),
+      });
 
-      if (toolCallAccum.size > 0) {
-        toolCalls = [...toolCallAccum.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([, tc]) => ({
-            id: tc.id,
-            type: "function" as const,
-            function: { name: tc.name, arguments: tc.arguments },
-          }));
+      content = result.content ? stripThinkBlocks(result.content) || null : null;
+      if (result.toolCalls && result.toolCalls.length > 0) {
+        toolCalls = result.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: { name: tc.name, arguments: tc.arguments },
+        }));
         for (const tc of toolCalls) {
           console.log(`LLM: tool_call raw args for ${tc.function.name}: ${tc.function.arguments.slice(0, 500)}`);
         }
       }
-    } else {
-      // --- Non-streaming path ---
-      const apiStart = Date.now();
-      let completion;
-      try {
-        completion = await client.chat.completions.create(baseParams);
-      } catch (err) {
-        if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
-          contextTrimmed = true;
+    } catch (err) {
+      thinkFilter?.flush();
+      emotionAnalyzer?.flush();
+
+      if (!contextTrimmed && isContextSizeError(err) && trimForContext()) {
+        contextTrimmed = true;
+        continue;
+      }
+      if (isToolTemplateError(err)) {
+        if (activeTools.length > 0) {
+          console.warn("LLM: model template error, retrying without tools");
+          activeTools = [];
+          toolsDropped = true;
           continue;
         }
-        if (isToolTemplateError(err)) {
-          if (baseParams.tools) {
-            console.warn("LLM: model template error, retrying without tools");
-            delete baseParams.tools;
-            toolsDropped = true;
-            continue;
-          }
-          if (await autoRecoverHistory()) continue;
-          console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
-          return "(I encountered a formatting issue and couldn't process that request.)";
-        } else {
-          throw err;
-        }
+        if (await autoRecoverHistory()) continue;
+        console.warn("LLM: model template rejected message format:", (err as Error).message ?? err);
+        return "(I encountered a formatting issue and couldn't process that request.)";
       }
-      const apiMs = Date.now() - apiStart;
-      const choice = completion.choices[0];
-      if (!choice) return "(no response)";
-
-      const usage = completion.usage;
-      if (usage) {
-        console.log(`LLM: response ${apiMs}ms (in=${usage.prompt_tokens}, out=${usage.completion_tokens}, total=${usage.total_tokens})`);
-      } else {
-        console.log(`LLM: response ${apiMs}ms`);
-      }
-      broadcastEvent("mindmap", { type: "llm:iteration", conversationId: channelId ?? "unknown", iteration: i + 1, durationMs: apiMs, timestamp: new Date().toISOString() });
-
-      content = choice.message.content ? stripThinkBlocks(choice.message.content) || null : null;
-      toolCalls = choice.message.tool_calls ?? undefined;
+      throw err;
     }
 
     // If the model wants to call tools/agents
@@ -1273,7 +1202,7 @@ async function runCompletionLoop(
     if (
       !intentNudgeFired &&
       !toolsDropped &&
-      tools.length > 0 &&
+      activeTools.length > 0 &&
       !toolCalls &&
       isUnfulfilledIntent(finalText)
     ) {

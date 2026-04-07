@@ -1,6 +1,6 @@
 ---
 order: 50
-enabled: true
+enabled: false
 label: "Skills"
 section: skill
 ---

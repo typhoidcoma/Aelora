@@ -48,6 +48,15 @@ llm:
   apiKey: "sk-YOUR_API_KEY"
   model: "gpt-4o-mini"
 
+  # Runtime selection:
+  #   auto       - use Responses for known OpenAI endpoints, otherwise Chat Completions
+  #   responses  - require the OpenAI Responses API
+  #   chat       - force Chat Completions / OpenAI-compatible mode
+  runtime: "auto"
+
+  # Optional capability override for non-standard endpoints that support Responses.
+  # supportsResponses: true
+
   # Optional smaller/faster model for background tasks (mood, facts, compaction).
   # Falls back to the main model if not set. Use a non-reasoning model here
   # to avoid wasting tokens on chain-of-thought for simple JSON tasks.

@@ -25,6 +25,12 @@ export class ResponsesRuntime implements ProviderRuntime {
     const input = messagesToResponsesInput(params.messages);
     const tools = mapChatToolsToResponsesTools(params.tools);
 
+    // `previous_response_id` only resolves if the prior turn was created with
+    // `store: true`. Toggle store on whenever we are chaining so the two
+    // settings stay consistent — sending one without the other silently drops
+    // the chain.
+    const chaining = Boolean(params.continuation?.previousResponseId);
+
     const request: ResponsesRequest = {
       model: params.model,
       instructions: instructions || undefined,
@@ -32,10 +38,10 @@ export class ResponsesRuntime implements ProviderRuntime {
       ...(params.maxOutputTokens ? { max_output_tokens: params.maxOutputTokens } : {}),
       ...(tools.length > 0 ? { tools, parallel_tool_calls: true } : {}),
       ...(params.userId ? { user: params.userId } : {}),
-      ...(params.continuation?.previousResponseId
-        ? { previous_response_id: params.continuation.previousResponseId }
+      ...(chaining
+        ? { previous_response_id: params.continuation!.previousResponseId }
         : {}),
-      store: false as const,
+      store: chaining,
       truncation: "disabled" as const,
     };
 
@@ -54,7 +60,7 @@ type ResponsesRequest = {
   parallel_tool_calls?: boolean;
   user?: string;
   previous_response_id?: string;
-  store: false;
+  store: boolean;
   truncation: "disabled";
 };
 

@@ -22,6 +22,34 @@ export type HeartbeatState = {
   handlers: HeartbeatHandler[];
 };
 
+// Hard cap on a single handler invocation. Anything longer is treated as a
+// hang and abandoned (the handler keeps running in the background but stops
+// blocking the tick). 60s is generous: the slowest handler today is the KB
+// Drive sync, which is itself self-throttled and runs in chunks.
+const HANDLER_TIMEOUT_MS = 60_000;
+
+function runWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = setTimeout(() => {
+      reject(new Error(`heartbeat handler "${label}" timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(handle);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(handle);
+        reject(err);
+      },
+    );
+  });
+}
+
 let timer: ReturnType<typeof setInterval> | null = null;
 let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -60,20 +88,32 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
     state.lastTick = new Date();
     state.tickCount++;
 
-    for (const handler of state.handlers) {
-      if (!handler.enabled) continue;
-
-      const handlerStart = Date.now();
-      try {
-        const result = await handler.execute(context!);
-        if (result) {
-          const elapsed = Date.now() - handlerStart;
-          console.log(`Heartbeat: [${handler.name}] ${result} (${elapsed}ms)`);
+    // Run handlers in parallel so one slow handler can't delay the rest, and
+    // wrap each in a hard timeout so a hung Drive/LLM call can't stall the
+    // whole loop. Failures are logged per-handler; one bad apple never blocks
+    // the next tick from running.
+    const enabled = state.handlers.filter((h) => h.enabled);
+    await Promise.allSettled(
+      enabled.map(async (handler) => {
+        const handlerStart = Date.now();
+        try {
+          const result = await runWithTimeout(
+            handler.execute(context!),
+            HANDLER_TIMEOUT_MS,
+            handler.name,
+          );
+          if (result) {
+            const elapsed = Date.now() - handlerStart;
+            console.log(`Heartbeat: [${handler.name}] ${result} (${elapsed}ms)`);
+          }
+        } catch (err) {
+          console.error(
+            `Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`,
+            err,
+          );
         }
-      } catch (err) {
-        console.error(`Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`, err);
-      }
-    }
+      }),
+    );
   };
 
   const jitterMs = Math.min(Math.floor(state.intervalMs / 4), 30_000);

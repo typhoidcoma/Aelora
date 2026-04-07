@@ -29,6 +29,23 @@ const nameChimeCooldown = new Map<string, number>();
 const NAME_CHIME_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes per channel
 const NAME_CHIME_SKIP_CHANCE = 0.3; // 30% chance to stay quiet even if relevant
 
+// Per-channel serialization. Two messages in the same channel must not race
+// each other through `handleMessage` — without this, conversation history can
+// interleave and the name-trigger 10–60s delay can launch concurrent LLM
+// turns. Each call chains onto the previous one for the same channelId.
+const channelLocks = new Map<string, Promise<unknown>>();
+function withChannelLock<T>(channelId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = channelLocks.get(channelId) ?? Promise.resolve();
+  const next = prev.catch(() => undefined).then(fn);
+  channelLocks.set(
+    channelId,
+    next.finally(() => {
+      if (channelLocks.get(channelId) === next) channelLocks.delete(channelId);
+    }),
+  );
+  return next;
+}
+
 export async function startDiscord(config: Config): Promise<Client> {
   if (config.discord.embedColor !== undefined) {
     setEmbedColor(config.discord.embedColor);
@@ -165,7 +182,7 @@ export async function startDiscord(config: Config): Promise<Client> {
 
     if (isDM) {
       if (!config.discord.allowDMs) return;
-      await handleMessage(message, config);
+      await withChannelLock(message.channelId, () => handleMessage(message, config));
       return;
     }
 
@@ -191,6 +208,11 @@ export async function startDiscord(config: Config): Promise<Client> {
         // Random skip: 30% of the time, just stay quiet
         if (Math.random() < NAME_CHIME_SKIP_CHANCE) return;
 
+        // Stamp the cooldown BEFORE the delay so any concurrent name-triggers
+        // arriving during the delay window see it and bail. This is the
+        // mutex-light protection against the name-trigger race.
+        nameChimeCooldown.set(message.channelId, Date.now());
+
         // Random delay before doing anything (no typing indicator yet)
         const delayMs = 10000 + Math.random() * 50000; // 10-60 seconds
         await new Promise((r) => setTimeout(r, delayMs));
@@ -205,9 +227,10 @@ export async function startDiscord(config: Config): Promise<Client> {
           if (lines.length > 0) recentContext = lines.join("\n");
         } catch { /* no permission or error, proceed without context */ }
 
-        nameChimeCooldown.set(message.channelId, Date.now());
         recordEngagement(message.channelId, "name-triggered");
-        await handleMessage(message, config, true, recentContext);
+        await withChannelLock(message.channelId, () =>
+          handleMessage(message, config, true, recentContext),
+        );
         return;
       }
     }
@@ -215,7 +238,7 @@ export async function startDiscord(config: Config): Promise<Client> {
     // Direct @mention — always respond, record engagement
     const { recordEngagement } = await import("../ambient/engagement.js");
     recordEngagement(message.channelId, "mention");
-    await handleMessage(message, config);
+    await withChannelLock(message.channelId, () => handleMessage(message, config));
   });
 
   // --- Interaction handler (slash commands) ---

@@ -1,6 +1,6 @@
 ---
 order: 79
-enabled: true
+enabled: false
 label: "Shared Tool Instructions"
 section: tools
 ---

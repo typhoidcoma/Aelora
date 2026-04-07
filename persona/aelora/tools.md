@@ -1,6 +1,6 @@
 ---
 order: 80
-enabled: true
+enabled: false
 label: "Tools & Agents"
 section: tools
 ---

@@ -38,6 +38,8 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       apiKey: "test-key",
       model: "test-model",
       auxiliaryModel: "aux-model",
+      runtime: "auto",
+      supportsResponses: false,
       systemPrompt: "BASE PROMPT",
       ambientSystemPrompt: "",
       maxTokens: 4096,

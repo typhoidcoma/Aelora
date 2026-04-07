@@ -346,6 +346,15 @@ export async function createQuestRow(
     is_favorite: input.is_favorite ?? false,
   };
 
+  console.log("quests: createQuestRow insert:", JSON.stringify({
+    category: insert.category,
+    quest_type: insert.quest_type,
+    difficulty: insert.difficulty,
+    status: insert.status,
+    suggested_by: insert.suggested_by,
+    raw_category: input.category,
+  }));
+
   if (insert.target_value < 0) {
     return {
       ok: false,

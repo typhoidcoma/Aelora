@@ -506,6 +506,26 @@ function updateMemoryScopeFilter() {
   if (scopes.includes(prev) || prev === "__all__") select.value = prev;
 }
 
+const CATEGORY_META = {
+  preference:   { icon: "\u2764\uFE0F", color: "#e0a0d0", label: "Preference" },
+  biographical: { icon: "\uD83D\uDC64", color: "#8cb4e0", label: "Biographical" },
+  behavioral:   { icon: "\uD83C\uDFAD", color: "#a0c8a0", label: "Behavioral" },
+  relationship: { icon: "\uD83D\uDC65", color: "#d4a0d4", label: "Relationship" },
+  technical:    { icon: "\uD83D\uDCBB", color: "#80c8e0", label: "Technical" },
+  contextual:   { icon: "\uD83D\uDCA1", color: "#b0b0b0", label: "Contextual" },
+  task:         { icon: "\u2705",       color: "#e0c060", label: "Task" },
+  goal:         { icon: "\uD83C\uDFAF", color: "#60c8a0", label: "Goal" },
+  sentiment:    { icon: "\uD83D\uDCAC", color: "#e08080", label: "Sentiment" },
+  life_event:   { icon: "\uD83C\uDF1F", color: "#c0a060", label: "Life Event" },
+  social:       { icon: "\uD83E\uDDD1\u200D\uD83E\uDD1D\u200D\uD83E\uDDD1", color: "#a0a0e0", label: "Social" },
+  opinion:      { icon: "\uD83D\uDDE3\uFE0F", color: "#e0a060", label: "Opinion" },
+};
+
+function categoryIcon(category) {
+  const meta = CATEGORY_META[category] || { icon: "\u2753", color: "var(--text-muted)", label: category || "unknown" };
+  return `<span class="memory-cat-icon" title="${esc(meta.label)}" style="color:${meta.color}">${meta.icon}</span>`;
+}
+
 function renderMemoryFiltered() {
   const filter = document.getElementById("memory-scope-filter").value;
   const container = document.getElementById("memory-content");
@@ -532,6 +552,7 @@ function renderMemoryFiltered() {
             const key = `${scope}::${i}`;
             memoryFactMap[key] = { scope, fact: f.fact, savedAt: f.savedAt };
             return `<div class="memory-fact">
+              ${categoryIcon(f.category)}
               <span class="memory-fact-text">${esc(f.fact)}</span>
               <span class="memory-fact-time muted">${timeAgo(f.savedAt)}</span>
               <button class="btn btn-danger btn-xs" title="Delete fact" aria-label="Delete fact" onclick="deleteMemoryFact('${esc(key)}')">&times;</button>

@@ -760,6 +760,15 @@ section {
   font-size: 0.78rem;
 }
 
+.memory-cat-icon {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  width: 1.1rem;
+  text-align: center;
+  line-height: 1;
+  cursor: default;
+}
+
 .memory-fact-text {
   flex: 1;
   color: var(--text-secondary);

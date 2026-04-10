@@ -18,6 +18,7 @@ import { classifyMood, onMoodChange } from "../mood.js";
 import { updateUser } from "../users.js";
 import { extractFacts, trackMessage } from "../fact-extractor.js";
 import { saveFact } from "../memory.js";
+import { triageUserMessage } from "../message-triage.js";
 import { broadcastEvent } from "../logger.js";
 import { ingestMessage, markReaction } from "../ambient/buffer.js";
 
@@ -361,6 +362,11 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
   });
   updateUser(message.author.id, message.author.displayName ?? message.author.username, message.channelId);
   trackMessage(message.channelId);
+
+  // Fire-and-forget pre-response triage (extracts dates, entities, sentiment before LLM responds)
+  if (config.memory.triageEnabled !== false && content) {
+    triageUserMessage(content, message.channelId).catch(() => {});
+  }
 
   const channel = message.channel;
   if (!channel.isSendable()) return;

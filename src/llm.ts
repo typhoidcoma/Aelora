@@ -16,6 +16,7 @@ import { detectPhantomClaims, type ToolRecord } from "./tool-claim-detector.js";
 import { queueTextWrite } from "./async-write-queue.js";
 import { broadcastEvent } from "./logger.js";
 import { selectProviderRuntime } from "./llm/runtime-selector.js";
+import { recordUsage, recordCompletionUsage } from "./token-tracker.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -752,6 +753,8 @@ export async function compactPendingHistory(minQueueSize = 5): Promise<number> {
         ],
       });
 
+      const compactModel = config.llm.auxiliaryModel || config.llm.model;
+      recordCompletionUsage(completion, compactModel, "compaction");
       const rawSummary = completion.choices[0]?.message?.content?.trim();
       const summary = rawSummary ? stripThinkBlocks(rawSummary).trim() : "";
       if (summary) {
@@ -1049,6 +1052,13 @@ async function runCompletionLoop(
         console.log(
           `LLM: response ${apiMs}ms (in=${result.usage.inputTokens ?? "?"}, out=${result.usage.outputTokens ?? "?"}, total=${result.usage.totalTokens})`,
         );
+        recordUsage({
+          inputTokens: result.usage.inputTokens ?? 0,
+          outputTokens: result.usage.outputTokens ?? 0,
+          reasoningTokens: result.usage.reasoningTokens ?? 0,
+          model: config.llm.model,
+          source: "chat",
+        });
       } else {
         console.log(`LLM: response ${apiMs}ms`);
       }
@@ -1269,6 +1279,7 @@ async function runCorrectionPass(
       // No tools  -  prevent further tool calls during correction
     });
 
+    recordCompletionUsage(completion, config.llm.model, "correction");
     const corrected = completion.choices[0]?.message?.content;
     if (corrected) {
       const final = stripThinkBlocks(corrected).trim();

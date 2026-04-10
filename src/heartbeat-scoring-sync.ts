@@ -6,6 +6,7 @@ import { extractGoogleConfig } from "./tools/_google-auth.js";
 import { getLLMClient, getAuxiliaryModel, stripThinkBlocks } from "./llm.js";
 import { getAllUsers } from "./users.js";
 import type OpenAI from "openai";
+import { recordCompletionUsage } from "./token-tracker.js";
 
 // Sync every 5 minutes
 let lastSync = 0;
@@ -80,6 +81,7 @@ async function enrichTasks(
     const result = await client.chat.completions.create(
       params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
     );
+    recordCompletionUsage(result, model, "scoring");
 
     let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return 0;

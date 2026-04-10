@@ -8,6 +8,7 @@ import { classifyMood } from "../mood.js";
 import { chunkMessage } from "../utils.js";
 import { getLLMClient, getAuxiliaryModel, stripThinkBlocks } from "../llm.js";
 import { recordEngagement, canEngage } from "./engagement.js";
+import { recordCompletionUsage } from "../token-tracker.js";
 
 // Triggers (consolidated from 9 to 2)
 import { converseTrigger } from "./triggers/converse.js";
@@ -152,6 +153,7 @@ async function llmEvaluate(prompt: string | ContentPart[], config: Config): Prom
       { role: "user", content: prompt },
     ],
   });
+  recordCompletionUsage(result, model, "ambient");
 
   const raw = result.choices[0]?.message?.content?.trim() ?? "";
   return stripThinkBlocks(raw);

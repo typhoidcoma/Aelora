@@ -3,6 +3,7 @@ import { broadcastEvent } from "./logger.js";
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { moodStateToVector } from "./emotion-vector.js";
+import { recordCompletionUsage } from "./token-tracker.js";
 
 // Plutchik's 8 primary emotions with intensity levels (low → mid → high)
 export const PLUTCHIK_EMOTIONS = {
@@ -232,6 +233,7 @@ export async function classifyMood(botResponse: string, userMessage: string, cha
   const result = await client.chat.completions.create(
     moodParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
   );
+  recordCompletionUsage(result, model, "mood");
 
   let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
   if (!rawContent) return;

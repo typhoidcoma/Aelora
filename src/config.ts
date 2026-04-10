@@ -60,6 +60,9 @@ const memorySchema = z.object({
   semanticSearchMinScore: z.number().min(0).max(1).default(0.3),
   consolidationEnabled: z.boolean().default(true),
   consolidationThreshold: z.number().int().positive().default(10),
+  triageEnabled: z.boolean().default(true),
+  triageCooldownMs: z.number().int().positive().default(30000),
+  temporalExpiryEnabled: z.boolean().default(true),
 });
 
 const loggerSchema = z.object({

@@ -46,6 +46,7 @@ import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
 import { LinearClient } from "@linear/sdk";
+import { getTokenStats, resetTokenStats } from "./token-tracker.js";
 import {
   tryGetSupabaseClient,
   getQuestsSupabaseClient,
@@ -327,6 +328,17 @@ export function startWeb(state: AppState): Server | null {
       authRequired: !!config.web.apiKey,
       liveClients,
     });
+  });
+
+  // Token usage stats
+  app.get("/api/tokens", (_req, res) => {
+    res.json(getTokenStats());
+  });
+
+  // Reset token stats
+  app.post("/api/tokens/reset", (_req, res) => {
+    resetTokenStats();
+    res.json({ success: true });
   });
 
   // Cron job list with state

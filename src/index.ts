@@ -22,6 +22,7 @@ import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
+import { configureTriageCooldown } from "./message-triage.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
 import { tryGetSupabaseClient, initQuestsSupabaseClient } from "./supabase.js";
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
       searchMinScore: config.memory.semanticSearchMinScore,
     },
   });
+  configureTriageCooldown(config.memory.triageCooldownMs);
   configureCron({ ...config.cron, defaultTimezone: config.timezone });
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 

@@ -11,6 +11,7 @@ import { isDuplicateSemantic, isReady as isVectorReady, formatError } from "./ve
 import { getUser, updateUserSynthesis } from "./users.js";
 import { broadcastEvent } from "./logger.js";
 import { consumeTriageResult } from "./message-triage.js";
+import { recordCompletionUsage } from "./token-tracker.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
 
@@ -175,6 +176,7 @@ export async function extractFacts(
     const result = await client.chat.completions.create(
       extractParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
     );
+    recordCompletionUsage(result, model, "extraction");
 
     let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return;
@@ -418,6 +420,7 @@ async function synthesizeUserPersonality(userId: string, factCount: number): Pro
   const result = await client.chat.completions.create(
     synthesisParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
   );
+  recordCompletionUsage(result, model, "synthesis");
 
   const summary = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
   if (!summary) return;

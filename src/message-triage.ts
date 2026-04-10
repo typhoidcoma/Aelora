@@ -12,6 +12,7 @@
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { broadcastEvent } from "./logger.js";
+import { recordCompletionUsage } from "./token-tracker.js";
 
 // ── Types ───────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export async function triageUserMessage(
     const result = await client.chat.completions.create(
       triageParams as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
     );
+    recordCompletionUsage(result, model, "triage");
 
     let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
     if (!rawContent) return;

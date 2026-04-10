@@ -3050,6 +3050,25 @@ async function fetchHomeCronSummary() {
   } catch { /* graceful */ }
 }
 
+async function fetchHomeTokens() {
+  try {
+    const res = await apiFetch("/api/tokens", { resourceKey: "home-tokens" });
+    const stats = await res.json();
+    const el = document.getElementById("home-tokens-value");
+    const today = stats.today;
+    const total = today.inputTokens + today.outputTokens;
+    const fmt = total >= 1_000_000
+      ? (total / 1_000_000).toFixed(1) + "M"
+      : total >= 1_000
+        ? (total / 1_000).toFixed(1) + "k"
+        : total.toLocaleString();
+    el.innerHTML = `${fmt} &middot; ${today.requests} req`;
+  } catch {
+    const el = document.getElementById("home-tokens-value");
+    if (el) el.innerHTML = '<span class="muted">--</span>';
+  }
+}
+
 async function fetchHomeCalendar() {
   const el = document.getElementById("home-calendar");
   try {
@@ -3231,6 +3250,7 @@ async function fetchHomeData() {
     fetchHomeScoring(),
     fetchHomePersona(),
     fetchHomeCronSummary(),
+    fetchHomeTokens(),
     fetchHomeCalendar(),
     fetchHomeTodos(),
     fetchHomeScoringHistory(),

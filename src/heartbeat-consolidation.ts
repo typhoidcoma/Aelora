@@ -9,6 +9,7 @@ import type { FactCategory, FactConfidence, MemoryFact } from "./memory.js";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { indexFact, removeFact, isReady as isVectorReady } from "./vector-store.js";
 import type OpenAI from "openai";
+import { recordCompletionUsage } from "./token-tracker.js";
 
 // ── Per-scope counters ──────────────────────────────────
 
@@ -87,6 +88,7 @@ async function consolidateScope(scope: string): Promise<string | void> {
       const result = await client.chat.completions.create(
         params as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
       );
+      recordCompletionUsage(result, model, "consolidation");
 
       let rawContent = stripThinkBlocks(result.choices[0]?.message?.content?.trim() ?? "");
       if (!rawContent) continue;

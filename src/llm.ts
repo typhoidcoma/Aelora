@@ -17,6 +17,7 @@ import { queueTextWrite } from "./async-write-queue.js";
 import { broadcastEvent } from "./logger.js";
 import { selectProviderRuntime } from "./llm/runtime-selector.js";
 import { recordUsage, recordCompletionUsage } from "./token-tracker.js";
+import { getProfileForPrompt } from "./user-profile.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -562,7 +563,11 @@ export async function buildSystemPrompt(userId?: string, channelId?: string, con
         userLine += ` (${profile.messageCount} messages since ${new Date(profile.firstSeen).toLocaleDateString()})`;
       }
       userLine += ".";
-      if (profile.personalitySummary) {
+      // Inject full user profile if available, else fall back to personality summary
+      const userProfileContent = getProfileForPrompt(userId);
+      if (userProfileContent) {
+        userLine += "\n\n" + userProfileContent;
+      } else if (profile.personalitySummary) {
         userLine += `\n\n${profile.personalitySummary.slice(0, 500)}`;
       }
       sections.push("\n\n" + userLine);

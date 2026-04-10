@@ -12,6 +12,8 @@ export type UserProfile = {
   personalitySummary?: string;
   personalitySynthesizedAt?: string;
   factCountAtSynthesis?: number;
+  profileBuiltAt?: string;
+  factCountAtProfileBuild?: number;
 };
 
 type UserStore = Record<string, UserProfile>;
@@ -75,6 +77,14 @@ export function updateUserSynthesis(userId: string, summary: string, factCount: 
   profile.personalitySummary = summary;
   profile.personalitySynthesizedAt = new Date().toISOString();
   profile.factCountAtSynthesis = factCount;
+  save();
+}
+
+export function updateUserProfileBuild(userId: string, factCount: number): void {
+  const profile = store[userId];
+  if (!profile) return;
+  profile.profileBuiltAt = new Date().toISOString();
+  profile.factCountAtProfileBuild = factCount;
   save();
 }
 

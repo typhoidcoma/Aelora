@@ -12,6 +12,7 @@ import { getUser, updateUserSynthesis } from "./users.js";
 import { broadcastEvent } from "./logger.js";
 import { consumeTriageResult } from "./message-triage.js";
 import { recordCompletionUsage } from "./token-tracker.js";
+import { trackProfileFactAdded, shouldRebuildProfile, buildUserProfile } from "./user-profile.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
 
@@ -383,6 +384,16 @@ export async function extractFacts(
       if (totalFacts >= SYNTHESIS_MIN_FACTS && totalFacts - factsAtLast >= SYNTHESIS_DELTA) {
         synthesizeUserPersonality(userId, totalFacts).catch((err) =>
           console.warn("FactExtractor: personality synthesis failed:", err),
+        );
+      }
+    }
+
+    // Trigger per-user profile rebuild if enough new facts accumulated
+    if (userId && saved > 0) {
+      trackProfileFactAdded(userId);
+      if (shouldRebuildProfile(userId)) {
+        buildUserProfile(userId).catch((err) =>
+          console.warn("FactExtractor: profile rebuild failed:", err),
         );
       }
     }

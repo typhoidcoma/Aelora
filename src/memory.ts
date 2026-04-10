@@ -40,10 +40,14 @@ export async function configureMemory(opts: MemoryConfig): Promise<void> {
 
 // Prompt injection caps  -  keep system prompt bounded (more available via memory search tool)
 const MAX_GLOBAL_INJECTED = 5;
-const MAX_SCOPED_INJECTED = 8;
+const MAX_SCOPED_INJECTED = 10;
+const MAX_TEMPORAL_INJECTED = 3;
 
-export type FactCategory = "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual";
+export type FactCategory =
+  | "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual"
+  | "task" | "goal" | "sentiment" | "life_event" | "social" | "opinion";
 export type FactConfidence = "stated" | "inferred";
+export type FactTemporal = "permanent" | "short_term" | "medium_term";
 
 export type MemoryFact = {
   fact: string;
@@ -53,12 +57,18 @@ export type MemoryFact = {
   source: string;            // "channel:123", "manual", "legacy", "consolidation"
   lastAccessedAt?: string;
   accessCount?: number;
+  expiresAt?: string;        // ISO date — fact becomes irrelevant after this
+  relevantDate?: string;     // ISO date — when the fact is most relevant (deadline, meeting)
+  temporal?: FactTemporal;   // hint for ranking and auto-expiry
 };
 
 export type FactMetadataInput = {
   category?: FactCategory;
   confidence?: FactConfidence;
   source?: string;
+  expiresAt?: string;
+  relevantDate?: string;
+  temporal?: FactTemporal;
 };
 
 type MemoryStore = Record<string, MemoryFact[]>;
@@ -127,6 +137,9 @@ export function saveFact(
     confidence: metadata?.confidence ?? "inferred",
     source: metadata?.source ?? "auto",
     accessCount: 0,
+    ...(metadata?.expiresAt ? { expiresAt: metadata.expiresAt } : {}),
+    ...(metadata?.relevantDate ? { relevantDate: metadata.relevantDate } : {}),
+    ...(metadata?.temporal ? { temporal: metadata.temporal } : {}),
   };
   store[scope].push(entry);
 
@@ -144,6 +157,9 @@ export function saveFact(
       category: entry.category,
       confidence: entry.confidence,
       source: entry.source,
+      ...(entry.expiresAt ? { expiresAt: entry.expiresAt } : {}),
+      ...(entry.relevantDate ? { relevantDate: entry.relevantDate } : {}),
+      ...(entry.temporal ? { temporal: entry.temporal } : {}),
     }).catch((err) => {
       console.warn("Memory: vector indexing failed:", formatError(err));
     });
@@ -240,13 +256,31 @@ function ensureAccessFlushTimer(): void {
 
 function rankFact(semanticScore: number, fact: MemoryFact): number {
   const now = Date.now();
+
+  // Expired facts sink to near-zero — kept for consolidation but not injected
+  if (fact.expiresAt) {
+    const expiryTime = new Date(fact.expiresAt).getTime();
+    if (!isNaN(expiryTime) && expiryTime < now) return 0.05;
+  }
+
   // Recency: exponential decay over 30 days, floor at 0.3
   const ageDays = (now - new Date(fact.savedAt).getTime()) / 86_400_000;
   const recency = Math.max(0.3, Math.exp(-0.03 * ageDays));
   // Access frequency: log boost, capped at 0.2
   const accessBoost = Math.min(0.2, 0.05 * Math.log2(1 + (fact.accessCount ?? 0)));
   // Blend: semantic 70%, recency 20%, access 10%
-  return semanticScore * 0.70 + recency * 0.20 + accessBoost * 0.10;
+  let score = semanticScore * 0.70 + recency * 0.20 + accessBoost * 0.10;
+
+  // Temporal relevance boost: facts with relevantDate within ±48 hours get 1.5x
+  if (fact.relevantDate) {
+    const relevantTime = new Date(fact.relevantDate).getTime();
+    if (!isNaN(relevantTime)) {
+      const hoursAway = Math.abs(relevantTime - now) / 3_600_000;
+      if (hoursAway <= 48) score *= 1.5;
+    }
+  }
+
+  return score;
 }
 
 /**
@@ -327,6 +361,64 @@ function formatFactLine(fact: string, _scope: string): string {
 }
 
 /**
+ * Collect temporal facts with relevantDate within the next 48 hours.
+ * Returns a formatted "Upcoming" section string, or null if none found.
+ */
+function buildUpcomingSection(userId: string | null, channelId: string | null): string | null {
+  const now = Date.now();
+  const horizon = 48 * 3_600_000; // 48 hours
+  const upcoming: { fact: string; relevantDate: string }[] = [];
+
+  const scopes: string[] = ["global"];
+  if (userId) scopes.push(`user:${userId}`);
+  if (channelId) scopes.push(`channel:${channelId}`);
+
+  for (const scope of scopes) {
+    const facts = store[scope] ?? [];
+    for (const f of facts) {
+      if (!f.relevantDate) continue;
+      const relevantTime = new Date(f.relevantDate).getTime();
+      if (isNaN(relevantTime)) continue;
+      const diff = relevantTime - now;
+      // Include facts from 24h ago (might still be relevant today) to 48h ahead
+      if (diff > -24 * 3_600_000 && diff < horizon) {
+        upcoming.push({ fact: f.fact, relevantDate: f.relevantDate });
+      }
+    }
+  }
+
+  if (upcoming.length === 0) return null;
+
+  // Sort by relevantDate, take up to MAX_TEMPORAL_INJECTED
+  upcoming.sort((a, b) => new Date(a.relevantDate).getTime() - new Date(b.relevantDate).getTime());
+  const capped = upcoming.slice(0, MAX_TEMPORAL_INJECTED);
+
+  const lines = ["### Upcoming for this user"];
+  for (const u of capped) {
+    const date = new Date(u.relevantDate);
+    const label = formatRelativeDate(date);
+    lines.push(`- ${u.fact} (${label})`);
+  }
+  return lines.join("\n");
+}
+
+/** Format a date as a human-friendly relative label (today, tomorrow, day name, or date). */
+function formatRelativeDate(date: Date): string {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((targetStart.getTime() - todayStart.getTime()) / 86_400_000);
+
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "tomorrow";
+  if (diffDays === -1) return "yesterday";
+  if (diffDays > 1 && diffDays <= 6) {
+    return date.toLocaleDateString("en-US", { weekday: "long" });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
  * Build a formatted memory block for system prompt injection.
  * When vector search is available and conversationContext is provided,
  * selects the most relevant facts instead of the most recent.
@@ -337,6 +429,10 @@ export async function getMemoryForPrompt(
   conversationContext?: string,
 ): Promise<string> {
   const sections: string[] = [];
+
+  // Collect upcoming temporal facts (relevantDate within next 48 hours)
+  const upcomingSection = buildUpcomingSection(userId, channelId);
+  if (upcomingSection) sections.push(upcomingSection);
 
   if (vectorEnabled && conversationContext) {
     // Semantic relevance-based injection
@@ -419,7 +515,12 @@ export async function getMemoryForPrompt(
   }
 
   // Recency-based fallback (original behavior)
-  return getMemoryForPromptRecency(userId, channelId);
+  const recency = getMemoryForPromptRecency(userId, channelId);
+  // If we have upcoming facts but recency fallback is empty, still return upcoming
+  if (!recency && upcomingSection) {
+    return "\n\n## Memory\nThings you remember from past conversations. Reference these naturally, like a friend recalling something. Don't force it; only surface a memory when it genuinely connects to what's being discussed.\n" + upcomingSection;
+  }
+  return recency;
 }
 
 /** Original recency-based memory injection — used as fallback. */
@@ -468,12 +569,13 @@ function getMemoryForPromptRecency(userId: string | null, channelId: string | nu
 
 /**
  * Remove facts older than maxAgeDays across all scopes.
+ * Also prunes expired temporal facts (expiresAt < now) with low access counts.
  * Returns the number of facts pruned.
  */
-export function pruneFacts(maxAgeDays: number): number {
-  if (maxAgeDays <= 0) return 0;
-
-  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+export function pruneFacts(maxAgeDays: number, opts?: { temporalExpiry?: boolean }): number {
+  const now = Date.now();
+  const ageCutoff = maxAgeDays > 0 ? now - maxAgeDays * 24 * 60 * 60 * 1000 : 0;
+  const temporalExpiry = opts?.temporalExpiry ?? true;
   let pruned = 0;
   const prunedFacts: { scope: string; fact: string }[] = [];
 
@@ -481,11 +583,20 @@ export function pruneFacts(maxAgeDays: number): number {
     const before = facts.length;
     const kept: MemoryFact[] = [];
     for (const f of facts) {
-      if (new Date(f.savedAt).getTime() >= cutoff) {
-        kept.push(f);
-      } else {
+      // Age-based pruning
+      if (maxAgeDays > 0 && new Date(f.savedAt).getTime() < ageCutoff) {
         prunedFacts.push({ scope, fact: f.fact });
+        continue;
       }
+      // Temporal expiry: remove facts past expiresAt with low access (< 2)
+      if (temporalExpiry && f.expiresAt) {
+        const expiryTime = new Date(f.expiresAt).getTime();
+        if (!isNaN(expiryTime) && expiryTime < now && (f.accessCount ?? 0) < 2) {
+          prunedFacts.push({ scope, fact: f.fact });
+          continue;
+        }
+      }
+      kept.push(f);
     }
     store[scope] = kept;
     pruned += before - kept.length;
@@ -495,7 +606,10 @@ export function pruneFacts(maxAgeDays: number): number {
 
   if (pruned > 0) {
     save();
-    console.log(`Memory: pruned ${pruned} fact(s) older than ${maxAgeDays} days`);
+    const reasons: string[] = [];
+    if (maxAgeDays > 0) reasons.push(`older than ${maxAgeDays} days`);
+    if (temporalExpiry) reasons.push("expired temporal facts");
+    console.log(`Memory: pruned ${pruned} fact(s) (${reasons.join(", ")})`);
 
     // Fire-and-forget vector removal for pruned facts
     if (vectorEnabled) {

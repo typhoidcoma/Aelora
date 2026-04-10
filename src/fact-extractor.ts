@@ -6,10 +6,11 @@
 import type OpenAI from "openai";
 import { getLLMClient, getAuxiliaryModel, getDisableThinking, stripThinkBlocks } from "./llm.js";
 import { saveFact, getFacts, deleteFact, searchFactsKeyword } from "./memory.js";
-import type { FactCategory, FactConfidence } from "./memory.js";
+import type { FactCategory, FactConfidence, FactTemporal } from "./memory.js";
 import { isDuplicateSemantic, isReady as isVectorReady, formatError } from "./vector-store.js";
 import { getUser, updateUserSynthesis } from "./users.js";
 import { broadcastEvent } from "./logger.js";
+import { consumeTriageResult } from "./message-triage.js";
 
 // ── Throttle state (per-channel) ─────────────────────────
 
@@ -26,37 +27,60 @@ const SYNTHESIS_DELTA = 3;      // re-synthesize after this many new facts
 
 // ── Extraction prompt ────────────────────────────────────
 
-const EXTRACT_SYSTEM =
-  "You are a JSON-only fact extractor. Output ONLY a single JSON object. No text before or after. No analysis. No explanation. No markdown. No reasoning. Just the JSON object.\n\n" +
-  "Extract facts that would be useful to remember for future conversations:\n" +
-  "- User preferences, opinions, or tastes\n" +
-  "- Personal details (name, location, job, projects, pets, etc.)\n" +
-  "- Decisions made or plans committed to\n" +
-  "- Technical context (what they're working on, tools they use)\n" +
-  "- Relationship dynamics or recurring topics\n" +
-  "- Communication style and tone (how they write, humor, energy level, verbosity)\n" +
-  "- Emotional patterns (what energizes or frustrates them, how they engage)\n\n" +
-  "Each fact is an object with:\n" +
-  '- "fact": short self-contained statement (under 200 chars)\n' +
-  '- "category": one of "preference", "biographical", "behavioral", "relationship", "technical", "contextual"\n' +
-  '- "confidence": "stated" (user explicitly said it) or "inferred" (implied from context)\n\n' +
-  "Categories:\n" +
-  '- preference: likes, dislikes, opinions, tastes\n' +
-  '- biographical: name, location, job, age, pets, family\n' +
-  '- behavioral: communication style, habits, patterns, tone\n' +
-  '- relationship: dynamics with others, social context\n' +
-  '- technical: tools, languages, projects, skills\n' +
-  '- contextual: situational facts, current events, plans\n\n' +
-  "Rules:\n" +
-  "- Only extract facts that are clearly stated or strongly implied, not speculation\n" +
-  "- If no noteworthy facts exist, return empty arrays\n" +
-  '- If existing facts are provided, check for CONTRADICTIONS — facts that are mutually exclusive (e.g. changed preference, moved location, switched job). Only flag true contradictions, NOT additions.\n\n' +
-  'Response format:\n' +
-  '{"user_facts":[{"fact":"...","category":"preference","confidence":"stated"}],' +
-  '"personality_facts":[{"fact":"...","category":"behavioral","confidence":"inferred"}],' +
-  '"channel_facts":[{"fact":"...","category":"contextual","confidence":"stated"}],' +
-  '"global_facts":[{"fact":"...","category":"contextual","confidence":"inferred"}],' +
-  '"contradictions":[{"new_fact":"prefers Python","replaces":"prefers JavaScript"}]}';
+function buildExtractSystem(): string {
+  const today = new Date().toISOString().split("T")[0];
+  return (
+    "You are a JSON-only fact extractor. Output ONLY a single JSON object. No text before or after. No analysis. No explanation. No markdown. No reasoning. Just the JSON object.\n\n" +
+    `Today's date is ${today}.\n\n` +
+    "Extract facts that would be useful to remember for future conversations:\n" +
+    "- User preferences, opinions, or tastes\n" +
+    "- Personal details (name, location, job, projects, pets, etc.)\n" +
+    "- Action items, tasks, deadlines, things the user needs to do\n" +
+    "- Goals and aspirations (career, projects, personal ambitions)\n" +
+    "- How the user feels about specific topics (frustration, excitement, stress tied to a subject)\n" +
+    "- Life events (moving, vacation, illness, milestones, new job)\n" +
+    "- People mentioned by name and their relationship to the user\n" +
+    "- Strong opinions, stances, beliefs, recurring takes\n" +
+    "- Technical context (what they're working on, tools they use)\n" +
+    "- Communication style and tone (how they write, humor, energy level)\n\n" +
+    "Each fact is an object with:\n" +
+    '- "fact": short self-contained statement (under 200 chars)\n' +
+    '- "category": one of the categories below\n' +
+    '- "confidence": "stated" (user explicitly said it) or "inferred" (implied from context)\n' +
+    '- "expiresAt": (optional) ISO date when the fact becomes irrelevant\n' +
+    '- "relevantDate": (optional) ISO date when the fact is most relevant (deadline, meeting, event)\n\n' +
+    "Categories:\n" +
+    "- preference: likes, dislikes, light opinions, tastes\n" +
+    "- biographical: name, location, job, age, pets, family\n" +
+    "- behavioral: communication style, habits, patterns, tone\n" +
+    "- relationship: dynamics with others in general\n" +
+    "- technical: tools, languages, projects, skills\n" +
+    "- contextual: situational facts, current state\n" +
+    '- task: action items, to-dos, deadlines ("need to finish report by Friday")\n' +
+    '- goal: longer-term aspirations, plans, career direction\n' +
+    '- sentiment: feelings about SPECIFIC topics ("frustrated with webpack", "excited about new project"). NOT generic mood.\n' +
+    "- life_event: significant happenings (moving, vacation, illness, milestones)\n" +
+    "- social: people the user mentions by name and their relationship/context\n" +
+    "- opinion: strong stances, beliefs, values, recurring positions\n\n" +
+    "Temporal rules:\n" +
+    `- Resolve relative dates to absolute ISO dates based on today (${today}). "tomorrow" → next day, "next Friday" → the upcoming Friday, etc.\n` +
+    '- For tasks with deadlines, set "relevantDate" to the deadline and "expiresAt" to 1 day after.\n' +
+    '- For events/appointments, set "relevantDate" to the event date.\n' +
+    "- Only include temporal fields when dates are mentioned or clearly implied.\n\n" +
+    "Rules:\n" +
+    "- Only extract facts that are clearly stated or strongly implied, not speculation\n" +
+    "- If no noteworthy facts exist, return empty arrays\n" +
+    '- If existing facts are provided, check for CONTRADICTIONS — facts that are mutually exclusive (e.g. changed preference, moved location, switched job). Only flag true contradictions, NOT additions.\n' +
+    "- For sentiment, always tie it to a specific subject. Never extract generic mood states.\n" +
+    "- For social facts, include who the person is in relation to the user.\n\n" +
+    "Response format:\n" +
+    '{"user_facts":[{"fact":"...","category":"task","confidence":"stated","relevantDate":"2026-04-11","expiresAt":"2026-04-12"}],' +
+    '"personality_facts":[{"fact":"...","category":"behavioral","confidence":"inferred"}],' +
+    '"channel_facts":[{"fact":"...","category":"contextual","confidence":"stated"}],' +
+    '"global_facts":[{"fact":"...","category":"contextual","confidence":"inferred"}],' +
+    '"contradictions":[{"new_fact":"prefers Python","replaces":"prefers JavaScript"}]}'
+  );
+}
 
 // ── Synthesis prompt ──────────────────────────────────────
 
@@ -103,6 +127,27 @@ export async function extractFacts(
 
   let snippet = `User: ${userMessage.slice(0, 500)}\n\nBot: ${botResponse.slice(0, 500)}`;
 
+  // Inject pre-response triage data if available (resolved dates, entities, sentiment hints)
+  const triage = consumeTriageResult(channelId);
+  if (triage) {
+    const hints: string[] = [];
+    if (Object.keys(triage.resolvedDates).length > 0) {
+      hints.push(`Resolved dates: ${JSON.stringify(triage.resolvedDates)}`);
+    }
+    if (triage.namedEntities.length > 0) {
+      hints.push(`Named entities: ${triage.namedEntities.join(", ")}`);
+    }
+    if (triage.sentiment) {
+      hints.push(`User sentiment: ${triage.sentiment}`);
+    }
+    if (triage.hasActionItems) {
+      hints.push("User mentioned action items or tasks.");
+    }
+    if (hints.length > 0) {
+      snippet += `\n\nPre-analysis hints:\n${hints.join("\n")}`;
+    }
+  }
+
   // Inject existing facts for contradiction detection
   const existingFacts: string[] = [];
   if (userId) {
@@ -123,7 +168,7 @@ export async function extractFacts(
       max_completion_tokens: 4096,
       ...(getDisableThinking() ? { enable_thinking: false } : {}),
       messages: [
-        { role: "system", content: EXTRACT_SYSTEM },
+        { role: "system", content: buildExtractSystem() },
         { role: "user", content: getDisableThinking() ? `/no_think\n${snippet}` : snippet },
       ],
     };
@@ -144,7 +189,7 @@ export async function extractFacts(
       return;
     }
 
-    type FactEntry = string | { fact: string; category?: string; confidence?: string };
+    type FactEntry = string | { fact: string; category?: string; confidence?: string; expiresAt?: string; relevantDate?: string };
     type Contradiction = { new_fact: string; replaces: string };
     type ParsedExtraction = {
       user_facts?: FactEntry[];
@@ -171,7 +216,23 @@ export async function extractFacts(
     }
 
     // Normalize a fact entry (string or object) into text + metadata
-    function normalizeFact(entry: FactEntry): { text: string; category: FactCategory; confidence: FactConfidence } | null {
+    const validCategories: FactCategory[] = [
+      "preference", "biographical", "behavioral", "relationship", "technical", "contextual",
+      "task", "goal", "sentiment", "life_event", "social", "opinion",
+    ];
+
+    // Temporal defaults by category
+    const temporalDefaults: Record<string, { temporal: FactTemporal; defaultExpiryDays?: number }> = {
+      task: { temporal: "short_term", defaultExpiryDays: 7 },
+      sentiment: { temporal: "medium_term", defaultExpiryDays: 30 },
+      life_event: { temporal: "medium_term", defaultExpiryDays: 90 },
+      goal: { temporal: "permanent" },
+    };
+
+    function normalizeFact(entry: FactEntry): {
+      text: string; category: FactCategory; confidence: FactConfidence;
+      expiresAt?: string; relevantDate?: string; temporal?: FactTemporal;
+    } | null {
       if (typeof entry === "string") {
         const t = entry.trim();
         return t ? { text: t, category: "contextual", confidence: "inferred" } : null;
@@ -179,12 +240,37 @@ export async function extractFacts(
       if (entry && typeof entry.fact === "string") {
         const t = entry.fact.trim();
         if (!t) return null;
-        const validCategories: FactCategory[] = ["preference", "biographical", "behavioral", "relationship", "technical", "contextual"];
         const cat = validCategories.includes(entry.category as FactCategory) ? (entry.category as FactCategory) : "contextual";
         const conf: FactConfidence = entry.confidence === "stated" ? "stated" : "inferred";
-        return { text: t, category: cat, confidence: conf };
+
+        // Parse temporal fields
+        let expiresAt = parseISODate(entry.expiresAt);
+        const relevantDate = parseISODate(entry.relevantDate);
+        const defaults = temporalDefaults[cat];
+        const temporal = defaults?.temporal;
+
+        // Apply default expiry if category has one and no explicit expiry was provided
+        if (!expiresAt && defaults?.defaultExpiryDays) {
+          const d = new Date();
+          d.setDate(d.getDate() + defaults.defaultExpiryDays);
+          expiresAt = d.toISOString().split("T")[0];
+        }
+
+        return { text: t, category: cat, confidence: conf, expiresAt, relevantDate, temporal };
       }
       return null;
+    }
+
+    /** Validate and return an ISO date string, or undefined if invalid/unreasonable. */
+    function parseISODate(val: string | undefined): string | undefined {
+      if (!val || typeof val !== "string") return undefined;
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return undefined;
+      // Reject dates more than 1 year in the future or 1 year in the past
+      const now = Date.now();
+      const oneYear = 365 * 24 * 3_600_000;
+      if (d.getTime() > now + oneYear || d.getTime() < now - oneYear) return undefined;
+      return val;
     }
 
     // Process contradictions first — delete old facts that are being replaced
@@ -210,13 +296,16 @@ export async function extractFacts(
     let saved = 0;
     const source = `channel:${channelId}`;
 
-    // Save user-scoped facts (max 3 per extraction)
+    // Save user-scoped facts (max 4 per extraction)
     if (userId && Array.isArray(parsed.user_facts)) {
-      for (const entry of parsed.user_facts.slice(0, 3)) {
+      for (const entry of parsed.user_facts.slice(0, 4)) {
         const f = normalizeFact(entry);
         if (!f) continue;
         if (await isDuplicate(f.text, `user:${userId}`)) continue;
-        const r = saveFact(`user:${userId}`, f.text, { category: f.category, confidence: f.confidence, source });
+        const r = saveFact(`user:${userId}`, f.text, {
+          category: f.category, confidence: f.confidence, source,
+          expiresAt: f.expiresAt, relevantDate: f.relevantDate, temporal: f.temporal,
+        });
         if (r.success) saved++;
       }
     }
@@ -229,7 +318,10 @@ export async function extractFacts(
         // Personality facts default to behavioral if model didn't specify
         if (typeof entry !== "string" && !entry.category) f.category = "behavioral";
         if (await isDuplicate(f.text, `user:${userId}`)) continue;
-        const r = saveFact(`user:${userId}`, f.text, { category: f.category, confidence: f.confidence, source });
+        const r = saveFact(`user:${userId}`, f.text, {
+          category: f.category, confidence: f.confidence, source,
+          expiresAt: f.expiresAt, relevantDate: f.relevantDate, temporal: f.temporal,
+        });
         if (r.success) saved++;
       }
     }
@@ -240,7 +332,10 @@ export async function extractFacts(
         const f = normalizeFact(entry);
         if (!f) continue;
         if (await isDuplicate(f.text, `channel:${channelId}`)) continue;
-        const r = saveFact(`channel:${channelId}`, f.text, { category: f.category, confidence: f.confidence, source });
+        const r = saveFact(`channel:${channelId}`, f.text, {
+          category: f.category, confidence: f.confidence, source,
+          expiresAt: f.expiresAt, relevantDate: f.relevantDate, temporal: f.temporal,
+        });
         if (r.success) saved++;
       }
     }
@@ -251,7 +346,10 @@ export async function extractFacts(
         const f = normalizeFact(entry);
         if (!f) continue;
         if (await isDuplicate(f.text, "global")) continue;
-        const r = saveFact("global", f.text, { category: f.category, confidence: f.confidence, source });
+        const r = saveFact("global", f.text, {
+          category: f.category, confidence: f.confidence, source,
+          expiresAt: f.expiresAt, relevantDate: f.relevantDate, temporal: f.temporal,
+        });
         if (r.success) saved++;
       }
     }

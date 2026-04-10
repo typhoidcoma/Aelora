@@ -19,11 +19,16 @@ let consolidationEnabled = true;
 const CONSOLIDATION_PROMPT =
   "You are a fact consolidation engine. Given a list of related facts about the same topic, " +
   "merge them into fewer, richer statements. Preserve ALL specific details — names, numbers, dates, tools, preferences.\n\n" +
+  "Categories: preference, biographical, behavioral, relationship, technical, contextual, " +
+  "task, goal, sentiment, life_event, social, opinion\n\n" +
   "Rules:\n" +
   "- Only merge facts that are truly related and can be combined without losing information\n" +
   "- If facts are unrelated, leave them as-is (don't include their indices in consumed)\n" +
   "- Each merged fact should be under 200 characters\n" +
-  "- Preserve the most specific category and highest confidence from the merged facts\n\n" +
+  "- Preserve the most specific category and highest confidence from the merged facts\n" +
+  "- NEVER merge task facts with different dates/deadlines — each task is distinct\n" +
+  "- For sentiment facts about the same topic, merge into a trend (e.g. 'consistently frustrated with X')\n" +
+  "- Preserve any temporal metadata (expiresAt, relevantDate) from the most relevant source fact\n\n" +
   "Output ONLY a JSON object, no other text:\n" +
   '{"merged":[{"fact":"...","category":"preference","confidence":"stated"}],"consumed":[0,2,4]}\n\n' +
   "consumed = zero-indexed positions of input facts that were merged into the new statements.\n" +
@@ -125,7 +130,10 @@ async function consolidateScope(scope: string): Promise<string | void> {
 
       for (const m of parsed.merged) {
         if (!m.fact || typeof m.fact !== "string") continue;
-        const validCategories: FactCategory[] = ["preference", "biographical", "behavioral", "relationship", "technical", "contextual"];
+        const validCategories: FactCategory[] = [
+          "preference", "biographical", "behavioral", "relationship", "technical", "contextual",
+          "task", "goal", "sentiment", "life_event", "social", "opinion",
+        ];
         const cat = validCategories.includes(m.category as FactCategory) ? (m.category as FactCategory) : (category as FactCategory);
         const conf: FactConfidence = m.confidence === "stated" ? "stated" : "inferred";
 

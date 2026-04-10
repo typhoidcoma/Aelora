@@ -9,6 +9,7 @@ import { analyzeUserText } from "./emotion-vector.js";
 import { appendLog } from "./daily-log.js";
 import { updateUser } from "./users.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
+import { triageUserMessage } from "./message-triage.js";
 import { addWSClient } from "./logger.js";
 
 // ============================================================
@@ -177,6 +178,9 @@ export function startWebSocket(server: Server, config: Config): void {
             updateUser(state.userId, state.username, state.sessionId);
           }
           trackMessage(state.sessionId);
+
+          // Fire-and-forget pre-response triage
+          triageUserMessage(msg.content, state.sessionId).catch(() => {});
 
           try {
             const reply = await getLLMResponse(

@@ -13,6 +13,9 @@ type FactMetadata = {
   category?: string;
   confidence?: string;
   source?: string;
+  expiresAt?: string;
+  relevantDate?: string;
+  temporal?: string;
 };
 
 export interface SemanticSearchResult {
@@ -196,7 +199,7 @@ export async function indexFact(
   scope: string,
   fact: string,
   savedAt: string,
-  extra?: { category?: string; confidence?: string; source?: string },
+  extra?: { category?: string; confidence?: string; source?: string; expiresAt?: string; relevantDate?: string; temporal?: string },
 ): Promise<void> {
   if (!index || !embeddings) return;
 

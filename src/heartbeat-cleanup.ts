@@ -20,8 +20,9 @@ const dataCleanup: HeartbeatHandler = {
     const results: string[] = [];
 
     const memoryMaxAge = ctx.config.memory.maxAgeDays;
-    if (memoryMaxAge > 0) {
-      const pruned = pruneFacts(memoryMaxAge);
+    const temporalExpiry = ctx.config.memory.temporalExpiryEnabled !== false;
+    if (memoryMaxAge > 0 || temporalExpiry) {
+      const pruned = pruneFacts(memoryMaxAge, { temporalExpiry });
       if (pruned > 0) results.push(`pruned ${pruned} memory fact(s)`);
     }
 

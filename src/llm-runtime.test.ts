@@ -93,6 +93,9 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       semanticSearchMinScore: 0.3,
       consolidationEnabled: true,
       consolidationThreshold: 10,
+      triageEnabled: true,
+      triageCooldownMs: 30000,
+      temporalExpiryEnabled: true,
     },
     logger: {
       maxBuffer: 200,

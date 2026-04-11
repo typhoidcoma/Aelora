@@ -1,4 +1,4 @@
-﻿# Aelora
+# Aelora
 
 <p align="center">
   <img src="assets/aelora_art_04.png" alt="Aelora" width="320" />
@@ -6,7 +6,7 @@
 
 **The embodiment layer of the Luminora Emotion Engine.**
 
-Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system (Persona), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, a scoring and gamification engine, and a live web dashboard.
+Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system (Persona), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, a smart memory system, and a live web dashboard.
 
 ---
 
@@ -18,40 +18,33 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - **Persona System** - Composable personality from layered markdown files with hot-reload
 - **Tool Framework** - Drop a `.ts` file in `src/tools/`, it auto-loads with typed params and config resolution
 - **Agent Framework** - Sub-agents with their own system prompts, tool allowlists, and reasoning loops
-- **Memory** - Per-user and per-channel fact storage with enriched metadata (category, confidence, source), semantic search via vector embeddings (Vectra + OpenAI), auto-extraction with contradiction detection, weighted ranking (semantic relevance + recency + access frequency), periodic consolidation of related facts, and automatic personality profile synthesis
+- **Smart Memory** - Per-user and per-channel fact storage with 12 enriched categories, temporal awareness (expiresAt/relevantDate with auto-expiry), semantic search via vector embeddings (Vectra + OpenAI), auto-extraction with contradiction detection, weighted ranking (semantic relevance + recency + access frequency + temporal boost), periodic consolidation, and pre-response message triage
+- **Per-User Profiles** - LLM-synthesized markdown dossiers per user (`data/users/{userId}.md`), always injected into system prompt, auto-rebuilt as the bot learns more
+- **Token Usage Tracking** - Centralized tracking of all LLM token usage with lifetime/daily/hourly/by-model/by-source breakdowns, persisted to disk, dashboard stat card
 - **Web Search** - Configurable provider (Brave or OpenAI Responses API)
-- **Google Tasks** - Full task management: list, create, complete, update, delete
-- **Google Calendar** - Full calendar CRUD with event reminders via heartbeat
+- **Google Tasks** - Full task management: list, create, complete, update, delete (per-user task lists)
+- **Google Calendar** - Full calendar CRUD with event reminders via heartbeat (per-user calendars)
 - **Gmail** - Read, send, search, label, and trash messages
 - **Google Docs** - Read, create, append, search documents
 - **Knowledge Base** - Sync a Google Drive folder to the vector index; files (Docs, PDFs, text, Sheets, images) are chunked, embedded, and auto-searched on every message
 - **Linear** - Issue tracking and project management (issues CRUD, projects, teams, search, comments, GraphQL)
-- **Scoring System** - Science-backed 0-100 task scoring with XP, streaks, achievements, and adaptive per-user learning (see below)
+- **Quests** - Personal quest system via Supabase (create, complete, list, favorite) with completion logs
 - **Notes** - Persistent notes scoped to channels or global
-- **Date Resolution** - Natural language date parsing (chrono-node) for accurate scheduling ("next Friday", "in 2 hours")
+- **Date Resolution** - Natural language date parsing (chrono-node) for accurate scheduling
 - **Cron Jobs** - Scheduled messages (static or LLM-generated) with timezone support, silent mode, runtime CRUD
 - **Sessions** - Conversation tracking with metadata, persisted to disk
 - **Daily Log** - Automatic daily activity logging
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
-- **Image Generation** - DALL-E 3 / gpt-image-1 via the luminizer tool (text-to-image generation, image-to-image restyling, configurable style prompts)
-- **Heartbeat** - Periodic handlers for calendar reminders, task sync, memory compaction, fact consolidation, data cleanup, knowledge base sync
+- **Image Generation** - DALL-E 3 / gpt-image-1 via the luminizer tool
+- **Heartbeat** - Periodic handlers for calendar reminders, memory compaction, fact consolidation, data cleanup, knowledge base sync
 - **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
-- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations, opposition validation), auto-classified per response with behavioral guidance injected into every prompt
-- **Real-Time Emotion Vectors** - Continuous 8D emotion vectors (one float per Plutchik emotion) broadcast during LLM streaming via heuristic lexicon analysis (~1-3x/sec, zero API cost) and refined by LLM classification — designed for 3D mesh animation
-- **Data Export** - JSON bundle of all bot data via API or dashboard
-- **File Logging** - Optional daily log files with automatic rotation
-- **Config Validation** - Zod-powered schema validation with clear startup errors
-- **Lite Mode** - Slim tool schemas and trimmed prompts for local models (4B-7B)
+- **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations), auto-classified per response
+- **Real-Time Emotion Vectors** - Continuous 8D emotion vectors broadcast during LLM streaming via heuristic lexicon analysis for 3D mesh animation
+- **Ambient Awareness** - Passive channel monitoring with message buffers, engagement tracking, and configurable triggers that let the bot join conversations naturally
+- **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with stat cards, live console, real-time LLM visualization, and full data management
 - **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
-- **Quests** - Personal quest system via Supabase (create, complete, list, favorite) with completion logs, used by the Patyna frontend client
-- **External Frontend Support** - REST + WebSocket APIs designed for external frontends (e.g. Patyna web app) with their own auth, independent of Discord
-- **Security Hardening (Compat Mode)** - Bearer-first auth with deprecated query-token fallback and sensitive-route protection
-- **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with at-a-glance stat cards, achievements, calendar, scoring, live console, real-time LLM conversation visualization, and full data management
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
 - **Async Persistence Queue** - Debounced/coalesced async writes with bounded flush and graceful shutdown draining
-- **Ambient Awareness** - Passive channel monitoring with per-channel message buffers, engagement tracking, and configurable triggers (conversation participation, image reactions) that let the bot join conversations naturally without being addressed
-- **Connection Guards** - SSE/WS client caps and payload-size limits for stream/export endpoints
-- **Configurable Timezone** - Global IANA timezone for cron, logs, and date formatting
 
 </details>
 
@@ -65,7 +58,6 @@ Aelora is an LLM-powered Discord bot built as part of the Aeveon creative univer
 - [Node.js](https://nodejs.org/) 22+
 - A Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
 - An LLM API key (OpenAI, or any compatible provider)
-- A [Supabase](https://supabase.com/) project (free tier) for scoring persistence
 
 ### Setup
 
@@ -104,114 +96,37 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `llm` | API endpoint, model, max tokens, conversation history length, auxiliaryModel, lite mode |
 | `persona` | Personality system toggle, directory, bot name, active persona |
 | `tools` | Per-tool config (API keys, Google OAuth credentials, etc.) |
-| `supabase` | Supabase project URL and anon key for scoring persistence |
 | `agents` | Agent system toggle, max iterations |
 | `heartbeat` | Periodic handler system interval (default: 15 min) |
-| `memory` | Max facts per scope, max fact length, max age, vector search, embedding config, consolidation |
+| `memory` | Max facts per scope, categories, temporal expiry, vector search, embedding config, consolidation, triage |
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
-| `web` | Dashboard toggle, port, apiKey, basePath (reverse proxy prefix), auth compatibility flags, sensitive-route policy |
+| `web` | Dashboard toggle, port, apiKey, basePath, auth compatibility flags |
 | `activity` | Discord Activity toggle, client ID/secret, server URL |
 | `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
 | `ambient` | Ambient-awareness trigger system (buffer, cadence, per-trigger cooldowns) |
+| `supabase` | Supabase project URL and keys (for quests and per-user data) |
 
-</details>
+### Environment Variables
 
----
+All settings can be overridden with environment variables:
 
-<details>
-<summary><strong>Scoring System</strong></summary>
-
-Aelora scores every task on a 0-100 scale and awards XP on completion. The system is fully automatic: each Discord user gets their own Google Calendar (auto-created on first use), calendar events sync every 15 minutes with LLM-powered metadata enrichment, scores update continuously, and streaks and achievements are tracked without any user input required.
-
-### Score Formula
-
-```
-Total (0-100) = Urgency (0-35) + Impact (0-30) + Effort (0-20) + Context (0-15)
-```
-
-**Urgency** uses exponential temporal decay based on hyperbolic discounting. Tasks with no deadline score 18 (neutral). Overdue tasks score 35 (max). Tasks due soon spike sharply:
-
-| Time until due | Urgency |
+| Variable | Overrides |
 |---|---|
-| Overdue | 35 |
-| 1 hour | 34.5 |
-| 12 hours | 30 |
-| 1 day | 25 |
-| 3 days | 16 |
-| 7 days | 7 |
-| None | 18 |
-
-**Impact** scores the consequence of NOT doing the task:
-
-| Level | Score | Example |
-|---|---|---|
-| trivial | 5 | Reorganize a shelf |
-| low | 10 | Non-urgent email |
-| moderate | 17 | Grocery run |
-| high | 24 | Pay a bill |
-| critical | 30 | Surgery, tax deadline |
-
-+6 if irreversible (window can't be recovered), +3 if it affects others. Capped at 30.
-
-**Effort** uses the SMEQ scale (Subjective Mental Effort Questionnaire, Zijlstra 1993) which measures cognitive load on 0-150. Lower cognitive effort scores higher in this dimension (WSJF throughput logic):
-
-```
-effortScore = max(1, round(20 * (1 - smeq / 150)))
-```
-
-Filing taxes (SMEQ ~110) scores 5. A quick errand (SMEQ ~25) scores 17. This correctly reflects that mentally exhausting tasks should be deprioritized relative to equally urgent but lighter tasks, unless urgency or impact force the issue.
-
-**Context** adapts to each user: category bias from historical completion patterns, streak bonus (up to 5 points for 30-day streaks), and momentum from recent completions.
-
-### XP and Achievements
-
-```
-XP = round(basePoints * streakMultiplier * overdueBonus)
-basePoints = 10 + (score / 100) * 90
-streakMultiplier = 1 + min(streak, 30) / 30   (1.0x to 2.0x)
-overdueBonus = 1.25 if task was overdue, else 1.0
-```
-
-**9 achievements:** First Task, 10 Tasks, 100 Tasks, 3-Day Streak, 7-Day Streak, 30-Day Streak, 1000 XP, High Scorer (90+ score), Overdue Hero.
-
-### Adaptive Learning
-
-After enough completions in a category, the system builds a personal baseline using exponential moving averages (alpha=0.2). Tasks in categories you find easy score higher in the effort dimension; tasks in categories you struggle with score lower, accurately reflecting individual cognitive profiles.
-
-### Discord Commands
-
-```
-@Aelora show my leaderboard
-@Aelora what are my stats
-@Aelora show achievements
-```
-
-### Supabase Setup
-
-1. Create a free project at [supabase.com](https://supabase.com/)
-2. Run all migrations in order in the SQL editor:
-  - [supabase/migrations/001_scoring_system.sql](supabase/migrations/001_scoring_system.sql) - Core scoring tables
-  - [supabase/migrations/002_add_linear_source.sql](supabase/migrations/002_add_linear_source.sql) - Linear source type
-  - [supabase/migrations/003_user_task_lists.sql](supabase/migrations/003_user_task_lists.sql) - Per-user task lists
-  - [supabase/migrations/004_user_calendar.sql](supabase/migrations/004_user_calendar.sql) - Per-user calendar mapping
-3. Disable RLS on all 5 scoring tables (this is a private bot with server-side auth):
-
-```sql
-ALTER TABLE user_profiles  DISABLE ROW LEVEL SECURITY;
-ALTER TABLE life_events     DISABLE ROW LEVEL SECURITY;
-ALTER TABLE scoring_events  DISABLE ROW LEVEL SECURITY;
-ALTER TABLE category_stats  DISABLE ROW LEVEL SECURITY;
-ALTER TABLE achievements    DISABLE ROW LEVEL SECURITY;
-```
-
-4. Add to `settings.yaml`:
-
-```yaml
-supabase:
-  url: "https://your-project.supabase.co"
-  anonKey: "your-anon-key"
-```
+| `AELORA_DISCORD_TOKEN` | `discord.token` |
+| `AELORA_LLM_API_KEY` | `llm.apiKey` |
+| `AELORA_LLM_BASE_URL` | `llm.baseURL` |
+| `AELORA_WEB_API_KEY` | `web.apiKey` |
+| `AELORA_WEB_PORT` | `web.port` |
+| `AELORA_LINEAR_API_KEY` | `tools.linear.apiKey` |
+| `AELORA_EMBEDDING_API_KEY` | `memory.embeddingApiKey` |
+| `AELORA_EMBEDDING_BASE_URL` | `memory.embeddingBaseURL` |
+| `AELORA_SUPABASE_URL` | `supabase.url` |
+| `AELORA_SUPABASE_ANON_KEY` | `supabase.anonKey` |
+| `AELORA_SUPABASE_SERVICE_ROLE_KEY` | `supabase.serviceRoleKey` |
+| `AELORA_KB_DRIVE_FOLDER_ID` | `knowledge.driveFolderId` |
+| `AELORA_ACTIVITY_CLIENT_ID` | `activity.clientId` |
+| `AELORA_ACTIVITY_CLIENT_SECRET` | `activity.clientSecret` |
 
 </details>
 
@@ -294,7 +209,7 @@ knowledge:
 
 Or set `AELORA_KB_DRIVE_FOLDER_ID` as an environment variable.
 
-The bot syncs every 30 minutes by default. Relevant excerpts appear automatically in responses as a "Reference Material" section in the active persona's context. All config options (sync interval, chunk size, overlap, max chunks per prompt, min relevance score) are documented in `settings.example.yaml`.
+The bot syncs every 30 minutes by default. Relevant excerpts appear automatically in responses as a "Reference Material" section.
 
 </details>
 
@@ -321,32 +236,32 @@ You are **{{botName}}**, the embodiment layer of the Luminora Emotion Engine...
 
 Files are sorted by `order`, concatenated, and injected as the system prompt. Variables like `{{botName}}` are substituted from config. Personas can be hot-reloaded from the web dashboard.
 
-### Directory Structure
+</details>
 
-```
-persona/
-â”œâ”€â”€ _shared/
-â”‚   â”œâ”€â”€ bootstrap.md            # Shared response format and rules (order 5)
-â”‚   â””â”€â”€ lore.md                 # Shared Lumie lore and Covenant (order 6)
-â”œâ”€â”€ aelora/
-â”‚   â”œâ”€â”€ soul.md                 # Behavioral core (order 10)
-â”‚   â”œâ”€â”€ execution.md            # Execution protocol (order 15)
-â”‚   â”œâ”€â”€ skills.md               # Character skills (order 50)
-â”‚   â”œâ”€â”€ tools.md                # Tool usage and scoring instructions (order 80)
-â”‚   â””â”€â”€ templates/user.md       # Per-user preferences
-â”œâ”€â”€ wendy/
-â”‚   â”œâ”€â”€ soul.md                 # Behavioral core (order 10)
-â”‚   â”œâ”€â”€ backstory.md            # Wendy-specific lore anchors (order 12)
-â”‚   â”œâ”€â”€ skills.md               # Character skills (order 50)
-â”‚   â””â”€â”€ tools.md                # Tool usage instructions (order 80)
-â”œâ”€â”€ arlo/                       # soul, skills, tools, templates
-â”œâ”€â”€ tyler/                      # soul, skills, tools
-â””â”€â”€ patyna/
-    â”œâ”€â”€ bootstrap.md            # Overrides _shared/bootstrap.md (ambient presence)
-    â”œâ”€â”€ soul.md
-    â”œâ”€â”€ skills.md
-    â””â”€â”€ tools.md
-```
+---
+
+<details>
+<summary><strong>Memory System</strong></summary>
+
+Aelora has a multi-layered memory system:
+
+### Fact Extraction (12 categories)
+Facts are automatically extracted from conversations using an async LLM pass. Each fact is categorized as one of: `preference`, `biographical`, `behavioral`, `relationship`, `technical`, `contextual`, `task`, `goal`, `sentiment`, `life_event`, `social`, `opinion`.
+
+### Temporal Awareness
+Facts can have `expiresAt` and `relevantDate` fields. Relative dates ("tomorrow", "next Friday") are resolved to absolute ISO dates at extraction time. Categories have default expiry periods: tasks (7 days), sentiment (30 days), life events (90 days).
+
+### Pre-Response Triage
+A lightweight async LLM call runs on each incoming message before the bot responds, extracting dates, named entities, sentiment signals, and action items. Results feed into the full fact extraction pass.
+
+### Per-User Profiles
+When enough facts accumulate (5+ total, rebuilt every 3 new), an LLM synthesizes all user facts into a structured markdown dossier at `data/users/{userId}.md`. Sections: Identity, Personality & Style, Interests & Preferences, Technical, Relationships & Social, Goals & Current Focus, Recent Context. Always injected into the system prompt (3500 char cap).
+
+### Prompt Injection
+Up to 10 user facts + 10 channel facts + 5 global facts are injected per conversation, ranked by semantic relevance (70%), recency (20%), and access frequency (10%). Facts with `relevantDate` within 48 hours get a 1.5x boost and appear in a dedicated "Upcoming" section.
+
+### Token Usage Tracking
+Every LLM call across the system is instrumented. Stats are available at `GET /api/tokens` with breakdowns by lifetime, today, hourly (48h rolling), model, and source (chat, extraction, triage, mood, consolidation, ambient, compaction, profile, correction, synthesis).
 
 </details>
 
@@ -377,30 +292,33 @@ export default defineTool({
 });
 ```
 
-`text` goes to the LLM; `data` is returned in REST API responses as structured JSON. Plain strings work too. Files prefixed with `_` are skipped.
+### Built-in Tools
 
-### Adding an Agent
+| Tool | Description |
+|---|---|
+| `tasks` | Google Tasks CRUD (per-user lists) |
+| `google_calendar` | Google Calendar CRUD (per-user calendars) |
+| `gmail` | Gmail read, send, search, label, draft |
+| `google_docs` | Google Docs read, create, append, search |
+| `web_search` | Web search (Brave or OpenAI) |
+| `memory` | Persistent memory with semantic search |
+| `notes` | Scoped note storage |
+| `cron` | Scheduled job management |
+| `set_mood` | Manual emotion control |
+| `date` | Natural language date resolution |
+| `linear` | Linear issue tracking (full CRUD) |
+| `luminizer` | Image generation (DALL-E 3 / gpt-image-1) |
+| `quest` | Patyna quest system (Supabase) |
+| `discord_history` | Discord message history queries |
+| `ping` | Connectivity test |
 
-Create a file in `src/agents/`:
+### Agents
 
-```typescript
-import type { Agent } from "./types.js";
-
-const agent: Agent = {
-  definition: {
-    name: "researcher",
-    description: "Researches a topic using available tools.",
-    systemPrompt: "You are a research assistant.",
-    tools: ["*"],
-    maxIterations: 5,
-  },
-  enabled: true,
-};
-
-export default agent;
-```
-
-Three agents are included: `researcher` (web research with synthesis and note saving), `sprint-planner` (sprint planning), and `standup` (standup reports).
+| Agent | Tools | Description |
+|---|---|---|
+| `researcher` | web_search, notes | Research topics, synthesize, save notes |
+| `sprint_planner` | linear | Plan sprints from Linear backlog |
+| `standup` | linear | Generate standup reports |
 
 </details>
 
@@ -415,7 +333,7 @@ Three agents are included: `researcher` (web research with synthesis and note sa
 | `/tools` | List all tools and agents with status |
 | `/ping` | Latency check |
 | `/new` | Start a fresh session (clears history, summary, and context) |
-| `/websearch [query] [count]` | Search the web (Brave or OpenAI, 1-10 results) |
+| `/websearch [query] [count]` | Search the web (1-10 results) |
 | `/memory view` | View your remembered facts |
 | `/memory add [fact]` | Remember a fact |
 | `/memory clear` | Clear all your remembered facts |
@@ -433,71 +351,173 @@ Three agents are included: `researcher` (web research with synthesis and note sa
 ---
 
 <details>
-<summary><strong>Discord Activity</strong></summary>
+<summary><strong>API Reference</strong></summary>
 
-Host a Unity WebGL build (or any web app) as an embedded Discord Activity in voice channels.
+Full OpenAPI spec available at `/api/docs` when running, or see [openapi.yaml](openapi.yaml).
 
-### Setup
+### Status & Config
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/status` | Bot connection, uptime, guild count |
+| GET | `/api/config` | Sanitized config (no secrets) |
+| GET | `/api/tokens` | Token usage stats (lifetime, today, hourly, by-model, by-source) |
+| POST | `/api/tokens/reset` | Reset token counters |
+| GET | `/api/heartbeat` | Heartbeat handler status |
 
-1. Enable **Activities** in the [Discord Developer Portal](https://discord.com/developers/applications)
-2. Under **Activities > URL Mappings**, add: `/` maps to your server URL (Tailscale Funnel or cloudflared tunnel)
-3. Add to `settings.yaml`:
+### Chat
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/chat` | Send message, get response |
+| POST | `/api/chat/stream` | Streaming chat (SSE) |
+| DELETE | `/api/chat/:sessionId` | Clear session |
 
-```yaml
-activity:
-  enabled: true
-  clientId: "YOUR_APPLICATION_ID"
-  clientSecret: "YOUR_CLIENT_SECRET"
-  serverUrl: "https://your-tunnel.example.com"
-```
+### Memory & Facts
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/memory` | All facts across all scopes |
+| GET | `/api/memory/scope?name=` | Facts for specific scope |
+| DELETE | `/api/memory/:scope/:index` | Delete fact by index |
+| DELETE | `/api/memory/:scope` | Clear scope |
+| GET | `/api/memory/logs` | Available log dates |
+| GET | `/api/memory/logs/:date` | Read daily log |
+| GET | `/api/memory/summaries` | Conversation summaries |
 
-4. Place Unity WebGL build files in `activity/Build/`
-5. Use `/play` in a voice channel to launch
+### Sessions
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/sessions` | List all sessions |
+| GET | `/api/sessions/:channelId` | Session detail + facts |
+| DELETE | `/api/sessions/:channelId` | Delete session |
+| DELETE | `/api/sessions` | Clear all sessions |
 
-### How It Works
+### Persona
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/persona` | Active persona info |
+| POST | `/api/persona/reload` | Reload from disk |
+| GET | `/api/personas` | List available personas |
+| POST | `/api/persona/switch` | Switch persona |
+| GET | `/api/persona/files` | All persona files with content |
+| PUT | `/api/persona/file` | Update file |
+| POST | `/api/persona/file` | Create file |
+| DELETE | `/api/persona/file` | Delete file |
+| POST | `/api/personas` | Create new persona |
 
-```
-Discord Activity iframe -> activity/index.html (wrapper)
-  -> Discord SDK init + OAuth2 handshake
-  -> POST /.proxy/api/activity/token (code-to-token exchange)
-  -> Unity WebGL loads from /.proxy/activity/Build/*
-  -> window.discordBridge <-> Unity SendMessage()
-```
+### Tasks (Google Tasks)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/tasks` | List tasks (header: `X-Discord-User-Id`) |
+| GET | `/api/tasks/:uid` | Get single task |
+| POST | `/api/tasks` | Create task |
+| PUT | `/api/tasks/:uid` | Update/complete task |
+| DELETE | `/api/tasks/:uid` | Delete task |
 
-Unity C# scripts access Discord context via a `.jslib` plugin:
-- `discordBridge.getUser()` - JSON with Discord user info (id, username, globalName, avatar)
-- `discordBridge.getContext()` - JSON with guildId, channelId, instanceId
+### Calendar (Google Calendar)
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/calendar/events` | User's events |
+| GET | `/api/calendar/all-events` | All users' events |
 
-Pre-compressed (gzip) build files are served with correct `Content-Encoding` headers.
+### Notes
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/notes` | All notes |
+| GET | `/api/notes/:scope` | Notes in scope |
+| GET | `/api/notes/:scope/:title` | Single note |
+| PUT | `/api/notes/:scope/:title` | Create/update |
+| DELETE | `/api/notes/:scope/:title` | Delete |
 
-</details>
+### Users
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/users` | All user profiles |
+| GET | `/api/users/:userId` | Profile + facts |
+| DELETE | `/api/users/:userId` | Delete (cascading) |
 
----
+### Tools & Agents
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/tools` | List all tools |
+| GET | `/api/tools/:name` | Tool details |
+| POST | `/api/tools/:name/execute` | Execute tool |
+| POST | `/api/tools/:name/toggle` | Enable/disable |
+| GET | `/api/agents` | List all agents |
+| POST | `/api/agents/:name/toggle` | Enable/disable |
 
-<details>
-<summary><strong>Web Dashboard</strong></summary>
+### Cron Jobs
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/cron` | List all jobs |
+| POST | `/api/cron` | Create job |
+| PUT | `/api/cron/:name` | Update job |
+| POST | `/api/cron/:name/toggle` | Enable/disable |
+| POST | `/api/cron/:name/trigger` | Manual trigger |
+| DELETE | `/api/cron/:name` | Delete job |
 
-Access at `http://localhost:3000` (configurable via `web.port`). When Activity is enabled, the dashboard is at `/dashboard`.
+### Mood & Emotion
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/mood` | Current mood state |
+| POST | `/api/mood` | Set/reclassify mood |
+| GET | `/api/emotion` | Current 8D emotion vector |
 
-For internet-facing deployments, set `web.apiKey` and use `Authorization: Bearer <key>`. Query-token auth (`?token=`) remains available for compatibility but is deprecated and can be disabled via `web.auth.allowQueryToken` / `web.auth.allowWsQueryToken`.
+### Knowledge Base
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/knowledge` | KB stats |
+| POST | `/api/knowledge/sync` | Trigger sync |
+| GET | `/api/knowledge/files/:fileId/chunks` | File chunks |
+| DELETE | `/api/knowledge/files/:fileId` | Remove file |
 
-When `web.apiKey` is not configured, public routes stay open and sensitive routes are restricted to local requests only (for example `/api/reboot`, `/api/export`, and persona file mutation endpoints).
+### Quests (Supabase)
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/quests` | Create quest |
+| GET | `/api/quests` | List quests |
+| PUT | `/api/quests/:questId` | Update quest |
+| POST | `/api/quests/:questId/complete` | Complete quest |
+| POST | `/api/quests/:questId/favorite` | Toggle favorite |
+| DELETE | `/api/quests/:questId` | Delete quest |
 
-- **Status** - Discord connection, uptime, guild count, heartbeat
-- **Persona** - Character switching, file editor, prompt size, hot-reload
-- **LLM Test** - Send test prompts with streaming output
-- **Sessions** - Active conversations, session detail overlay, clear/delete
-- **Memory** - Facts by scope, delete individual or clear scopes
-- **Tasks** - Per-user Google Tasks with score badges, sort by score/due/priority, XP stats bar
-- **Scheduled Tasks** - Create, edit, toggle, trigger cron jobs with execution history
-- **Tools** - Enable/disable tools at runtime
-- **Agents** - Enable/disable agents at runtime
-- **Notes** - Create, edit, delete scoped notes
-- **Users** - Profile table with detail overlay, facts viewer, cascading delete
-- **Export** - JSON export of all bot data
-- **Activity Preview** - Test Unity WebGL build locally
-- **Mood** - Live emotion indicator via SSE, manual set/reclassify, real-time emotion vector stream for 3D clients
-- **Console** - Live log stream via SSE
+### Linear
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/linear/teams` | List teams |
+| GET | `/api/linear/projects` | List projects |
+| GET | `/api/linear/issues` | List issues |
+| GET | `/api/linear/issues/me` | My issues |
+| GET | `/api/linear/issues/:id` | Issue detail |
+| POST | `/api/linear/issues` | Create issue |
+| PATCH | `/api/linear/issues/:id` | Update issue |
+| DELETE | `/api/linear/issues/:id` | Delete issue |
+| POST | `/api/linear/issues/:id/comments` | Add comment |
+| GET | `/api/linear/search` | Search issues |
+| POST | `/api/linear/projects` | Create project |
+
+### System
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/reboot` | Graceful restart |
+| GET | `/api/logs` | Recent log entries |
+| GET | `/api/logs/stream` | Live log SSE stream |
+| GET | `/api/supabase/status` | Supabase connectivity |
+
+### WebSocket (`/ws`)
+
+Connect with `Authorization: Bearer <key>` header.
+
+**Client messages:**
+- `{type: "init", sessionId, userId?, username?}` - Initialize session
+- `{type: "message", content}` - Send message (streaming response)
+- `{type: "clear"}` - Clear session
+- `{type: "presence", status}` - Presence update
+
+**Server messages:**
+- `{type: "ready", sessionId}` - Session ready
+- `{type: "token", content}` - Stream token
+- `{type: "done", reply}` - Response complete
+- `{type: "error", error}` - Error
+- `{type: "event", event, data}` - Broadcast event (mood, emotion, tokens, mindmap)
 
 </details>
 
@@ -511,29 +531,46 @@ src/
 |-- index.ts                    # Startup orchestration
 |-- boot.ts                     # Process wrapper (auto-restart)
 |-- config.ts                   # YAML config + Zod validation
-|-- async-write-queue.ts        # Debounced/coalesced async file writes + flush control
+|-- async-write-queue.ts        # Debounced/coalesced async file writes
 |-- llm.ts                      # LLM client, history, streaming, tool loop
 |-- persona.ts                  # Persona file discovery and composition
 |-- tool-registry.ts            # Tool auto-discovery and execution
 |-- agent-registry.ts           # Agent auto-discovery and execution
-|-- cron.ts                     # Cron scheduler with cached state + queued persistence
+|-- cron.ts                     # Cron scheduler
 |-- sessions.ts                 # Session tracking and persistence
 |-- memory.ts                   # Fact store with semantic search + ranked injection
-|-- emotion-vector.ts            # Continuous emotion vectors + stream heuristic analyzer
-|-- logger.ts                   # Console capture + SSE/WS broadcast + bounded clients
+|-- fact-extractor.ts           # 12-category extraction with contradiction detection
+|-- message-triage.ts           # Pre-response async triage (dates, entities, sentiment)
+|-- user-profile.ts             # Per-user LLM-synthesized profile dossiers
+|-- token-tracker.ts            # Centralized token usage tracking
+|-- vector-store.ts             # Vectra semantic search
+|-- knowledge-base.ts           # Google Drive knowledge base
+|-- emotion-vector.ts           # Continuous 8D emotion vectors
+|-- mood.ts                     # Plutchik emotion classification
+|-- logger.ts                   # Console capture + SSE/WS broadcast
 |-- web.ts                      # Express dashboard + REST API
-|-- ws.ts                       # WebSocket chat server (bearer-first auth)
-|-- heartbeat.ts                # Periodic handler system with startup jitter
-|-- heartbeat-reply-check.ts    # Missed reply detection with fetch budgets/timeouts
-|-- lifecycle.ts                # Graceful reboot
+|-- ws.ts                       # WebSocket chat server
+|-- heartbeat.ts                # Periodic handler system
+|-- users.ts                    # User profile store
+|-- supabase.ts                 # Supabase client singleton
 |-- tools/                      # Runtime tool modules
-`-- agents/                     # Sub-agent modules
+|-- agents/                     # Sub-agent modules
+|-- llm/                        # LLM runtime abstraction (chat/responses)
+|-- discord/                    # Discord client, commands, attachments
+`-- ambient/                    # Ambient awareness engine
 
 data/                           # Runtime data (gitignored)
+  |-- memory.json               # Fact store
+  |-- users.json                # User profiles
+  |-- users/                    # Per-user profile markdown files
+  |-- token-usage.json          # Token usage stats
+  |-- vectors/                  # Vectra index
+  `-- ...                       # Sessions, logs, cron state, etc.
+
+persona/                        # Persona markdown files
 settings.yaml                   # Your config (gitignored)
 settings.example.yaml           # Config template
 openapi.yaml                    # REST API spec
-start.bat                       # Windows launcher
 ```
 
 </details>
@@ -549,7 +586,7 @@ start.bat                       # Windows launcher
 | `npm run dev:watch` | Start with file watching (no boot wrapper) |
 | `npm run build` | Compile TypeScript to `dist/` |
 | `npm run lint` | Type-check without emitting build artifacts |
-| `npm run test` | Run scoring engine unit tests |
+| `npm run test` | Run unit tests |
 | `npm run check` | Full validation (`build && lint && test`) |
 | `npm start` | Run compiled production build |
 
@@ -561,8 +598,6 @@ start.bat                       # Windows launcher
 <summary><strong>Further Reading</strong></summary>
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Deep technical reference
-- [ROADMAP.md](ROADMAP.md) - Planned features and specs
 - [openapi.yaml](openapi.yaml) - REST API spec (also at `/api/docs` when running)
 
 </details>
-

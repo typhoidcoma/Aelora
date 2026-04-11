@@ -55,26 +55,27 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ╔═════════════════▼══════════════════════════════════════════════════╗
   ║                          TOOLS                                     ║
   ║                                                                    ║
-  ║  Built-in               Google Suite            Scoring            ║
-  ║  ─────────              ────────────            ───────            ║
-  ║  notes · memory         gmail                   scoring.ts         ║
-  ║  mood · cron            google-calendar         stats · leaderboard║
-  ║  ping                   google-tasks            achievements       ║
-  ║  discord_history        google-docs             rate_effort        ║
-  ║                         tasks (adapter)         set_metadata       ║
-  ║                                                 add_event          ║
+  ║  Built-in               Google Suite            External           ║
+  ║  ─────────              ────────────            ────────           ║
+  ║  notes · memory         gmail                   linear             ║
+  ║  mood · cron            google-calendar         luminizer          ║
+  ║  ping · date            google-tasks            quest (Supabase)   ║
+  ║  discord_history        google-docs                                ║
+  ║                         tasks (adapter)                            ║
+  ║                         calendar (per-user)                        ║
   ╚════════╤════════════════════╤════════════════════════╤═════════════╝
            │                    │                        │
   ╔════════▼════════╗  ┌────────▼─────────┐   ┌─────────▼──────────────┐
   ║   File Storage  ║  │   Google APIs    │   │  Supabase (PostgreSQL) │
   ║   data/*.json   ║  │   (OAuth2)       │   │  user_profiles         │
-  ║                 ║  │                  │   │  life_events           │
-  ║  memory.json    ║  └──────────────────┘   │  scoring_events        │
-  ║  sessions.json  ║                         │  category_stats        │
-  ║  users.json     ║  ┌──────────────────┐   │  achievements          │
-  ║  notes.json     ║  │   Web Search     │   └────────────────────────┘
+  ║                 ║  │                  │   │  user_calendars        │
+  ║  memory.json    ║  └──────────────────┘   │  quests                │
+  ║  sessions.json  ║                         └────────────────────────┘
+  ║  users.json     ║  ┌──────────────────┐
+  ║  notes.json     ║  │   Web Search     │
   ║  cron-jobs.json ║  │   API            │
   ║  mood.json      ║  └──────────────────┘
+  ║  token-usage    ║
   ║  toggle-state   ║
   ╚═════════════════╝
 
@@ -86,8 +87,10 @@ Technical reference for the Aelora 🦋 bot. Covers every system, how they conne
   ║  daily-log.ts ── activity logging          emotion-vector.ts ───   ║
   ║                                            real-time 8D vectors    ║
   ║  logger.ts ───── console capture + SSE broadcast + file logging    ║
-  ║  scoring.ts ──── pure 0-100 scoring engine (no I/O)               ║
   ║  supabase.ts ─── Supabase client singleton + typed helpers         ║
+  ║  token-tracker.ts ── centralized token usage tracking              ║
+  ║  message-triage.ts ─ pre-response message triage (dates, entities) ║
+  ║  user-profile.ts ─── LLM-synthesized per-user dossiers             ║
   ║                                                                    ║
   ║  Discord Activity (optional) ── Unity WebGL in Discord iframe      ║
   ║  activity/index.html → SDK + OAuth2 + bridge API                   ║
@@ -101,7 +104,7 @@ Defined in [src/index.ts](src/index.ts). Runs in order:
 | Step | What | Module |
 |------|------|--------|
 | 1 | Install logger (patch console) | `logger.ts` |
-| 2 | Load config from `settings.yaml`, set `process.env.TZ` | `config.ts` |
+| 2 | Load config from `settings.yaml`, set `process.env.TZ`, configure triage cooldown | `config.ts`, `message-triage.ts` |
 | 3 | Load persona files → compose system prompt | `persona.ts` |
 | 4 | Initialize LLM client | `llm.ts` |
 | 4b | Connect Supabase client (if configured) | `supabase.ts` |
@@ -109,7 +112,7 @@ Defined in [src/index.ts](src/index.ts). Runs in order:
 | 6 | Auto-discover and load agents | `agent-registry.ts` |
 | 7 | Connect to Discord, register slash commands | `discord/client.ts` |
 | 8 | Start cron scheduler | `cron.ts` |
-| 9 | Register heartbeat handlers (calendar, memory, cleanup, reply-check, last-alive, conversation-save, scoring-sync), start ticker | `heartbeat.ts` |
+| 9 | Register heartbeat handlers (calendar, memory, cleanup, reply-check, last-alive, conversation-save, consolidation, knowledge-sync), start ticker | `heartbeat.ts` |
 | 10 | Start web dashboard + WebSocket, set system state provider | `web.ts`, `ws.ts`, `llm.ts` |
 
 Graceful shutdown on SIGINT/SIGTERM: saves conversations, saves state, stops heartbeat, stops cron, exits. Uncaught exceptions and unhandled rejections are logged, conversations and state are saved, then the process exits with code 1.
@@ -211,12 +214,13 @@ Update: the live implementation in `llm.ts` has evolved beyond the simplified ou
 1. Persona composed prompt
 2. ## Currently Available
 3. ## Current Mood
-4. ## Current User
+4. ## Current User (profile dossier or personality summary)
 5. ## Current Session
 6. ## Memory
-7. ## Reference Material
-8. ## Recent Conversation Context
-9. ## Current Date & Time
+7. ## Upcoming (temporal facts within 48 hours)
+8. ## Reference Material
+9. ## Recent Conversation Context
+10. ## Current Date & Time
 ```
 
 Two important clarifications:
@@ -224,6 +228,8 @@ Two important clarifications:
 - In **lite mode**, the runtime currently skips only the Tool/Agent Inventory section. Mood, user, session, memory, KB excerpts, summaries, and current time are still included.
 
 The memory section is conditionally injected by `getMemoryForPrompt(userId, channelId, conversationContext?)`. When the vector store is available and conversation context is provided, facts are selected by semantic relevance to the current conversation and ranked using a weighted blend of semantic score (70%), recency decay (20%), and access frequency boost (10%). Falls back to recency-based selection when vector search is unavailable.
+
+The **Current User** section injects the per-user profile dossier (from `user-profile.ts`, capped at 3500 chars). If no dossier exists yet, it falls back to the `personalitySummary` field from `users.ts`.
 
 ### Tool Calling Loop
 
@@ -267,7 +273,7 @@ The codebase currently uses **three distinct persona interaction modes**:
 
 1. **Full persona path**: `getLLMResponse()` and `getLLMOneShot()` use the composed persona prompt as the base system prompt, then append dynamic runtime sections.
 2. **Ambient persona path**: the ambient engine uses `ambientSystemPrompt`, a filtered persona prompt composed from voice-relevant sections only (`bootstrap`, `lore`, `soul`). If that filtered prompt is unavailable, it falls back to the full `systemPrompt`.
-3. **No-persona auxiliary path**: mood classification, fact extraction, conversation compaction, and personality synthesis use direct lightweight prompts on the auxiliary model with no full persona prompt, no tool loop, and no conversation history.
+3. **No-persona auxiliary path**: mood classification, fact extraction, message triage, conversation compaction, profile synthesis, and personality synthesis use direct lightweight prompts on the auxiliary model with no full persona prompt, no tool loop, and no conversation history.
 
 ### Lite Mode
 
@@ -276,7 +282,7 @@ When `config.llm.lite` is `true`:
 - Tool/Agent Inventory is skipped from the system prompt
 - Tools remain fully functional -just less verbose in the schema presented to the LLM
 
-Useful for local models (4B–7B) running via LM Studio, Ollama, etc. where token budgets are tight.
+Useful for local models (4B-7B) running via LM Studio, Ollama, etc. where token budgets are tight.
 
 ### Conversation Compaction
 
@@ -284,7 +290,7 @@ Messages trimmed from history are queued per-channel for async summarization:
 
 1. When history exceeds `maxHistory`, oldest messages are pushed to a compaction queue
 2. `compactPendingHistory(minQueueSize)` is called by the memory heartbeat handler
-3. When a channel has ≥10 queued messages, they're summarized via a one-shot LLM call
+3. When a channel has >=10 queued messages, they're summarized via a one-shot LLM call
 4. Summaries are persisted to `data/memory/summaries.json` (max 3000 chars per channel)
 5. Summaries are injected into the system prompt, giving the LLM awareness of earlier conversation context
 
@@ -332,6 +338,99 @@ Connection management: ping/pong heartbeat every 30s, automatic cleanup on disco
 - Tool allowlist: `undefined` = no tools, `["*"]` = all tools, `["a", "b"]` = specific tools
 - `allowAgentDispatch = false` -agents cannot call other agents (prevents recursion)
 - Optional model override (agents can use a different LLM)
+
+---
+
+## Token Usage Tracking
+
+**File:** [src/token-tracker.ts](src/token-tracker.ts)
+
+Centralized token tracking across all LLM call sites. Every `chat.completions.create()` call in the codebase feeds its usage data into `recordCompletionUsage()`, which updates rolling statistics and broadcasts to the dashboard.
+
+### Stats Structure
+
+```typescript
+type TokenStats = {
+  lifetime: { inputTokens, outputTokens, reasoningTokens, requests, firstTrackedAt };
+  today:    { date, inputTokens, outputTokens, reasoningTokens, requests };
+  hourly:   HourlyBucket[];       // rolling 48-hour window
+  byModel:  Record<string, ModelStats>;
+  bySource: Record<string, SourceStats>;
+};
+```
+
+Each usage event includes a `source` tag identifying the call site (e.g. `"chat"`, `"extraction"`, `"triage"`, `"mood"`, `"consolidation"`, `"ambient"`, `"compaction"`, `"correction"`).
+
+### Persistence
+
+Stats are persisted to `data/token-usage.json` via the async write queue. The `today` bucket auto-rolls at midnight. Hourly buckets older than 48 hours are pruned on each write.
+
+### API & Dashboard
+
+- `GET /api/tokens` — returns the full `TokenStats` object
+- `POST /api/tokens/reset` — clears all stats
+- WebSocket broadcast: `tokens:usage` events pushed on every LLM call, consumed by the dashboard's "Tokens Today" stat card
+
+---
+
+## Pre-Response Message Triage
+
+**File:** [src/message-triage.ts](src/message-triage.ts)
+
+Lightweight async LLM call that runs on incoming user text **before** the bot starts responding. Extracts structured signals that enrich downstream fact extraction.
+
+### Pipeline
+
+1. User sends a message to any channel
+2. `triageMessage(channelId, userText)` fires asynchronously (does not block the response)
+3. A lightweight auxiliary-model call (512 token cap) extracts:
+   - `resolvedDates` — relative date references mapped to absolute ISO dates (e.g. "tomorrow" → "2026-04-11")
+   - `namedEntities` — people, places, organizations mentioned by name
+   - `sentiment` — brief sentiment note (e.g. "frustrated about deployment")
+   - `hasActionItems` — whether the message contains task-like content
+   - `urgencySignals` — keywords like "deadline", "asap", "need to"
+4. Results are cached per-channel in memory
+
+### Consumption
+
+The fact extractor calls `consumeTriageResult(channelId)` after the bot responds. Triage data is injected into the extraction prompt, giving the LLM pre-resolved dates and entity context for more accurate fact extraction. The result is consumed (deleted from cache) after use.
+
+### Rate Limiting
+
+- 30-second cooldown per channel (configurable via `memory.triageCooldownMs` in settings)
+- 512 max completion tokens
+- Uses the auxiliary model to minimize cost
+
+---
+
+## Per-User Profile Dossiers
+
+**File:** [src/user-profile.ts](src/user-profile.ts)
+
+LLM-synthesized markdown files that provide the bot with comprehensive knowledge of each user. Stored at `data/users/{userId}.md`.
+
+### Structure
+
+Profiles are organized into fixed sections:
+
+- **Identity** — name, age, location, job/role, key biographical facts
+- **Personality & Style** — communication style, humor, energy level, interaction patterns
+- **Interests & Preferences** — likes, dislikes, hobbies, tastes, opinions
+- **Technical** — languages, tools, frameworks, projects, skill level
+- **Relationships & Social** — people they mention, dynamics, social context
+- **Goals & Current Focus** — active projects, aspirations, current life situation
+- **Recent Context** — tasks, appointments, deadlines, time-sensitive items
+
+### Build Triggers
+
+- Profiles are rebuilt automatically when a user accumulates 3 new facts since the last build
+- Minimum 5 total facts required before the first profile is generated
+- Rebuilds are fire-and-forget (do not block conversations)
+- Existing profiles are passed to the LLM so updates preserve information not contradicted by new facts
+
+### System Prompt Injection
+
+The profile (capped at 3500 characters) is always injected into the system prompt under `## Current User`. If no profile file exists yet, the system falls back to the `personalitySummary` field from `users.ts`.
 
 ---
 
@@ -638,7 +737,6 @@ Tool file names and exported tool names are usually aligned, but not always. For
 | `google_docs` | Google Docs: search, read, create, edit documents | `google.*` |
 | `google_tasks` | Admin-level raw Google Tasks API (list/add/complete/update/delete on explicit list IDs) — use `tasks` for user-facing task management | `google.*` |
 | `discord_history` | Fetch recent message history from Discord text channels | none |
-| `scoring` | Scoring tool: stats, leaderboard, achievements, rate_effort, set_metadata, add_event (Supabase) | `google.*` |
 | `set_mood` | Manual emotional state override (Plutchik's wheel: 8 emotions × 3 intensities, dyad resolution for adjacent pairs, opposition warnings) | none |
 | `date` | Natural language date resolution via chrono-node (converts "next Friday" → ISO 8601) | none |
 | `linear` | Full Linear project management: issues CRUD, sub-issues, projects, teams, search, comments, GraphQL | `linear.apiKey` |
@@ -694,7 +792,7 @@ Agents are presented to the LLM as function calls, identical to tools. When the 
 
 ## Heartbeat System
 
-**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts), [src/heartbeat-consolidation.ts](src/heartbeat-consolidation.ts), [src/heartbeat-knowledge-sync.ts](src/heartbeat-knowledge-sync.ts)
+**Files:** [src/heartbeat.ts](src/heartbeat.ts), [src/heartbeat-calendar.ts](src/heartbeat-calendar.ts), [src/heartbeat-memory.ts](src/heartbeat-memory.ts), [src/heartbeat-cleanup.ts](src/heartbeat-cleanup.ts), [src/heartbeat-reply-check.ts](src/heartbeat-reply-check.ts), [src/heartbeat-alive.ts](src/heartbeat-alive.ts), [src/heartbeat-conversations.ts](src/heartbeat-conversations.ts), [src/heartbeat-consolidation.ts](src/heartbeat-consolidation.ts), [src/heartbeat-knowledge-sync.ts](src/heartbeat-knowledge-sync.ts)
 
 A periodic tick system that runs registered handlers at a configurable interval (default: 15 minutes).
 
@@ -732,6 +830,7 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 **Data Cleanup** (`heartbeat-cleanup.ts`):
 - Runs hourly (skips most ticks via timestamp check)
 - Prunes memory facts older than `memory.maxAgeDays` (0 = disabled)
+- Prunes expired temporal facts (`expiresAt` < now with low access count)
 - Archives sessions older than the configured TTL (defaults to 30 days if memory TTL is off)
 
 **Reply Check** (`heartbeat-reply-check.ts`):
@@ -748,12 +847,6 @@ Handlers receive Discord send capability, LLM access, and full config. They run 
 **Conversation Save** (`heartbeat-conversations.ts`):
 - Every 5 minutes: persists in-memory conversation history to `data/memory/conversations.json`
 - Guards with its own timestamp check independent of the heartbeat tick rate
-
-**Scoring Sync** (`heartbeat-scoring-sync.ts`):
-- Every 5 minutes: for each known user profile with a `google_task_list_id`, resolves their per-user task list, fetches pending tasks, and upserts them into Supabase `life_events`
-- Runs LLM-powered metadata enrichment on un-enriched tasks (impact level, size label, estimated minutes, category, irreversible, affects others)
-- Silently skips if Google credentials or Supabase are not configured
-- Returns a summary log string (e.g. `synced 12 task(s) for 2 user(s)`)
 
 **Fact Consolidation** (`heartbeat-consolidation.ts`):
 - Tracks new facts added per scope via a callback from `saveFact()`
@@ -883,7 +976,7 @@ Uses `tasks.googleapis.com/tasks/v1`. Due dates are date-only (no time support).
 
 ### Tasks Adapter (`tasks`)
 
-`src/tools/tasks.ts` is a higher-level adapter over Google Tasks that exposes a normalized `TaskItem` interface used by the web dashboard and the scoring system. Each Discord user gets their own Google Task list, auto-created on first use.
+`src/tools/tasks.ts` is a higher-level adapter over Google Tasks that exposes a normalized `TaskItem` interface used by the web dashboard. Each Discord user gets their own Google Task list, auto-created on first use.
 
 ```typescript
 type TaskItem = {
@@ -1074,165 +1167,6 @@ Full read/write access to Linear project management via the `@linear/sdk`. A sin
 
 Config: `linear.apiKey` in `settings.yaml`. The web dashboard exposes a full set of REST endpoints under `/api/linear/*` (15 routes) mirroring the tool actions.
 
-**Note:** Linear is used for project management only. It does not feed into the scoring pipeline. Scored tasks come exclusively from Google Tasks (per-user lists).
-
----
-
-## Scoring System
-
-**Files:** [src/scoring.ts](src/scoring.ts), [src/supabase.ts](src/supabase.ts), [src/tools/scoring.ts](src/tools/scoring.ts), [src/heartbeat-scoring-sync.ts](src/heartbeat-scoring-sync.ts)
-
-Fully automatic priority scoring across five life categories. Scores update in the background. Users see results via the Discord scoring tool or web dashboard; they never interact with the pipeline directly.
-
-### Architecture
-
-```
-Google Tasks API
-      │
-      ▼
-heartbeat-scoring-sync.ts        (every 5 min)
-      │  upsertLifeEvent()
-      ▼
-Supabase life_events table       (source of truth for scoring metadata)
-      │
-      ├─ scoring.ts: scoreTask() (pure formula, no I/O)
-      │
-      ├─ supabase.ts: recordScoringEvent(), updateUserProfile(),
-      │               updateCategoryStats(), checkAchievements()
-      │
-      └─ src/tools/scoring.ts    (LLM tool: stats/leaderboard/achievements/rate_effort/set_metadata/add_event)
-```
-
-### Supabase Schema (5 tables)
-
-| Table | Purpose |
-|-------|---------|
-| `user_profiles` | Per-user XP total, streak, longest streak, last completion date, `google_task_list_id` (per-user task list mapping) |
-| `life_events` | All trackable events: tasks, health, finance, social, work. Linked to Google Tasks via `external_uid` |
-| `scoring_events` | Immutable scoring history: each completion records all 4 dimension scores, points awarded, streak at time |
-| `category_stats` | EMA-based adaptive stats per user per category: avg score, avg hours to complete, avg SMEQ, personal bias |
-| `achievements` | Unlocked achievements with timestamp |
-
-RLS is disabled on all five tables (server-side anon key access). The `(discord_user_id, external_uid)` unique constraint on `life_events` prevents duplicate syncs.
-
-### Score Formula
-
-```
-Total (0-100) = Urgency (0-35) + Impact (0-30) + Effort (0-20) + Context (0-15)
-```
-
-**Urgency (0-35):** Exponential temporal decay based on hyperbolic discounting.
-```
-Urgency = 35 * e^(-0.013 * hoursUntilDue)
-No deadline → 18 (neutral)    Overdue → 35 (max)
-```
-
-**Impact (0-30):** Consequence of not completing the task.
-```
-trivial=5, low=10, moderate=17, high=24, critical=30
-+6 if irreversible (capped at 30)
-+3 if affects_others (capped at 30)
-```
-Priority auto-maps to impact level: `low→low`, `medium→moderate`, `high→high`.
-
-**Effort (0-20):** SMEQ-based cognitive load score. Lower cognitive effort = higher score (WSJF throughput principle).
-```
-effortScore = max(1, round(20 * (1 - smeq / 150)))
-SMEQ=0 → 20 (effortless)    SMEQ=150 → 1 (extreme)
-```
-SMEQ is inferred in order: `smeq_estimate` → `estimated_minutes` → `size_label` → keyword hints → category EMA baseline → default 65.
-
-**Context (0-15):** Adaptive personalization.
-```
-Category bias (0-5): personal_bias[category] mapped 0.8..1.2 → 1..5
-Streak bonus  (0-5): 1d→1, 3d→2, 7d→3, 14d→4, 30d→5
-Momentum      (0-5): completions last 24h: 1→1, 3→3, 5→5
-```
-
-### Keyword Inference
-
-On first sync, `inferMetadata(title, description)` auto-fills `category`, `irreversible`, and `affects_others` from title/description keywords. No external deps.
-
-| Category | Keywords (sample) |
-|----------|-------------------|
-| `health` | doctor, gym, medicine, dentist, therapy, prescription, surgery |
-| `finance` | bill, payment, invoice, tax, bank, rent, mortgage, insurance |
-| `social` | birthday, anniversary, gift, family, friend, party, wedding |
-| `work` | meeting, project, report, client, deadline, review, deploy |
-| `tasks` | (default) |
-
-Irreversible triggers: `birthday, anniversary, appointment, flight, exam, interview, surgery, deadline, wedding`
-Affects-others triggers: `meeting, team, client, review, friend, family, gift, party, together, group`
-
-### XP and Points
-
-```
-pointsAwarded    = round(basePoints * streakMultiplier * overdueBonus)
-basePoints       = 10 + (score/100) * 90        // 10 (score=0) → 100 (score=100)
-streakMultiplier = 1 + min(streak, 30) / 30      // 1.0x → 2.0x
-overdueBonus     = 1.25 if completed overdue, else 1.0
-```
-
-### Achievements (9 total)
-
-`first_task` · `ten_tasks` · `hundred_tasks` · `streak_3` · `streak_7` · `streak_30` · `thousand_points` · `high_scorer` (score ≥ 90) · `overdue_hero`
-
-### Adaptive Learning (EMA, alpha=0.2)
-
-After each completion, `category_stats` updates via exponential moving average:
-```
-new_avg_score             = prev * 0.8 + score * 0.2
-new_avg_hours_to_complete = prev * 0.8 + hoursUntilDue * 0.2
-personal_bias             = globalAvgHours / categoryAvgHours  (clamped 0.8..1.2)
-```
-Requires `completion_count >= 3` before bias affects the Context dimension. Adapts without manual resets as patterns change over time.
-
-### Scoring Tool (LLM-accessible)
-
-**File:** [src/tools/scoring.ts](src/tools/scoring.ts)
-
-Six actions. The first three are read-only; the last three write to Supabase to close the adaptive learning loop.
-
-| Action | Direction | Description |
-|--------|-----------|-------------|
-| `stats` | read | XP, streak, longest streak, completion count, recent achievements |
-| `leaderboard` | read | Top N pending tasks sorted by computed score, with per-dimension breakdown. Triggers a Google Tasks sync first. |
-| `achievements` | read | All achievements with unlock status and timestamp |
-| `rate_effort` | write | Report post-task `smeq_actual` (0–150). Updates `scoring_events.smeq_actual` and EMA-shifts `category_stats.avg_smeq_actual` for the event's category. Closes the adaptive learning loop: future tasks in that category inherit the updated SMEQ baseline as their effort estimate. |
-| `set_metadata` | write | Update scoring metadata on a `life_events` row (`smeq_estimate`, `size_label`, `impact_level`, `irreversible`, `affects_others`). Returns the recomputed score. |
-| `add_event` | write | Create a non-Google life event (`source='discord'`) in any category. Runs keyword inference for `irreversible`/`affects_others` if not provided. Returns score preview. |
-
-**Adaptive SMEQ loop via `rate_effort`:**
-```
-User completes task → LLM asks "how hard was that?"
-  → rate_effort(life_event_id, smeq_actual=110)
-  → scoring_events.smeq_actual = 110
-  → category_stats.avg_smeq_actual = EMA(prev, 110)
-  → next unrated task in same category uses new avg as effort baseline
-```
-Requires `completion_count >= 3` before the adapted baseline meaningfully diverges from the default 65.
-
-### Setup
-
-1. Create a Supabase project
-2. Run `supabase/migrations/001_scoring_system.sql` in the SQL editor
-3. Disable RLS on all five tables:
-   ```sql
-   ALTER TABLE user_profiles DISABLE ROW LEVEL SECURITY;
-   ALTER TABLE life_events DISABLE ROW LEVEL SECURITY;
-   ALTER TABLE scoring_events DISABLE ROW LEVEL SECURITY;
-   ALTER TABLE category_stats DISABLE ROW LEVEL SECURITY;
-   ALTER TABLE achievements DISABLE ROW LEVEL SECURITY;
-   ```
-4. Add to `settings.yaml`:
-   ```yaml
-   supabase:
-     url: "https://your-project.supabase.co"
-     anonKey: "sb_publishable_..."
-   ```
-
-Supabase is optional. If not configured, the scoring tool returns an error and background sync silently skips.
-
 ---
 
 ## Mood System
@@ -1275,7 +1209,7 @@ When a primary and secondary emotion are adjacent on the wheel, they resolve to 
 
 Emotions directly across the wheel are opposites:
 
-- Joy ↔ Sadness, Trust ↔ Disgust, Fear ↔ Anger, Surprise ↔ Anticipation
+- Joy <-> Sadness, Trust <-> Disgust, Fear <-> Anger, Surprise <-> Anticipation
 
 `areOpposites(a, b)` checks this. The auto-classifier drops a secondary emotion if it opposes the primary (treated as a classification error). The `set_mood` tool allows opposing pairs but returns a warning.
 
@@ -1540,7 +1474,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Scoring (4), Life Events (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Quests (3 -create, complete, favorite), Export (1) -~91 endpoints total.
+**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Tokens (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Quests (3 -create, complete, favorite), Export (1).
 
 ### Routing
 
@@ -1556,7 +1490,7 @@ When `activity.enabled` is false:
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard is organized into **7 tabs**: Home, Persona, Data, People, Automation, System, and Mindmap. The **Home tab** shows at-a-glance stat cards (mood, next event, next cron, streak), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity, scoring history), and an achievements strip. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory, Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), Tasks (with per-user lists, score badges and smart sort), and Scoring (XP bar, streak, leaderboard, achievements). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). The **Mindmap tab** provides a real-time visualization of LLM conversation processing using Cytoscape.js with a dagre (top-down) layout — showing conversation flow, memory lookups, KB searches, tool calls, fact extraction, and mood classification as an interactive graph. Events are broadcast via the existing SSE `broadcastEvent("mindmap", ...)` system from `src/llm.ts`, `src/fact-extractor.ts`, and `src/mood.ts`. A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
+Dashboard is organized into **7 tabs**: Home, Persona, Data, People, Automation, System, and Mindmap. The **Home tab** shows at-a-glance stat cards (mood, tokens today, next event, next cron), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity), and quick-glance information. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory (with emoji icons per fact category), Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), and Tasks (with per-user lists). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). The **Mindmap tab** provides a real-time visualization of LLM conversation processing using Cytoscape.js with a dagre (top-down) layout — showing conversation flow, memory lookups, KB searches, tool calls, fact extraction, and mood classification as an interactive graph. Events are broadcast via the existing SSE `broadcastEvent("mindmap", ...)` system from `src/llm.ts`, `src/fact-extractor.ts`, and `src/mood.ts`. A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
 
 ---
 
@@ -1631,6 +1565,7 @@ type Config = {
     semanticSearchMinScore: number; // Default: 0.3 -minimum similarity to include
     consolidationEnabled: boolean;  // Default: true -LLM-powered fact merging
     consolidationThreshold: number; // Default: 10 -new facts before consolidation runs
+    triageCooldownMs: number;   // Default: 30000 -cooldown between message triage calls per channel
   };
   logger: {
     maxBuffer: number;          // Default: 200, SSE circular buffer size
@@ -1670,6 +1605,35 @@ type Config = {
 
 ---
 
+## Supabase Integration
+
+**File:** [src/supabase.ts](src/supabase.ts)
+
+Supabase is used for per-user task list mapping, per-user calendar mapping, and Patyna quests. It is optional — if not configured, features that depend on it silently degrade.
+
+### Tables
+
+| Table | Purpose |
+|-------|---------|
+| `user_profiles` | Per-user `google_task_list_id` (per-user task list mapping) and `google_calendar_id` (per-user calendar mapping) |
+| `user_calendars` | Per-user calendar mapping (Discord user ID → Google Calendar ID) |
+| `quests` | Patyna personal quests (Supabase Auth scoped) |
+
+### Setup
+
+1. Create a Supabase project
+2. Run migrations in the SQL editor (`supabase/migrations/`)
+3. Add to `settings.yaml`:
+   ```yaml
+   supabase:
+     url: "https://your-project.supabase.co"
+     anonKey: "sb_publishable_..."
+   ```
+
+Env vars: `AELORA_SUPABASE_URL`, `AELORA_SUPABASE_ANON_KEY`
+
+---
+
 ## Supporting Systems
 
 ### boot.ts - Process Wrapper
@@ -1690,7 +1654,7 @@ type Config = {
 
 **File logging:** When enabled, each log line is written as `[ISO timestamp] [LEVEL] message`. One file per day, append-only. On startup, log files older than `logger.retainDays` (default 7) are automatically deleted.
 
-`broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates -the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames.
+`broadcastEvent(event, data)` sends **named** events to all connected SSE and WebSocket clients. Used by the mood system to push live updates -the dashboard listens for `event: mood` on the same `/api/logs/stream` EventSource, and WebSocket clients receive `{ type: "event", event, data }` frames. Also used by the token tracker to broadcast `tokens:usage` events.
 
 ### daily-log.ts - Activity Logging
 
@@ -1717,28 +1681,60 @@ Semantic search layer over the enriched fact store (`data/memory.json`). Uses [V
 Each fact carries structured metadata beyond the raw text:
 
 ```typescript
+type FactCategory =
+  | "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual"
+  | "task" | "goal" | "sentiment" | "life_event" | "social" | "opinion";
+
+type FactTemporal = "permanent" | "short_term" | "medium_term";
+
 type MemoryFact = {
   fact: string;
   savedAt: string;
-  category: "preference" | "biographical" | "behavioral" | "relationship" | "technical" | "contextual";
+  category: FactCategory;
   confidence: "stated" | "inferred";
-  source: string;           // "channel:123", "manual", "legacy", "consolidation"
+  source: string;            // "channel:123", "manual", "legacy", "consolidation"
   lastAccessedAt?: string;
   accessCount?: number;
+  expiresAt?: string;        // ISO date — fact becomes irrelevant after this
+  relevantDate?: string;     // ISO date — when the fact is most relevant (deadline, meeting)
+  temporal?: FactTemporal;   // hint for ranking and auto-expiry
 };
 ```
 
-**Categories** classify what kind of information the fact represents (preferences, biographical details, communication style, etc.). **Confidence** tracks whether the user explicitly stated the fact or it was inferred from context. **Source** records where the fact came from. Legacy facts are auto-migrated on first load.
+**Categories** (12 types) classify what kind of information the fact represents:
+
+| Category | What it captures |
+|----------|-----------------|
+| `preference` | Likes, dislikes, opinions, tastes |
+| `biographical` | Name, location, job, age, pets, family |
+| `behavioral` | Communication style, habits, patterns, tone |
+| `relationship` | Dynamics with others, social context |
+| `technical` | Tools, languages, projects, skills |
+| `contextual` | Situational facts, current events, plans |
+| `task` | Active tasks, to-dos, assignments |
+| `goal` | Aspirations, objectives, long-term plans |
+| `sentiment` | Emotional states, frustrations, excitement |
+| `life_event` | Birthdays, moves, job changes, milestones |
+| `social` | Social connections, group dynamics, community |
+| `opinion` | Beliefs, stances, viewpoints on topics |
+
+**Temporal awareness:** Facts can carry `expiresAt` (auto-removal after a date), `relevantDate` (boost ranking when the date is within 48 hours), and `temporal` hint. Auto-expiry defaults by category: `task` = 7 days, `sentiment` = 30 days, `life_event` = 90 days, `goal` = permanent.
+
+**Confidence** tracks whether the user explicitly stated the fact or it was inferred from context. **Source** records where the fact came from. Legacy facts are auto-migrated on first load.
 
 ### How It Works
 
 1. **Indexing:** When a fact is saved via `saveFact()`, it's also embedded and upserted into the Vectra index at `data/vectors/memory/`. Vector metadata includes `category`, `confidence`, and `source`.
 2. **Semantic dedup:** Before saving a new fact, `isDuplicateSemantic()` queries the index for high-similarity matches (configurable threshold). This replaces the Jaccard keyword fallback when the vector store is available.
 3. **Semantic search:** `semanticSearch()` returns the top-K most relevant facts across specified scopes, ranked by cosine similarity. Used by the memory tool for smarter recall.
-4. **Weighted ranking:** When injecting facts into the system prompt, `rankFact()` blends semantic similarity (70%), temporal recency with exponential decay (20%), and access frequency boost (10%). This ensures frequently-accessed and recently-saved facts rank higher than stale ones.
+4. **Weighted ranking:** When injecting facts into the system prompt, `rankFact()` blends semantic similarity (70%), temporal recency with exponential decay (20%), and access frequency boost (10%). Facts with `relevantDate` within 48 hours get a 1.5x boost. Expired facts (`expiresAt` < now) are heavily penalized (0.05 score).
 5. **Access tracking:** Facts injected into the system prompt have their `lastAccessedAt` and `accessCount` updated (debounced save every 10 seconds to avoid disk thrashing).
-6. **LRU cache:** Recent embeddings are cached in-memory (100 entries) to avoid redundant API calls for repeated text.
+6. **LRU cache:** Recent embeddings are cached in-memory (500 entries) to avoid redundant API calls for repeated text.
 7. **Batch rebuild:** `rebuildIndex()` re-embeds all facts from the JSON store in batches of 100. Run automatically on first boot if the vector index is missing, or manually via `npx tsx src/migrate-vectors.ts`.
+
+### Upcoming Section
+
+`buildUpcomingSection()` collects facts with `relevantDate` within the next 48 hours across all relevant scopes and injects them into the system prompt as a dedicated `## Upcoming` section, sorted by date. This gives the bot proactive awareness of imminent deadlines, appointments, and events.
 
 ### Config
 
@@ -1754,6 +1750,7 @@ memory:
   semanticSearchMinScore: 0.3       # minimum similarity to return
   consolidationEnabled: true        # enable periodic fact consolidation
   consolidationThreshold: 10        # new facts before triggering merge
+  triageCooldownMs: 30000           # cooldown between message triage calls
 ```
 
 ---
@@ -1767,11 +1764,14 @@ Fire-and-forget system that automatically extracts noteworthy facts from convers
 ### Extraction Pipeline
 
 1. **Throttle check:** Per-channel cooldown (2 minutes) and minimum message count (4 messages) between extractions.
-2. **Context injection:** Up to 15 recent user facts and 10 channel facts are appended to the extraction prompt, enabling the LLM to detect contradictions against existing knowledge.
-3. **LLM extraction:** Sends the latest user+bot exchange to the auxiliary model with a structured JSON prompt. Each fact is returned as an object with `fact`, `category` (one of 6 types), and `confidence` ("stated" or "inferred"). Also returns a `contradictions` array for mutually exclusive facts (changed preferences, moved location, etc.). Plain string arrays are accepted as a fallback for model compatibility.
-4. **Contradiction resolution:** For each detected contradiction, the old fact is found and deleted from the JSON store and vector index before the replacement is saved.
-5. **Dedup:** Each candidate fact is checked against existing facts using semantic dedup (vector store) with Jaccard keyword fallback.
-6. **Save:** Deduplicated facts are saved with full metadata (`category`, `confidence`, `source`) to the appropriate scope in `data/memory.json` and indexed in the vector store. Caps per extraction: 3 user, 2 personality, 2 channel, 1 global.
+2. **Triage consumption:** If a pre-response triage result is available for the channel (from `message-triage.ts`), it's consumed and injected into the extraction prompt — providing pre-resolved dates, named entities, and sentiment signals.
+3. **Context injection:** Up to 15 recent user facts and 10 channel facts are appended to the extraction prompt, enabling the LLM to detect contradictions against existing knowledge.
+4. **LLM extraction:** Sends the latest user+bot exchange to the auxiliary model with a structured JSON prompt. Each fact is returned as an object with `fact`, `category` (one of 12 types), `confidence` ("stated" or "inferred"), and optional temporal fields (`expiresAt`, `relevantDate`, `temporal`). Also returns a `contradictions` array for mutually exclusive facts (changed preferences, moved location, etc.). Plain string arrays are accepted as a fallback for model compatibility.
+5. **Auto-expiry:** Facts in categories with default expiry (`task` = 7d, `sentiment` = 30d, `life_event` = 90d) automatically get an `expiresAt` date if none was explicitly provided.
+6. **Contradiction resolution:** For each detected contradiction, the old fact is found and deleted from the JSON store and vector index before the replacement is saved.
+7. **Dedup:** Each candidate fact is checked against existing facts using semantic dedup (vector store) with Jaccard keyword fallback.
+8. **Save:** Deduplicated facts are saved with full metadata (`category`, `confidence`, `source`, temporal fields) to the appropriate scope in `data/memory.json` and indexed in the vector store. Caps per extraction: 3 user, 2 personality, 2 channel, 1 global.
+9. **Profile rebuild trigger:** After saving user facts, the user-profile system is notified. If enough new facts have accumulated, a profile dossier rebuild is triggered asynchronously.
 
 ### Fact Categories
 
@@ -1783,10 +1783,16 @@ Fire-and-forget system that automatically extracts noteworthy facts from convers
 | `relationship` | Dynamics with others, social context |
 | `technical` | Tools, languages, projects, skills |
 | `contextual` | Situational facts, current events, plans |
+| `task` | Active tasks, to-dos, assignments (auto-expires in 7 days) |
+| `goal` | Aspirations, objectives, long-term plans |
+| `sentiment` | Emotional states, frustrations, excitement (auto-expires in 30 days) |
+| `life_event` | Birthdays, moves, job changes, milestones (auto-expires in 90 days) |
+| `social` | Social connections, group dynamics, community |
+| `opinion` | Beliefs, stances, viewpoints on topics |
 
 ### Personality Synthesis
 
-After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence personality profile via LLM. Re-synthesizes every 3 new facts. The profile is stored on `UserProfile.personalitySummary` and injected into the system prompt under `## Current User`, giving the bot persistent awareness of each user's communication style, preferences, and context.
+After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence personality profile via LLM. Re-synthesizes every 3 new facts. The profile is stored on `UserProfile.personalitySummary` and serves as the fallback when no per-user profile dossier (`data/users/{userId}.md`) has been generated yet.
 
 ---
 
@@ -1806,15 +1812,17 @@ After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence pers
 | Conversation summaries | `data/memory/summaries.json` (disk) | Yes |
 | Active persona | `data/bot-state.json` (disk) | Yes |
 | User profiles (Discord) | `data/users.json` (disk) | Yes |
-| Scoring user profiles | Supabase `user_profiles` table | Yes |
-| Life events (tasks + metadata) | Supabase `life_events` table | Yes |
-| Scoring history | Supabase `scoring_events` table | Yes |
-| Per-category adaptive stats | Supabase `category_stats` table | Yes |
-| Achievements | Supabase `achievements` table | Yes |
+| User profile dossiers | `data/users/{userId}.md` (disk) | Yes |
+| Token usage stats | `data/token-usage.json` (disk) | Yes |
+| Per-user task list mapping | Supabase `user_profiles` table | Yes |
+| Per-user calendar mapping | Supabase `user_calendars` table | Yes |
+| Quests | Supabase `quests` table | Yes |
 | Vector embeddings | `data/vectors/memory/` (Vectra local index) | Yes |
 | Calendar event notifications | `data/notified-events.json` (disk) | Yes |
+| KB file manifest | `data/kb-manifest.json` (disk) | Yes |
 | Heartbeat notified events (legacy) | In-memory Set | No |
 | Log buffer | In-memory circular array (200 entries) | No |
+| Triage cache | In-memory Map (per-channel) | No |
 | Log files | `data/logs/YYYY-MM-DD.log` (disk, when `logger.fileEnabled`) | Yes |
 | Persona files | Disk (`persona/` directory) | Yes |
 

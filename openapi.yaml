@@ -71,8 +71,8 @@ tags:
     description: Data export (full or selective JSON bundle)
   - name: Activity
     description: Discord Activity (Unity WebGL) support
-  - name: Scoring
-    description: Task scoring system, leaderboard, achievements, and life events
+  - name: Tokens
+    description: LLM token usage tracking and statistics
   - name: Quests
     description: |
       Patyna quests in Supabase (Auth user_id–scoped). Full CRUD via REST and LLM tool.
@@ -2623,482 +2623,76 @@ paths:
 
   # â”€â”€ Scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /api/scoring/stats:
+  /api/tokens:
     get:
-      tags: [Scoring]
-      summary: Get user scoring stats
-      description: Returns XP, streak, and achievement summary for a user. Requires Supabase.
-      parameters:
-        - name: discordUserId
-          in: query
-          required: true
-          schema:
-            type: string
+      tags: [Tokens]
+      summary: Get token usage statistics
+      description: Returns LLM token usage stats including lifetime totals, today's usage, hourly buckets (48h rolling), and breakdowns by model and source.
       responses:
         "200":
-          description: User scoring stats (XP, streak, achievements)
-        "400":
-          description: Missing discordUserId
-        "503":
-          description: Supabase not configured
+          description: Token usage statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lifetime:
+                    type: object
+                    properties:
+                      inputTokens: { type: integer }
+                      outputTokens: { type: integer }
+                      reasoningTokens: { type: integer }
+                      requests: { type: integer }
+                      firstTrackedAt: { type: string, format: date-time }
+                  today:
+                    type: object
+                    properties:
+                      date: { type: string, format: date }
+                      inputTokens: { type: integer }
+                      outputTokens: { type: integer }
+                      reasoningTokens: { type: integer }
+                      requests: { type: integer }
+                  hourly:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        hour: { type: string }
+                        inputTokens: { type: integer }
+                        outputTokens: { type: integer }
+                        requests: { type: integer }
+                  byModel:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        inputTokens: { type: integer }
+                        outputTokens: { type: integer }
+                        requests: { type: integer }
+                  bySource:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        inputTokens: { type: integer }
+                        outputTokens: { type: integer }
+                        requests: { type: integer }
 
-  /api/scoring/leaderboard:
-    get:
-      tags: [Scoring]
-      summary: Get task leaderboard
-      description: Returns pending tasks sorted by computed score. Scores are calculated on the fly from task metadata.
-      parameters:
-        - name: discordUserId
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-            maximum: 50
-        - name: category
-          in: query
-          schema:
-            type: string
-            enum: [tasks, health, finance, social, work]
-      responses:
-        "200":
-          description: Scored task list sorted by priority
-        "503":
-          description: Supabase not configured
-
-  /api/scoring/history:
-    get:
-      tags: [Scoring]
-      summary: Get scoring event history
-      description: Returns recent scoring events (completed tasks with points awarded).
-      parameters:
-        - name: discordUserId
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-      responses:
-        "200":
-          description: Scoring event history
-        "503":
-          description: Supabase not configured
-
-  /api/scoring/achievements:
-    get:
-      tags: [Scoring]
-      summary: Get user achievements
-      description: Returns all 9 achievements with unlock status for a user.
-      parameters:
-        - name: discordUserId
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Achievement list with unlock status
-        "503":
-          description: Supabase not configured
-
-  /api/supabase/status:
-    get:
-      tags: [Quests]
-      summary: Supabase connectivity (quests table)
-      description: |
-        Returns whether `supabase` is configured and whether Aelora can run a trivial read on `quests`.
-        HTTP 200 with `quests.readable: false` means configuration is present but PostgREST/RLS/schema blocked the query.
-      responses:
-        "200":
-          description: JSON with `configured`, `clientReady`, and `quests.readable` / error details
-
-  /api/quests:
-    get:
-      tags: [Quests]
-      summary: List quests for a user
-      security:
-        - BearerAuth: []
-      description: |
-        Returns quests for the given Supabase Auth user. Filterable by status, with configurable limit.
-        Does not require `supabase.serviceRoleKey` (read-only).
-      parameters:
-        - name: supabaseUserId
-          in: query
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: Supabase Auth user UUID (also accepts `userId`, `user_id`)
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [active, completed, all]
-            default: all
-          description: Filter by quest status
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 50
-          description: Max number of quests to return
-      responses:
-        "200":
-          description: Array of quest rows, ordered by created_at descending
-        "400":
-          description: Missing or invalid user ID
-        "503":
-          description: Supabase not configured
+  /api/tokens/reset:
     post:
-      tags: [Quests]
-      summary: Create a Patyna quest
-      security:
-        - BearerAuth: []
-      description: |
-        Inserts a row into Supabase `quests` for the given Supabase Auth user id.
-        Same defaults as the `quest` tool (category, quest_type, etc.).
-        On success, broadcasts a `"quest"` event (`action: "created"`) to all SSE/WebSocket clients.
-
-        When `web.apiKey` is set in Aelora settings, send `Authorization: Bearer <web.apiKey>` (same as other protected `/api` routes).
-
-        The server must use `supabase.serviceRoleKey` for these writes; otherwise inserts are blocked by RLS (the API has no end-user Supabase JWT).
-
-        Example:
-
-        ```bash
-        curl -sS -X POST 'http://localhost:3000/api/quests' \
-          -H 'Content-Type: application/json' \
-          -H 'Authorization: Bearer YOUR_AELORA_API_KEY' \
-          -d '{"supabaseUserId":"UUID","title":"Finish reading","description":"Chapters 4–5","category":"school","difficulty":"medium"}'
-        ```
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                supabaseUserId:
-                  type: string
-                  format: uuid
-                title:
-                  type: string
-                description:
-                  type: string
-                category:
-                  type: string
-                difficulty:
-                  type: string
-              required: [supabaseUserId, title]
-      responses:
-        "201":
-          description: Created quest row (JSON body matches `quests` row)
-        "400":
-          description: Invalid input or Supabase error message
-        "503":
-          description: Supabase not configured, or service role key missing for quest writes
-
-  /api/quests/{questId}:
-    put:
-      tags: [Quests]
-      summary: Update a quest
-      security:
-        - BearerAuth: []
-      description: |
-        Updates fields on an existing quest. Only provided fields are changed; omitted fields are untouched.
-        Requires `supabase.serviceRoleKey`. Broadcasts a `"quest"` event (`action: "updated"`).
-      parameters:
-        - name: questId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [supabaseUserId]
-              properties:
-                supabaseUserId:
-                  type: string
-                  format: uuid
-                title:
-                  type: string
-                description:
-                  type: string
-                category:
-                  type: string
-                quest_type:
-                  type: string
-                  enum: [daily, milestone, streak]
-                target_value:
-                  type: number
-                current_value:
-                  type: number
-                status:
-                  type: string
-                difficulty:
-                  type: string
-                suggested_by:
-                  type: string
-                is_favorite:
-                  type: boolean
+      tags: [Tokens]
+      summary: Reset token counters
+      description: Resets all token usage statistics to zero.
       responses:
         "200":
-          description: "`{ \"quest\": { ...row } }` — updated quest row"
-        "400":
-          description: Invalid input, no fields to update, or Supabase error
-        "404":
-          description: Quest not found for this user
-        "503":
-          description: Supabase not configured, or service role key missing
-    delete:
-      tags: [Quests]
-      summary: Delete a quest
-      security:
-        - BearerAuth: []
-      description: |
-        Deletes a quest and its associated quest_logs. Requires `supabase.serviceRoleKey`.
-        Broadcasts a `"quest"` event (`action: "deleted"`).
-      parameters:
-        - name: questId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - name: supabaseUserId
-          in: query
-          required: false
-          schema:
-            type: string
-            format: uuid
-          description: Supabase Auth user UUID (alternative to JSON body)
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                supabaseUserId:
-                  type: string
-                  format: uuid
-      responses:
-        "200":
-          description: "`{ \"ok\": true, \"id\": \"<uuid>\", \"title\": \"...\" }`"
-        "400":
-          description: Missing or invalid user/quest ID
-        "404":
-          description: Quest not found for this user
-        "503":
-          description: Supabase not configured, or service role key missing
+          description: Counters reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
 
-  /api/quests/{questId}/complete:
-    post:
-      tags: [Quests]
-      summary: Mark a Patyna quest complete
-      security:
-        - BearerAuth: []
-      description: |
-        Updates `quests` to completed and optionally appends `quest_logs` when `notes` is non-empty.
-        On success, broadcasts a `"quest"` event (`action: "completed"`) to all SSE/WebSocket clients.
-        Requires the same `Authorization: Bearer` and `supabase.serviceRoleKey` setup as `POST /api/quests`.
-      parameters:
-        - name: questId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                supabaseUserId:
-                  type: string
-                  format: uuid
-                notes:
-                  type: string
-              required: [supabaseUserId]
-      responses:
-        "200":
-          description: |
-            `{ "success": true, "quest": {...}, "logInserted": boolean }` or includes `notesSaveError` if notes failed to persist
-        "400":
-          description: Invalid input or Supabase error
-        "404":
-          description: Quest not found for this user
-        "503":
-          description: Supabase not configured, or service role key missing for quest writes
-
-  /api/quests/{questId}/favorite:
-    post:
-      tags: [Quests]
-      summary: Set Patyna quest favorite (TOP 3)
-      security:
-        - BearerAuth: []
-      description: |
-        Updates `quests.is_favorite` for the row matching `questId` and the given Supabase Auth user.
-        On success, broadcasts a `"quest"` event (`action: "updated"`) to all SSE/WebSocket clients.
-        Same `Authorization: Bearer` and `supabase.serviceRoleKey` requirements as `POST /api/quests` and `POST /api/quests/{questId}/complete`.
-
-        Body must include `supabaseUserId` and a boolean `is_favorite` or `isFavorite`.
-      parameters:
-        - name: questId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                supabaseUserId:
-                  type: string
-                  format: uuid
-                is_favorite:
-                  type: boolean
-                isFavorite:
-                  type: boolean
-                  description: Alternative camelCase key for is_favorite
-              required: [supabaseUserId]
-      responses:
-        "200":
-          description: |
-            `{ "quest": { ...row } }` — updated quest row including `is_favorite`
-        "400":
-          description: Invalid input or Supabase error
-        "404":
-          description: Quest not found for this user
-        "503":
-          description: Supabase not configured, or service role key missing for quest writes
-
-  /api/life-events:
-    post:
-      tags: [Scoring]
-      summary: Create a life event
-      description: Creates a non-Google life event for scoring. Source defaults to "manual".
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                discordUserId:
-                  type: string
-                title:
-                  type: string
-                description:
-                  type: string
-                category:
-                  type: string
-                  enum: [tasks, health, finance, social, work]
-                priority:
-                  type: string
-                  enum: [low, medium, high]
-                dueDate:
-                  type: string
-                  format: date
-                impactLevel:
-                  type: string
-                  enum: [trivial, low, moderate, high, critical]
-                irreversible:
-                  type: boolean
-                affectsOthers:
-                  type: boolean
-                estimatedMinutes:
-                  type: integer
-                sizeLabel:
-                  type: string
-                  enum: [micro, small, medium, large, epic]
-                smeqEstimate:
-                  type: number
-                tags:
-                  type: array
-                  items:
-                    type: string
-              required: [discordUserId, title]
-      responses:
-        "201":
-          description: Created life event with score breakdown
-        "503":
-          description: Supabase not configured
-
-  /api/life-events/{id}:
-    put:
-      tags: [Scoring]
-      summary: Update a life event
-      description: Update metadata on an existing life event (impact, effort, category, etc.).
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title:
-                  type: string
-                description:
-                  type: string
-                category:
-                  type: string
-                priority:
-                  type: string
-                dueDate:
-                  type: string
-                impactLevel:
-                  type: string
-                irreversible:
-                  type: boolean
-                affectsOthers:
-                  type: boolean
-                estimatedMinutes:
-                  type: integer
-                sizeLabel:
-                  type: string
-                smeqEstimate:
-                  type: number
-                tags:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Updated life event
-        "404":
-          description: Life event not found
-        "503":
-          description: Supabase not configured
 
   # â”€â”€ Linear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

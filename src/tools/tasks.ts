@@ -152,7 +152,7 @@ async function _resolveUserTaskListInner(
 }
 
 // ============================================================
-// CRUD operations (exported for use by web.ts and scoring)
+// CRUD operations (exported for use by web.ts)
 // ============================================================
 
 export async function listTasks(

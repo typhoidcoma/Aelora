@@ -1585,7 +1585,7 @@ async function removeKBFile(fileId, fileName) {
   }
 }
 
-// --- Tasks + Scoring ---
+// --- Tasks ---
 
 // Discord User ID - persisted in localStorage
 let _discordUserId = localStorage.getItem("aelora_discord_uid") || "";
@@ -1596,123 +1596,43 @@ function setDiscordUserId(uid) {
   localStorage.setItem("aelora_discord_uid", uid);
 }
 
-function onDiscordUserIdChange() {
-  const val = document.getElementById("discord-user-id-input").value.trim();
-  setDiscordUserId(val);
-  fetchTasks();
-  if (val) fetchScoringStats();
-}
-
-function onDiscordUserIdPromptChange() {
-  const val = document.getElementById("discord-user-id-prompt").value.trim();
-  document.getElementById("discord-user-id-input").value = val;
-  setDiscordUserId(val);
-  if (val) { fetchTasks(); fetchScoringStats(); }
-}
-
 function handleTodoSortChange() {
   fetchTasks();
-}
-
-function getScoreTierClass(score) {
-  if (score >= 75) return "score-badge score-critical";
-  if (score >= 55) return "score-badge score-high";
-  if (score >= 35) return "score-badge score-medium";
-  return "score-badge score-low";
-}
-
-async function fetchScoringStats() {
-  const uid = getDiscordUserId();
-  if (!uid) return;
-
-  const statsBar = document.getElementById("scoring-stats-bar");
-  const prompt   = document.getElementById("scoring-prompt");
-  statsBar.style.display = "";
-  prompt.style.display   = "none";
-
-  // Keep input in sync
-  const inp = document.getElementById("discord-user-id-input");
-  if (inp.value !== uid) inp.value = uid;
-
-  try {
-    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`, { resourceKey: "tasks-stats" });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.exists) return;
-
-    document.getElementById("stat-total-xp").textContent = data.profile.total_points.toLocaleString() + " XP";
-    document.getElementById("stat-streak").textContent = data.profile.current_streak + "d";
-    document.getElementById("stat-achievements").textContent = `${data.achievements.length}/${9}`;
-  } catch { /* graceful */ }
 }
 
 async function fetchTasks() {
   if (!isToolActive("tasks")) {
     document.getElementById("tasks-body").innerHTML =
-      '<tr><td colspan="6" class="muted">Tasks tool is disabled</td></tr>';
+      '<tr><td colspan="5" class="muted">Tasks tool is disabled</td></tr>';
     return;
   }
 
-  // Show the scoring stats bar / prompt depending on whether UID is set
   const uid = getDiscordUserId();
-  const statsBar = document.getElementById("scoring-stats-bar");
-  const prompt   = document.getElementById("scoring-prompt");
-
-  if (uid) {
-    statsBar.style.display = "";
-    const inp = document.getElementById("discord-user-id-input");
-    if (inp && inp.value !== uid) inp.value = uid;
-    prompt.style.display = "none";
-    fetchScoringStats();
-  } else {
-    statsBar.style.display = "none";
-    prompt.style.display   = "";
-  }
-
-  const sortMode = document.getElementById("task-sort")?.value || "score";
+  const sortMode = document.getElementById("task-sort")?.value || "due";
 
   try {
-    // Score-sorted leaderboard (requires uid) or plain list
-    let tasks;
-    if (uid && sortMode === "score") {
-      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=50`, { resourceKey: "tasks-score" });
-      if (res.ok) {
-        const data = await res.json();
-        tasks = (data.tasks || []).map(t => ({
-          ...t,
-          uid: t.external_uid || t.id,
-          dueDate: t.due_date ? t.due_date.slice(0, 10) : undefined,
-          scoreBreakdown: t.scoreBreakdown,
-        }));
-      }
+    const headers = {};
+    if (uid) headers["X-Discord-User-Id"] = uid;
+    const res = await apiFetch("/api/tasks", { headers, resourceKey: "tasks" });
+    if (res.status === 503) {
+      document.getElementById("tasks-body").innerHTML =
+        '<tr><td colspan="5" class="muted">Google Tasks not configured</td></tr>';
+      return;
     }
-
-    // Fallback: plain Google Tasks list (requires Discord User ID header)
-    if (!tasks) {
-      const headers = {};
-      if (uid) headers["X-Discord-User-Id"] = uid;
-      const res = await apiFetch("/api/tasks", { headers, resourceKey: "tasks" });
-      if (res.status === 503) {
-        document.getElementById("tasks-body").innerHTML =
-          '<tr><td colspan="6" class="muted">Google Tasks not configured</td></tr>';
-        return;
-      }
-      if (res.status === 400) {
-        document.getElementById("tasks-body").innerHTML =
-          '<tr><td colspan="6" class="muted">Set Discord User ID to view tasks</td></tr>';
-        return;
-      }
-      const data = await res.json();
-      tasks = data.tasks || [];
+    if (res.status === 400) {
+      document.getElementById("tasks-body").innerHTML =
+        '<tr><td colspan="5" class="muted">Set Discord User ID to view tasks</td></tr>';
+      return;
     }
+    const data = await res.json();
+    const tasks = data.tasks || [];
 
     const tbody = document.getElementById("tasks-body");
     if (tasks.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="muted">No tasks</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="muted">No tasks</td></tr>';
       return;
     }
 
-    // Sort based on sortMode (score mode is pre-sorted by API)
     if (sortMode === "due") {
       tasks.sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
@@ -1734,17 +1654,12 @@ async function fetchTasks() {
         const priClass = t.priority === "high" ? "error" : t.priority === "low" ? "muted" : "";
         const dueStr = t.dueDate ? formatTodoDate(t.dueDate) : "--";
         const overdue = t.dueDate && !t.completed && new Date(t.dueDate) < new Date() ? ' class="error"' : "";
-        const score = t.scoreBreakdown?.total;
-        const scoreBadge = score != null
-          ? `<span class="${getScoreTierClass(score)}">${score}</span>`
-          : `<span class="score-badge score-none">--</span>`;
         const taskUid = t.uid || t.external_uid;
 
         return `
       <tr${t.completed ? ' class="disabled-row"' : ""}>
         <td><input type="checkbox" ${t.completed ? "checked disabled" : ""} onchange="completeTodo('${esc(taskUid)}')"></td>
         <td>${t.completed ? "<s>" : ""}${esc(t.title)}${t.completed ? "</s>" : ""}${t.description ? `<br><span class="muted">${esc((t.description || "").slice(0, 80))}</span>` : ""}</td>
-        <td>${scoreBadge}</td>
         <td><span class="${priClass}">${esc(t.priority)}</span></td>
         <td${overdue}>${dueStr}</td>
         <td><button class="btn btn-danger btn-xs" title="Delete task" aria-label="Delete task" onclick="deleteTodo('${esc(taskUid)}')">&times;</button></td>
@@ -1836,14 +1751,7 @@ async function completeTodo(uid) {
     const data = await res.json();
 
     if (data.uid) {
-      if (data.pointsAwarded) {
-        const achMsg = data.newAchievements?.length
-          ? ` 🏆 ${data.newAchievements.join(", ")}` : "";
-        showToast(`✓ Done! +${data.pointsAwarded} XP (score: ${data.score})${achMsg}`);
-        fetchScoringStats();
-      } else {
-        showToast("Task completed");
-      }
+      showToast("Task completed");
       fetchTasks();
     } else {
       showToast(data.error || "Complete failed", "error");
@@ -2973,14 +2881,6 @@ function loadActivityPreview() {
 let _homeMood = null;
 let _homeNextEvent = null;
 let _homeNextCron = null;
-let _homeStreak = null;
-
-const ACHIEVEMENT_ICONS = {
-  first_task: "🥇", ten_tasks: "🔟", hundred_tasks: "💯",
-  streak_3: "🔥", streak_7: "⚔️", streak_30: "👑",
-  thousand_points: "💰", high_scorer: "🎯", overdue_hero: "🦸",
-};
-
 async function fetchHomeMood() {
   try {
     const res = await apiFetch("/api/mood", { resourceKey: "home-mood" });
@@ -2996,26 +2896,6 @@ async function fetchHomeMood() {
     el.innerHTML = `<span class="mood-dot" style="background:${color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px"></span> ${esc(label)}`;
     _homeMood = { label, color };
   } catch { /* graceful */ }
-}
-
-async function fetchHomeScoring() {
-  const uid = getDiscordUserId();
-  const el = document.getElementById("home-scoring-value");
-  if (!uid) {
-    el.innerHTML = '<span class="muted">No user ID</span>';
-    _homeStreak = null;
-    return;
-  }
-  try {
-    const res = await apiFetch(`/api/scoring/stats?userId=${encodeURIComponent(uid)}`, { resourceKey: "home-scoring" });
-    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
-    const data = await res.json();
-    if (!data.exists) { el.innerHTML = '<span class="muted">No data</span>'; return; }
-    const xp = data.profile.total_points.toLocaleString();
-    const streak = data.profile.current_streak;
-    el.innerHTML = `${xp} XP &middot; ${streak}d streak`;
-    _homeStreak = streak;
-  } catch { el.innerHTML = '<span class="muted">--</span>'; }
 }
 
 async function fetchHomePersona() {
@@ -3130,25 +3010,16 @@ async function fetchHomeCalendar() {
 async function fetchHomeTodos() {
   const el = document.getElementById("home-todos");
   const uid = getDiscordUserId();
+  if (!uid) {
+    el.innerHTML = '<span class="muted">Set Discord User ID to see tasks</span>';
+    return;
+  }
 
   try {
-    let tasks = [];
-    if (uid) {
-      const res = await apiFetch(`/api/scoring/leaderboard?userId=${encodeURIComponent(uid)}&limit=5`, { resourceKey: "home-todos-score" });
-      if (res.ok) {
-        const data = await res.json();
-        tasks = data.tasks || [];
-      }
-    }
-
-    if (tasks.length === 0 && uid) {
-      // Fallback to plain task list
-      const res = await apiFetch("/api/tasks?status=needsAction", { headers: { "X-Discord-User-Id": uid }, resourceKey: "home-todos-tasks" });
-      if (res.ok) {
-        const data = await res.json();
-        tasks = (data.tasks || []).slice(0, 5).map(t => ({ title: t.title, score: null, due: t.due }));
-      }
-    }
+    const res = await apiFetch("/api/tasks?status=needsAction", { headers: { "X-Discord-User-Id": uid }, resourceKey: "home-todos-tasks" });
+    if (!res.ok) { el.innerHTML = '<span class="muted">Tasks unavailable</span>'; return; }
+    const data = await res.json();
+    const tasks = (data.tasks || []).slice(0, 5);
 
     if (tasks.length === 0) {
       el.innerHTML = '<span class="muted">No pending tasks</span>';
@@ -3156,80 +3027,12 @@ async function fetchHomeTodos() {
     }
 
     el.innerHTML = tasks.map(t => {
-      const scoreBadge = t.score != null
-        ? `<span class="${getScoreTierClass(t.score)}">${t.score}</span>`
-        : "";
-      const due = t.due ? formatTodoDate(t.due) : "";
-      return `<div class="home-list-item"><span class="home-item-title">${esc(t.title)}</span>${scoreBadge}<span class="home-item-meta">${due}</span></div>`;
+      const due = t.dueDate ? formatTodoDate(t.dueDate) : "";
+      return `<div class="home-list-item"><span class="home-item-title">${esc(t.title)}</span><span class="home-item-meta">${due}</span></div>`;
     }).join("");
   } catch {
     el.innerHTML = '<span class="muted">Tasks unavailable</span>';
   }
-}
-
-async function fetchHomeScoringHistory() {
-  const el = document.getElementById("home-scoring-history");
-  const uid = getDiscordUserId();
-  if (!uid) {
-    el.innerHTML = '<span class="muted">Set Discord User ID to see activity</span>';
-    return;
-  }
-  try {
-    const res = await apiFetch(`/api/scoring/history?userId=${encodeURIComponent(uid)}&limit=5`, { resourceKey: "home-history" });
-    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
-    const data = await res.json();
-    const events = data.events || [];
-
-    if (events.length === 0) {
-      el.innerHTML = '<span class="muted">No scoring history</span>';
-      return;
-    }
-
-    el.innerHTML = events.map(ev => {
-      const pts = `+${ev.points_awarded} pts`;
-      return `<div class="home-list-item"><span class="home-item-title">Score ${ev.score_at_completion}</span><span class="home-item-meta">${pts} &middot; ${timeAgo(ev.completed_at)}</span></div>`;
-    }).join("");
-  } catch {
-    el.innerHTML = '<span class="muted">--</span>';
-  }
-}
-
-async function fetchHomeAchievements() {
-  const el = document.getElementById("home-achievements");
-  const uid = getDiscordUserId();
-  if (!uid) {
-    // Show all locked
-    const achievements = [
-      { id: "first_task", name: "First Steps", unlocked: false },
-      { id: "ten_tasks", name: "Getting Momentum", unlocked: false },
-      { id: "hundred_tasks", name: "Century Club", unlocked: false },
-      { id: "streak_3", name: "Three-Day Streak", unlocked: false },
-      { id: "streak_7", name: "One-Week Warrior", unlocked: false },
-      { id: "streak_30", name: "Monthly Master", unlocked: false },
-      { id: "thousand_points", name: "Point Millionaire", unlocked: false },
-      { id: "high_scorer", name: "High Scorer", unlocked: false },
-      { id: "overdue_hero", name: "Overdue Hero", unlocked: false },
-    ];
-    renderAchievements(el, achievements);
-    return;
-  }
-  try {
-    const res = await apiFetch(`/api/scoring/achievements?userId=${encodeURIComponent(uid)}`, { resourceKey: "home-achievements" });
-    if (!res.ok) { el.innerHTML = '<span class="muted">--</span>'; return; }
-    const data = await res.json();
-    renderAchievements(el, data.achievements || []);
-  } catch {
-    el.innerHTML = '<span class="muted">--</span>';
-  }
-}
-
-function renderAchievements(el, achievements) {
-  el.innerHTML = achievements.map(a => {
-    const icon = ACHIEVEMENT_ICONS[a.id] || "🏆";
-    const cls = a.unlocked ? "achievement-badge unlocked" : "achievement-badge locked";
-    const tip = a.description || "";
-    return `<div class="${cls}" title="${esc(tip)}"><span class="achievement-icon">${icon}</span><span class="achievement-name">${esc(a.name)}</span></div>`;
-  }).join("");
 }
 
 function updateSidebarGlance() {
@@ -3260,22 +3063,16 @@ function updateSidebarGlance() {
     cronEl.textContent = "--";
   }
 
-  // Streak
-  const streakEl = document.getElementById("glance-streak");
-  streakEl.textContent = _homeStreak != null ? `${_homeStreak}d` : "--";
 }
 
 async function fetchHomeData() {
   await Promise.all([
     fetchHomeMood(),
-    fetchHomeScoring(),
     fetchHomePersona(),
     fetchHomeCronSummary(),
     fetchHomeTokens(),
     fetchHomeCalendar(),
     fetchHomeTodos(),
-    fetchHomeScoringHistory(),
-    fetchHomeAchievements(),
   ]);
   updateSidebarGlance();
 }

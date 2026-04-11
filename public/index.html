@@ -49,10 +49,6 @@
           <span class="home-stat-label">Mood</span>
           <span class="home-stat-value" id="home-mood-value"><span class="muted">--</span></span>
         </div>
-        <div class="home-stat-card" id="home-scoring-card">
-          <span class="home-stat-label">Scoring</span>
-          <span class="home-stat-value" id="home-scoring-value"><span class="muted">--</span></span>
-        </div>
         <div class="home-stat-card" id="home-persona-card">
           <span class="home-stat-label">Persona</span>
           <span class="home-stat-value" id="home-persona-value"><span class="muted">--</span></span>
@@ -81,20 +77,10 @@
         </div>
         <div class="home-col">
           <div class="home-widget">
-            <h3>Recent Activity</h3>
-            <div id="home-scoring-history" class="home-widget-body"><span class="muted">Loading...</span></div>
-          </div>
-          <div class="home-widget">
             <h3>Cron Activity</h3>
             <div id="home-cron-activity" class="home-widget-body"><span class="muted">Loading...</span></div>
           </div>
         </div>
-      </div>
-
-      <!-- Achievements -->
-      <div class="home-widget mt-md">
-        <h3>Achievements</h3>
-        <div id="home-achievements" class="achievement-strip"><span class="muted">Loading...</span></div>
       </div>
 
       </div><!-- /tab: home -->
@@ -506,7 +492,6 @@
           <h2>Tasks</h2>
           <div class="flex-row ml-auto">
             <select id="task-sort" class="task-sort-select" onchange="handleTodoSortChange()">
-              <option value="score">Sort: Score</option>
               <option value="due">Sort: Due Date</option>
               <option value="priority">Sort: Priority</option>
             </select>
@@ -514,32 +499,6 @@
           </div>
         </div>
         <div class="section-body" data-section="tasks">
-
-          <!-- Scoring stats bar (shown when discordUserId is set) -->
-          <div id="scoring-stats-bar" class="scoring-stats-bar" style="display:none;">
-            <div class="scoring-stat">
-              <span class="scoring-stat-label">Total XP</span>
-              <span class="scoring-stat-value" id="stat-total-xp">--</span>
-            </div>
-            <div class="scoring-stat">
-              <span class="scoring-stat-label">Streak</span>
-              <span class="scoring-stat-value" id="stat-streak">--</span>
-            </div>
-            <div class="scoring-stat">
-              <span class="scoring-stat-label">Achievements</span>
-              <span class="scoring-stat-value" id="stat-achievements">--</span>
-            </div>
-            <div class="scoring-stat ml-auto">
-              <label class="scoring-id-label">Discord User ID</label>
-              <input type="text" id="discord-user-id-input" class="scoring-id-input" placeholder="your Discord ID" oninput="onDiscordUserIdChange()" />
-            </div>
-          </div>
-
-          <!-- Discord ID prompt when scoring is available but no ID set -->
-          <div id="scoring-prompt" class="scoring-prompt" style="display:none;">
-            <span>Enter your Discord User ID to see task scores:</span>
-            <input type="text" id="discord-user-id-prompt" class="scoring-id-input" placeholder="Discord User ID" oninput="onDiscordUserIdPromptChange()" />
-          </div>
 
           <!-- Create form (hidden by default) -->
           <div id="task-form" class="card" style="display: none; margin-bottom: 0.5rem;">
@@ -701,11 +660,6 @@
             <span class="glance-icon">&#9201;</span>
             <span class="glance-label">Next Cron</span>
             <span class="glance-value" id="glance-next-cron">--</span>
-          </div>
-          <div class="glance-item">
-            <span class="glance-icon">&#128293;</span>
-            <span class="glance-label">Streak</span>
-            <span class="glance-value" id="glance-streak">--</span>
           </div>
         </div>
         <div class="system-health">

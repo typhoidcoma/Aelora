@@ -1551,69 +1551,6 @@ pre {
   align-items: center;
 }
 
-/* --- Scoring --- */
-
-.scoring-stats-bar {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--card-bg-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  margin-bottom: 0.6rem;
-  flex-wrap: wrap;
-}
-
-.scoring-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.1rem;
-}
-
-.scoring-stat-label {
-  font-size: 0.62rem;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.scoring-stat-value {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.scoring-prompt {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.4rem 0.6rem;
-  background: var(--glow-gold-faint);
-  border: 1px solid var(--glow-gold-soft);
-  border-radius: 4px;
-  margin-bottom: 0.6rem;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-}
-
-.scoring-id-label {
-  font-size: 0.7rem;
-  opacity: 0.7;
-}
-
-.scoring-id-input {
-  font-size: 0.72rem;
-  padding: 0.15rem 0.35rem;
-  width: 160px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-100);
-  color: var(--text-secondary);
-  font-family: "Roboto Mono", monospace;
-}
-
 .task-sort-select {
   font-size: 0.75rem;
   padding: 0.2rem 0.4rem;
@@ -1622,48 +1559,6 @@ pre {
   background: var(--card-bg);
   color: var(--text-secondary);
   font-family: "Roboto", sans-serif;
-}
-
-/* Score badge in todo table */
-.score-badge {
-  display: inline-block;
-  padding: 0.1rem 0.35rem;
-  border-radius: 3px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  font-family: "Roboto Mono", monospace;
-  min-width: 2.2rem;
-  text-align: center;
-}
-
-.score-critical {
-  background: var(--danger-bg);
-  color: var(--danger);
-  border: 1px solid var(--danger-border);
-}
-
-.score-high {
-  background: var(--warning-bg);
-  color: var(--warning);
-  border: 1px solid var(--warning-border);
-}
-
-.score-medium {
-  background: var(--glow-gold-light);
-  color: var(--accent);
-  border: 1px solid var(--glow-gold-soft);
-}
-
-.score-low {
-  background: rgba(107, 114, 128, 0.12);
-  color: var(--text-dim);
-  border: 1px solid var(--border-subtle);
-}
-
-.score-none {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border-subtle);
 }
 
 /* ==============================
@@ -1893,66 +1788,6 @@ body.mobile-sidebar-open .mobile-sidebar-backdrop {
   border: 1px solid var(--border-default);
   border-radius: 6px;
   background: #0c0c0e;
-}
-
-/* ==============================
-   ACHIEVEMENTS
-============================== */
-
-.achievement-strip {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  padding: 0.3rem 0;
-}
-
-.achievement-badge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 80px;
-  padding: 0.5rem 0.3rem;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-200);
-  text-align: center;
-  transition: all 0.3s ease;
-}
-
-.achievement-badge .achievement-icon {
-  font-size: 1.3rem;
-  margin-bottom: 0.2rem;
-}
-
-.achievement-badge .achievement-name {
-  font-size: 0.58rem;
-  color: var(--text-muted);
-  line-height: 1.2;
-}
-
-.achievement-badge.locked {
-  opacity: 0.35;
-  filter: grayscale(1);
-}
-
-.achievement-badge.unlocked {
-  border-color: var(--brand-500);
-  box-shadow: 0 0 8px var(--glow-gold-faint);
-}
-
-.achievement-badge.unlocked .achievement-name {
-  color: var(--brand-500);
-  font-weight: 600;
-}
-
-@keyframes achievement-glow {
-  0%, 100% { box-shadow: 0 0 8px var(--glow-gold-faint); }
-  50% { box-shadow: 0 0 16px var(--glow-gold-soft), 0 0 24px var(--glow-gold-faint); }
-}
-
-.achievement-badge.just-unlocked {
-  animation: achievement-glow 1.5s ease-in-out 3;
 }
 
 /* ==============================

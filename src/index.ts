@@ -15,7 +15,6 @@ import { registerDataCleanup } from "./heartbeat-cleanup.js";
 import { registerReplyCheck } from "./heartbeat-reply-check.js";
 import { registerLastAlive } from "./heartbeat-alive.js";
 import { registerConversationSave } from "./heartbeat-conversations.js";
-import { registerScoringSync } from "./heartbeat-scoring-sync.js";
 import { registerConsolidation, configureConsolidation } from "./heartbeat-consolidation.js";
 import { registerKnowledgeSync } from "./heartbeat-knowledge-sync.js";
 import { startWeb, type AppState } from "./web.js";
@@ -119,7 +118,6 @@ async function main(): Promise<void> {
     registerReplyCheck();
     registerLastAlive();
     registerConversationSave();
-    registerScoringSync();
     configureConsolidation({
       enabled: config.memory.consolidationEnabled,
       threshold: config.memory.consolidationThreshold,

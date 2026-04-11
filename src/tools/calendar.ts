@@ -117,7 +117,7 @@ function cleanDescription(description?: string): string | undefined {
   return cleaned || undefined;
 }
 
-// Export for use by heartbeat and scoring sync
+// Export for use by heartbeat
 export { extractUserTag, isUserEvent };
 
 // ============================================================

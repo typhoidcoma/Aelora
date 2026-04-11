@@ -52,27 +52,7 @@ import {
   getQuestsSupabaseClient,
   hasQuestsServiceRoleClient,
   ensureUserProfile,
-  upsertLifeEvent,
-  recordScoringEvent,
-  updateUserProfile,
-  upsertCategoryStats,
-  unlockAchievement,
-  getUserStats,
-  getPendingLifeEvents,
-  getRecentScoringEvents,
-  type LifeEventRow,
 } from "./supabase.js";
-import {
-  scoreTask,
-  processCompletion,
-  ACHIEVEMENTS,
-  inferCategory,
-  inferIrreversible,
-  inferAffectsOthers,
-  type LifeCategory,
-  type ScoreInput,
-  type UserState,
-} from "./scoring.js";
 import {
   createQuestRow,
   completeQuestRow,
@@ -1209,7 +1189,7 @@ export function startWeb(state: AppState): Server | null {
   const getGoogleTasksConfig = () =>
     getGoogleConfig(state.config.tools as Record<string, Record<string, unknown>> | undefined);
 
-  // Helper: resolve task list for API requests (same user id aliases as calendar / scoring)
+  // Helper: resolve task list for API requests
   function requireTaskUser(req: express.Request, res: express.Response): string | null {
     const uid = resolveApiUserId(req);
     if (!uid) {
@@ -1287,12 +1267,12 @@ export function startWeb(state: AppState): Server | null {
   });
 
   // Update task (or mark complete with { completed: true })
-  // Requires X-Discord-User-Id header for user scoping and scoring pipeline
+  // Requires X-Discord-User-Id header for user scoping
   app.put("/api/tasks/:uid", async (req, res) => {
     if (!isToolEnabled("tasks")) { res.status(404).json({ error: "Tasks tool is not enabled" }); return; }
     const discordUserId = requireTaskUser(req, res);
     if (!discordUserId) return;
-    const { title, description, priority, dueDate, completed, smeqActual } = req.body ?? {};
+    const { title, description, priority, dueDate, completed } = req.body ?? {};
     try {
       const googleConfig = getGoogleTasksConfig();
       const taskListId = await resolveUserTaskList(googleConfig, discordUserId);
@@ -1300,114 +1280,7 @@ export function startWeb(state: AppState): Server | null {
         const item = await completeTask(googleConfig, req.params.uid, taskListId);
         if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
 
-        // --- Scoring pipeline (non-blocking, best-effort) ---
-        let scoringResult: { pointsAwarded: number; score: number; newAchievements: string[] } | null = null;
-        const sb = tryGetSupabaseClient(config);
-        if (sb) {
-          try {
-            await ensureUserProfile(sb, discordUserId);
-
-            const lifeEvent = await upsertLifeEvent(sb, {
-              discord_user_id:   discordUserId,
-              title:             item.title,
-              description:       item.description ?? null,
-              category:          inferCategory({ title: item.title, description: item.description }) as LifeCategory,
-              source:            "google_calendar",
-              external_uid:      item.uid,
-              priority:          item.priority,
-              due_date:          item.dueDate ?? null,
-              completed:         true,
-              completed_at:      new Date().toISOString(),
-              estimated_minutes: null,
-              size_label:        null,
-              impact_level:      null,
-              irreversible:      inferIrreversible({ title: item.title, description: item.description }) || null,
-              affects_others:    inferAffectsOthers({ title: item.title, description: item.description }) || null,
-              smeq_estimate:     null,
-              tags:              null,
-            });
-
-            const userData = await getUserStats(sb, discordUserId);
-            const catStats = userData?.categoryStats.find((cs) => cs.category === lifeEvent?.category);
-            const userState: UserState = {
-              totalPoints:         userData?.profile.total_points ?? 0,
-              currentStreak:       userData?.profile.current_streak ?? 0,
-              longestStreak:       userData?.profile.longest_streak ?? 0,
-              lastCompletionDate:  userData?.profile.last_completion_date ?? null,
-              achievements:        (userData?.achievements ?? []).map((a) => a.achievement_id),
-              categoryStats: catStats ? {
-                completionCount:      catStats.completion_count,
-                avgScore:             catStats.avg_score,
-                avgHoursToComplete:   catStats.avg_hours_to_complete,
-                avgSmeqActual:        catStats.avg_smeq_actual,
-                personalBias:         catStats.personal_bias,
-              } : undefined,
-            };
-
-            const scoreInput: ScoreInput = {
-              title:             item.title,
-              description:       item.description,
-              category:          lifeEvent?.category as LifeCategory | undefined,
-              dueDate:           item.dueDate ?? null,
-              priority:          item.priority,
-              irreversible:      lifeEvent?.irreversible ?? undefined,
-              affectsOthers:     lifeEvent?.affects_others ?? undefined,
-              smeqEstimate:      lifeEvent?.smeq_estimate ?? undefined,
-              avgSmeqActual:     catStats?.avg_smeq_actual ?? undefined,
-              personalBias:      catStats?.personal_bias ?? 1.0,
-              categoryCompletionCount: catStats?.completion_count ?? 0,
-              streak:            userState.currentStreak,
-            };
-
-            const completion = processCompletion(scoreInput, userState, smeqActual != null ? Number(smeqActual) : null);
-
-            await recordScoringEvent(sb, {
-              discord_user_id:    discordUserId,
-              life_event_id:      lifeEvent?.id ?? null,
-              score_at_completion: completion.scoreBreakdown.total,
-              points_awarded:     completion.pointsAwarded,
-              urgency_component:  completion.scoreBreakdown.urgency,
-              impact_component:   completion.scoreBreakdown.impact,
-              effort_component:   completion.scoreBreakdown.effort,
-              context_component:  completion.scoreBreakdown.context,
-              smeq_actual:        smeqActual != null ? Number(smeqActual) : null,
-              hours_until_due:    completion.scoreBreakdown.hoursUntilDue,
-              streak_at_time:     completion.updatedStreak,
-            });
-
-            await updateUserProfile(sb, discordUserId, {
-              totalPoints:         (userData?.profile.total_points ?? 0) + completion.pointsAwarded,
-              currentStreak:       completion.updatedStreak,
-              longestStreak:       completion.updatedLongestStreak,
-              lastCompletionDate:  completion.lastCompletionDate,
-            });
-
-            const cat = lifeEvent?.category ?? "tasks";
-            await upsertCategoryStats(sb, {
-              discord_user_id:       discordUserId,
-              category:              cat,
-              completion_count:      (catStats?.completion_count ?? 0) + 1,
-              avg_score:             completion.emaUpdates.avgScore,
-              avg_hours_to_complete: completion.emaUpdates.avgHoursToComplete,
-              avg_smeq_actual:       completion.emaUpdates.avgSmeqActual ?? catStats?.avg_smeq_actual ?? 65,
-              personal_bias:         completion.emaUpdates.personalBias,
-            });
-
-            for (const achId of completion.newAchievements) {
-              await unlockAchievement(sb, discordUserId, achId);
-            }
-
-            scoringResult = {
-              pointsAwarded:   completion.pointsAwarded,
-              score:           completion.scoreBreakdown.total,
-              newAchievements: completion.newAchievements,
-            };
-          } catch (scoringErr) {
-            console.warn("Scoring pipeline error (non-fatal):", scoringErr instanceof Error ? scoringErr.message : String(scoringErr));
-          }
-        }
-
-        res.json({ ...item, ...(scoringResult ?? {}) });
+        res.json(item);
       } else {
         const item = await updateTask(googleConfig, req.params.uid, { title, description, priority, dueDate }, taskListId);
         if (!item) { res.status(404).json({ error: `Task "${req.params.uid}" not found` }); return; }
@@ -1433,33 +1306,6 @@ export function startWeb(state: AppState): Server | null {
       res.status(502).json({ error: `Tasks error: ${err instanceof Error ? err.message : String(err)}` });
     }
   });
-
-  // --- Scoring API ---
-  // User id: header or ?userId= | ?discordUserId= | ?supabaseUserId= (Patyna sends discordUserId)
-
-  function requireScoringUser(req: express.Request, res: express.Response): string | null {
-    const uid = resolveApiUserId(req);
-    if (!uid) {
-      res.status(400).json({
-        error:
-          "User id required: X-Discord-User-Id header or ?userId=, ?discordUserId=, or ?supabaseUserId= (scoring)",
-      });
-      return null;
-    }
-    return uid;
-  }
-
-  function requireSupabase(res: express.Response) {
-    const sb = tryGetSupabaseClient(config);
-    if (!sb) {
-      res.status(503).json({
-        error: "Supabase is not configured. Add supabase.url and supabase.anonKey to settings.yaml.",
-        source: "aelora_config",
-      });
-      return null;
-    }
-    return sb;
-  }
 
   /** Patyna quests: uses service role when `supabase.serviceRoleKey` is set (bypasses RLS). */
   function requireSupabaseForQuests(res: express.Response) {
@@ -1904,206 +1750,6 @@ export function startWeb(state: AppState): Server | null {
     }
 
     res.json({ ok: true, id: result.id, title: result.title });
-  });
-
-  // GET /api/scoring/stats  -  XP, streak, achievements, category breakdown
-  app.get("/api/scoring/stats", async (req, res) => {
-    const discordUserId = requireScoringUser(req, res);
-    if (!discordUserId) return;
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const data = await getUserStats(sb, discordUserId);
-    if (!data) {
-      res.json({ exists: false, profile: null, categoryStats: [], achievements: [] });
-      return;
-    }
-    res.json({ exists: true, ...data });
-  });
-
-  // GET /api/scoring/leaderboard  -  tasks sorted by score
-  app.get("/api/scoring/leaderboard", async (req, res) => {
-    const discordUserId = requireScoringUser(req, res);
-    if (!discordUserId) return;
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
-    const category = req.query.category as string | undefined;
-
-    const [events, userData] = await Promise.all([
-      getPendingLifeEvents(sb, discordUserId, category, limit * 3),
-      getUserStats(sb, discordUserId),
-    ]);
-
-    const catStatMap = new Map((userData?.categoryStats ?? []).map((cs) => [cs.category, cs]));
-
-    const scored = events.map((ev) => {
-      const cs = catStatMap.get(ev.category);
-      const input: ScoreInput = {
-        title:            ev.title,
-        description:      ev.description ?? undefined,
-        category:         ev.category as LifeCategory,
-        dueDate:          ev.due_date ?? undefined,
-        priority:         ev.priority,
-        impactLevel:      ev.impact_level ?? undefined,
-        irreversible:     ev.irreversible ?? undefined,
-        affectsOthers:    ev.affects_others ?? undefined,
-        smeqEstimate:     ev.smeq_estimate ?? undefined,
-        estimatedMinutes: ev.estimated_minutes ?? undefined,
-        sizeLabel:        ev.size_label ?? undefined,
-        avgSmeqActual:    cs?.avg_smeq_actual ?? undefined,
-        personalBias:     cs?.personal_bias ?? 1.0,
-        categoryCompletionCount: cs?.completion_count ?? 0,
-        streak:           userData?.profile.current_streak ?? 0,
-      };
-      return { event: ev, scoreBreakdown: scoreTask(input) };
-    });
-
-    scored.sort((a, b) => b.scoreBreakdown.total - a.scoreBreakdown.total);
-    const page = scored.slice(0, limit);
-
-    res.json({
-      count: page.length,
-      tasks: page.map(({ event, scoreBreakdown }) => ({ ...event, scoreBreakdown })),
-    });
-  });
-
-  // GET /api/scoring/history  -  recent scoring events
-  app.get("/api/scoring/history", async (req, res) => {
-    const discordUserId = requireScoringUser(req, res);
-    if (!discordUserId) return;
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
-    const events = await getRecentScoringEvents(sb, discordUserId, limit);
-    res.json({ count: events.length, events });
-  });
-
-  // GET /api/scoring/achievements
-  app.get("/api/scoring/achievements", async (req, res) => {
-    const discordUserId = requireScoringUser(req, res);
-    if (!discordUserId) return;
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const data = await getUserStats(sb, discordUserId);
-    const unlockedIds = new Set((data?.achievements ?? []).map((a) => a.achievement_id));
-
-    res.json({
-      total: ACHIEVEMENTS.length,
-      unlocked: unlockedIds.size,
-      achievements: ACHIEVEMENTS.map((a) => ({
-        ...a,
-        unlocked: unlockedIds.has(a.id),
-        unlockedAt: data?.achievements.find((ua) => ua.achievement_id === a.id)?.unlocked_at ?? null,
-      })),
-    });
-  });
-
-  // --- Life Events CRUD ---
-
-  // POST /api/life-events  -  create a non-Google life event (health, finance, etc.)
-  app.post("/api/life-events", async (req, res) => {
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const { discordUserId, title, description, category, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags } = req.body ?? {};
-
-    if (!discordUserId || typeof discordUserId !== "string") {
-      res.status(400).json({ error: "discordUserId is required" });
-      return;
-    }
-    if (!title || typeof title !== "string") {
-      res.status(400).json({ error: "title is required" });
-      return;
-    }
-
-    const ev = await upsertLifeEvent(sb, {
-      discord_user_id:   discordUserId,
-      title,
-      description:       description ?? null,
-      category:          (category ?? inferCategory({ title, description })) as LifeCategory,
-      source:            "manual",
-      external_uid:      null,
-      priority:          priority ?? "medium",
-      due_date:          dueDate ?? null,
-      completed:         false,
-      completed_at:      null,
-      estimated_minutes: estimatedMinutes ?? null,
-      size_label:        sizeLabel ?? null,
-      impact_level:      impactLevel ?? null,
-      irreversible:      irreversible ?? null,
-      affects_others:    affectsOthers ?? null,
-      smeq_estimate:     smeqEstimate ?? null,
-      tags:              tags ?? null,
-    });
-
-    if (!ev) {
-      res.status(500).json({ error: "Failed to create life event" });
-      return;
-    }
-
-    const scoreBreakdown = scoreTask({
-      title: ev.title,
-      description: ev.description ?? undefined,
-      category: ev.category as LifeCategory,
-      dueDate: ev.due_date ?? undefined,
-      priority: ev.priority,
-      impactLevel: ev.impact_level ?? undefined,
-      irreversible: ev.irreversible ?? undefined,
-      affectsOthers: ev.affects_others ?? undefined,
-      smeqEstimate: ev.smeq_estimate ?? undefined,
-      estimatedMinutes: ev.estimated_minutes ?? undefined,
-      sizeLabel: ev.size_label ?? undefined,
-    });
-
-    res.status(201).json({ event: ev, scoreBreakdown });
-  });
-
-  // PUT /api/life-events/:id  -  update a life event's metadata
-  app.put("/api/life-events/:id", async (req, res) => {
-    const sb = requireSupabase(res);
-    if (!sb) return;
-
-    const { id } = req.params;
-    const { discordUserId, title, description, priority, dueDate, estimatedMinutes, sizeLabel, impactLevel, irreversible, affectsOthers, smeqEstimate, tags, completed } = req.body ?? {};
-
-    if (!discordUserId) {
-      res.status(400).json({ error: "discordUserId is required" });
-      return;
-    }
-
-    const patch: Partial<LifeEventRow> = {};
-    if (title !== undefined)            patch.title = title;
-    if (description !== undefined)      patch.description = description;
-    if (priority !== undefined)         patch.priority = priority;
-    if (dueDate !== undefined)          patch.due_date = dueDate;
-    if (estimatedMinutes !== undefined) patch.estimated_minutes = estimatedMinutes;
-    if (sizeLabel !== undefined)        patch.size_label = sizeLabel;
-    if (impactLevel !== undefined)      patch.impact_level = impactLevel;
-    if (irreversible !== undefined)     patch.irreversible = irreversible;
-    if (affectsOthers !== undefined)    patch.affects_others = affectsOthers;
-    if (smeqEstimate !== undefined)     patch.smeq_estimate = smeqEstimate;
-    if (tags !== undefined)             patch.tags = tags;
-    if (completed !== undefined)        patch.completed = completed;
-
-    const { data, error } = await sb
-      .from("life_events")
-      .update(patch)
-      .eq("id", id)
-      .eq("discord_user_id", discordUserId)
-      .select()
-      .single();
-
-    if (error) {
-      if (error.code === "PGRST116") { res.status(404).json({ error: "Life event not found" }); return; }
-      res.status(500).json({ error: error.message });
-      return;
-    }
-
-    res.json({ event: data });
   });
 
   // --- Users ---

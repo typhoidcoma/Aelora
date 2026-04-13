@@ -4,12 +4,11 @@ import { getUser } from "../users.js";
 import {
   listEvents,
   createEvent,
-  createCalendar,
   updateEvent,
   deleteEvent,
   formatEventTime,
 } from "./google-calendar.js";
-import { getCachedSupabaseClient, ensureUserProfile, getCalendarId, setCalendarId } from "../supabase.js";
+import { getCachedSupabaseClient, ensureUserProfile, getCalendarId } from "../supabase.js";
 import { getAllUsers } from "../users.js";
 
 // ============================================================
@@ -17,10 +16,8 @@ import { getAllUsers } from "../users.js";
 // Events are also tagged with user info for heartbeat sync.
 // ============================================================
 
-// In-memory cache: discordUserId → Promise<calendarId>
-// Caching the promise itself prevents race conditions where
-// concurrent calls both create a new calendar.
-const _calendarCache = new Map<string, Promise<string>>();
+// In-memory cache: discordUserId → Promise<calendarId | null>
+const _calendarCache = new Map<string, Promise<string | null>>();
 
 /** Verify a calendar ID is still valid by making a lightweight API call. */
 async function verifyCalendar(config: GoogleConfig, calendarId: string): Promise<boolean> {
@@ -36,17 +33,16 @@ async function verifyCalendar(config: GoogleConfig, calendarId: string): Promise
 
 /**
  * Resolve a user's personal Google Calendar ID.
- * Creates the calendar on first use; caches in memory + Supabase.
+ * Returns null if no calendar exists — calendars are no longer auto-created.
  */
 export async function resolveUserCalendar(
   config: GoogleConfig,
   discordUserId: string,
-  username?: string,
-): Promise<string> {
+): Promise<string | null> {
   const cached = _calendarCache.get(discordUserId);
   if (cached) return cached;
 
-  const promise = _resolveUserCalendarInner(config, discordUserId, username);
+  const promise = _resolveUserCalendarInner(config, discordUserId);
   _calendarCache.set(discordUserId, promise);
 
   // Evict on failure so next call can retry
@@ -58,34 +54,20 @@ export async function resolveUserCalendar(
 async function _resolveUserCalendarInner(
   config: GoogleConfig,
   discordUserId: string,
-  username?: string,
-): Promise<string> {
+): Promise<string | null> {
   const sb = getCachedSupabaseClient();
 
-  // 1. Check Supabase for stored calendar ID
   if (sb) {
     await ensureUserProfile(sb, discordUserId);
     const stored = await getCalendarId(sb, discordUserId);
     if (stored) {
-      // Verify it still exists
       const valid = await verifyCalendar(config, stored);
       if (valid) return stored;
-      console.warn(`Calendar: stored ID ${stored} for user ${discordUserId} is invalid, creating new`);
+      console.warn(`Calendar: stored ID ${stored} for user ${discordUserId} is invalid`);
     }
   }
 
-  // 2. Create a new secondary calendar for this user
-  const displayName = username ?? getUser(discordUserId)?.username ?? discordUserId;
-  const calendarTitle = `${displayName}'s Calendar`;
-  const calendarId = await createCalendar(config, calendarTitle);
-  console.log(`Calendar: created "${calendarTitle}" (${calendarId}) for user ${discordUserId}`);
-
-  // 3. Persist to Supabase
-  if (sb) {
-    await setCalendarId(sb, discordUserId, calendarId);
-  }
-
-  return calendarId;
+  return null;
 }
 
 /** Build a description that tags the Discord user for attribution. */
@@ -172,6 +154,7 @@ export default defineTool({
           if (userId) {
             // User-scoped: single calendar
             const calendarId = await resolveUserCalendar(config, userId);
+            if (!calendarId) return { text: "No calendar exists for this user.", data: { action: "list", count: 0, events: [] } };
             const events = await listEvents(config, calendarId, {
               maxResults: maxResults ?? 25,
               daysAhead: days,
@@ -184,6 +167,7 @@ export default defineTool({
             const results = await Promise.allSettled(
               userIds.map(async (uid) => {
                 const calId = await resolveUserCalendar(config, uid);
+                if (!calId) return [];
                 const events = await listEvents(config, calId, { maxResults: 20, daysAhead: days });
                 const name = users[uid]?.username ?? uid;
                 return events.map(e => ({ event: e, owner: name }));
@@ -243,6 +227,7 @@ export default defineTool({
           if (!endDateTime) return "Error: endDateTime is required for create.";
 
           const createCalId = await resolveUserCalendar(config, userId);
+          if (!createCalId) return "Error: No calendar exists for this user. Calendar creation is currently disabled.";
           const created = await createEvent(config, createCalId, {
             summary: summary as string,
             description: tagDescription(userId, description as string | undefined),
@@ -267,6 +252,7 @@ export default defineTool({
           if (!eventId) return "Error: eventId is required for update.";
 
           const updateCalId = await resolveUserCalendar(config, userId);
+          if (!updateCalId) return "Error: No calendar exists for this user. Calendar creation is currently disabled.";
           const updated = await updateEvent(config, updateCalId, eventId as string, {
             summary: summary as string | undefined,
             description: description ? tagDescription(userId, description as string) : undefined,
@@ -291,6 +277,7 @@ export default defineTool({
           if (!userId) return "Error: Calendar delete requires a user context. Run this in a Discord channel or DM.";
           if (!eventId) return "Error: eventId is required for delete.";
           const deleteCalId = await resolveUserCalendar(config, userId);
+          if (!deleteCalId) return "Error: No calendar exists for this user. Calendar creation is currently disabled.";
           const deleted = await deleteEvent(config, deleteCalId, eventId as string);
           if (!deleted) return `Error: event not found (ID: ${eventId}).`;
           return {

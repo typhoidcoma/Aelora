@@ -53,12 +53,13 @@ const calendarReminder: HeartbeatHandler = {
     const knownUsers = Object.keys(getAllUsers());
 
     for (const userId of knownUsers) {
-      let calendarId: string;
+      let calendarId: string | null;
       try {
         calendarId = await resolveUserCalendar(googleConfig, userId);
       } catch {
-        continue; // No calendar for this user yet
+        continue;
       }
+      if (!calendarId) continue;
 
       let events: CalendarEvent[];
       try {

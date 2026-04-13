@@ -1116,6 +1116,10 @@ export function startWeb(state: AppState): Server | null {
 
     try {
       const calendarId = await resolveUserCalendar(googleConfig, discordUserId);
+      if (!calendarId) {
+        res.json({ events: [], count: 0, daysAhead, maxResults });
+        return;
+      }
       const events = await listEvents(googleConfig, calendarId, { maxResults, daysAhead });
 
       const mapped = events.map((e) => ({
@@ -1158,6 +1162,7 @@ export function startWeb(state: AppState): Server | null {
       const results = await Promise.allSettled(
         userIds.map(async (userId) => {
           const calendarId = await resolveUserCalendar(googleConfig, userId);
+          if (!calendarId) return [];
           const events = await listEvents(googleConfig, calendarId, { maxResults: 20, daysAhead });
           const username = users[userId]?.username ?? userId;
           return events.map((e) => ({

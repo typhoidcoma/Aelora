@@ -4,9 +4,91 @@
   <img src="assets/aelora_art_04.png" alt="Aelora" width="320" />
 </p>
 
-**The embodiment layer of the Luminora Emotion Engine.**
+**An open-source LLM harness that turns any OpenAI-compatible model into a persistent, tool-using, emotionally aware agent.**
 
-Aelora is an LLM-powered Discord bot built as part of the Aeveon creative universe. It connects to any OpenAI-compatible API, has a composable personality system (Persona), and supports modular tools, agents, scheduled tasks, proactive heartbeat actions, a smart memory system, and a live web dashboard.
+The model provides reasoning. Aelora provides everything else — memory, tools, personality, context engineering, and real-time emotional state. Built as the embodiment layer of the **Luminora Emotion Engine** within the Aeveon creative universe.
+
+## Harness Subsystems
+
+| Subsystem | What it does |
+|---|---|
+| **Orchestration Loop** | Message in → system prompt assembly → streaming completion with multi-step tool dispatch → post-response extraction (facts, mood, tokens) |
+| **Memory** | Per-user/channel/global fact store with 12 categories, vector semantic search, contradiction detection, weighted ranking, temporal awareness, periodic LLM consolidation |
+| **Context Engineering** | System prompt built in cache-friendly order (static persona first, dynamic context last), conversation compaction via summarization, per-section token budgets, tool relevance filtering |
+| **Tool System** | Auto-discovered from `src/tools/*.ts` — drop a file, it loads. 15+ built-in tools (Google Workspace, Linear, web search, image gen). Dynamic relevance filtering, parallel execution |
+| **Agent System** | Sub-LLM loops with own system prompts, tool allowlists, and iteration caps. Auto-discovered from `src/agents/*.ts`. Agents inherit the persona voice |
+| **Knowledge Base** | Google Drive folder synced, chunked, embedded, and vector-indexed. Auto-searched every message, injected as reference material |
+| **Personality & Emotion** | Composable persona from layered markdown files. Plutchik 8D mood classification per response. Real-time emotion vectors for 3D animation |
+| **Automation** | Heartbeat system (calendar reminders, memory compaction, cleanup, KB sync, ambient awareness), cron scheduler with timezone support |
+| **Observability** | Centralized token tracking (lifetime/daily/hourly/by-model/by-source), 7-tab web dashboard, WebSocket broadcasting |
+
+## How It Works
+
+```text
+                    Discord / REST API / WebSocket
+                                │
+                                ▼
+                    ┌───────────────────────┐
+                    │   System Prompt Build  │
+                    │                        │
+                    │  Persona (static)      │  ◄── cache-friendly order:
+                    │  + Tool inventory      │      static sections first,
+                    │  + Mood state          │      dynamic sections last
+                    │  + User profile        │
+                    │  + Memory (ranked)     │
+                    │  + Knowledge base hits │
+                    │  + Conversation summary│
+                    │  + Date/time           │
+                    └──────────┬────────────┘
+                               │
+                               ▼
+                    ┌───────────────────────┐
+                    │   Completion Loop      │
+                    │                        │
+                    │  LLM call (streaming) ─┼──► token-by-token output
+                    │       │                │
+                    │       ▼                │
+                    │  Tool calls? ──yes──►  │──► tool-registry dispatch
+                    │       │       │        │    (parallel execution)
+                    │       no    results    │
+                    │       │     re-inject  │
+                    │       ▼       │        │
+                    │  Agent calls? ─yes──►  │──► sub-LLM loop (own prompt,
+                    │       │                │    own tools, iteration cap)
+                    │       no               │
+                    │       ▼                │
+                    │     Done               │
+                    └──────────┬────────────┘
+                               │
+                               ▼
+                    ┌───────────────────────┐
+                    │   Post-Response        │
+                    │                        │
+                    │  Fact extraction       │  async LLM pass: 12 categories,
+                    │  Mood classification   │  contradiction detection,
+                    │  Token accounting      │  temporal date resolution
+                    │  Profile rebuild       │
+                    │  Mindmap broadcast     │
+                    └───────────────────────┘
+```
+
+## Design Philosophy
+
+- **Model-agnostic.** Any OpenAI-compatible endpoint: OpenAI, Ollama, OpenRouter, Together, Groq, LM Studio. Swap models without changing anything else.
+- **Personality-first.** The persona system is not an afterthought. Composable markdown files define the agent's voice, and every subsystem — agents, mood, ambient awareness — respects it.
+- **Convention over configuration.** Drop a `.ts` file in `src/tools/` or `src/agents/` and it auto-loads. No registration boilerplate.
+- **Context is a scarce resource.** Every injection section has a token budget. History is compacted, not truncated. The system prompt is ordered for prefix caching.
+- **Memory is durable.** Facts persist across sessions with semantic search, temporal awareness, and periodic LLM-driven consolidation. The bot remembers.
+
+## Interfaces
+
+| Interface | Transport | Use case |
+|---|---|---|
+| **Discord** | Discord.js | Primary conversational interface with ambient awareness |
+| **REST API** | Express | Full CRUD for all subsystems, OpenAPI spec at `/api/docs` |
+| **WebSocket** | `/ws` | Bidirectional streaming chat for Unity/game clients |
+| **Web Dashboard** | Browser | 7-tab real-time visualization, data management, persona editing |
+| **Discord Activity** | Embedded iframe | WebGL app in Discord voice channels via `/play` |
 
 ---
 

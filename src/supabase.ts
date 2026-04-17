@@ -72,10 +72,13 @@ export async function ensureUserProfile(
   sb: SupabaseClient,
   discordUserId: string,
 ): Promise<void> {
-  await sb.from("user_profiles").upsert(
+  const { error } = await sb.from("user_profiles").upsert(
     { discord_user_id: discordUserId },
     { onConflict: "discord_user_id", ignoreDuplicates: true },
   );
+  if (error) {
+    console.warn(`Supabase: ensureUserProfile failed for ${discordUserId}: ${error.message}`);
+  }
 }
 
 /** Get the user's Google Task list ID (null if not yet created). */
@@ -88,7 +91,11 @@ export async function getTaskListId(
     .select("google_task_list_id")
     .eq("discord_user_id", discordUserId)
     .single();
-  if (error || !data) return null;
+  if (error) {
+    console.warn(`Supabase: getTaskListId failed for ${discordUserId}: ${error.message}`);
+    return null;
+  }
+  if (!data) return null;
   return (data as { google_task_list_id: string | null }).google_task_list_id;
 }
 
@@ -98,10 +105,13 @@ export async function setTaskListId(
   discordUserId: string,
   listId: string,
 ): Promise<void> {
-  await sb
+  const { error } = await sb
     .from("user_profiles")
     .update({ google_task_list_id: listId })
     .eq("discord_user_id", discordUserId);
+  if (error) {
+    console.warn(`Supabase: setTaskListId failed for ${discordUserId}: ${error.message}`);
+  }
 }
 
 /** Get the user's Google Calendar ID (null if not yet created). */
@@ -114,7 +124,11 @@ export async function getCalendarId(
     .select("google_calendar_id")
     .eq("discord_user_id", discordUserId)
     .single();
-  if (error || !data) return null;
+  if (error) {
+    console.warn(`Supabase: getCalendarId failed for ${discordUserId}: ${error.message}`);
+    return null;
+  }
+  if (!data) return null;
   return (data as { google_calendar_id: string | null }).google_calendar_id;
 }
 
@@ -124,8 +138,11 @@ export async function setCalendarId(
   discordUserId: string,
   calendarId: string,
 ): Promise<void> {
-  await sb
+  const { error } = await sb
     .from("user_profiles")
     .update({ google_calendar_id: calendarId })
     .eq("discord_user_id", discordUserId);
+  if (error) {
+    console.warn(`Supabase: setCalendarId failed for ${discordUserId}: ${error.message}`);
+  }
 }

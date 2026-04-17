@@ -69,6 +69,7 @@ const loggerSchema = z.object({
   maxBuffer: z.number().int().positive().default(200),
   fileEnabled: z.boolean().default(false),
   retainDays: z.number().int().positive().default(7),
+  logAllRequests: z.boolean().default(false),
 });
 
 const cronSchema = z.object({

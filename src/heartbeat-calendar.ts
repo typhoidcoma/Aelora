@@ -56,7 +56,8 @@ const calendarReminder: HeartbeatHandler = {
       let calendarId: string | null;
       try {
         calendarId = await resolveUserCalendar(googleConfig, userId);
-      } catch {
+      } catch (err) {
+        console.warn(`Heartbeat: [calendar-reminder] failed to resolve calendar for user ${userId}: ${err instanceof Error ? err.message : String(err)}`);
         continue;
       }
       if (!calendarId) continue;
@@ -67,8 +68,9 @@ const calendarReminder: HeartbeatHandler = {
           maxResults: 10,
           daysAhead: 1,
         });
-      } catch {
-        continue; // Calendar not reachable
+      } catch (err) {
+        console.warn(`Heartbeat: [calendar-reminder] failed to list events for user ${userId}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
       }
 
       for (const event of events) {

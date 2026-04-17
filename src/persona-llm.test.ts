@@ -104,6 +104,7 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       maxBuffer: 200,
       fileEnabled: false,
       retainDays: 7,
+      logAllRequests: false,
     },
     cron: {
       maxHistory: 10,

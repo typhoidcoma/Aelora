@@ -8,6 +8,7 @@ type LogEntry = {
   ts: string;
   level: "log" | "warn" | "error";
   message: string;
+  meta?: Record<string, unknown>;
 };
 
 let maxBuffer = 200;
@@ -180,3 +181,26 @@ export function getLiveClientMetrics(): {
     maxWsClients: MAX_WS_CLIENTS,
   };
 }
+
+// ============================================================
+// Structured log helpers
+// ============================================================
+
+/** Tagged logging helpers for consistent, filterable output. */
+export const log = {
+  /** Web request/response logging. */
+  web(msg: string): void {
+    console.log(`Web: ${msg}`);
+  },
+  /** External API call logging (Google, Supabase, Brave, etc.). */
+  external(service: string, op: string, meta?: { duration?: number; status?: number; error?: string }): void {
+    const parts = [`External: [${service}] ${op}`];
+    if (meta?.duration != null) parts.push(`${meta.duration}ms`);
+    if (meta?.status != null) parts.push(`status=${meta.status}`);
+    if (meta?.error) {
+      console.warn(parts.join(" ") + ` error=${meta.error}`);
+      return;
+    }
+    console.log(parts.join(" "));
+  },
+};

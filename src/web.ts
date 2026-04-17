@@ -1,6 +1,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import { createServer, type Server } from "node:http";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Config } from "./config.js";
@@ -70,6 +71,10 @@ export type AppState = {
   personaState: PersonaState | null;
 };
 
+/** Wrap async route handlers so rejected promises reach the global error handler. */
+const asyncHandler = (fn: (req: express.Request, res: express.Response, next: express.NextFunction) => Promise<void>) =>
+  (req: express.Request, res: express.Response, next: express.NextFunction) => { fn(req, res, next).catch(next); };
+
 export function startWeb(state: AppState): Server | null {
   const { config } = state;
 
@@ -111,16 +116,23 @@ export function startWeb(state: AppState): Server | null {
     next();
   });
 
-  // Request logging middleware  -  only log mutations and errors, not dashboard polling
+  // Request logging middleware  -  assigns request ID and logs mutations/errors
+  const logAllRequests = config.logger?.logAllRequests ?? false;
   app.use((req, res, next) => {
     if (req.path === "/api/logs/stream" || !req.path.startsWith("/api")) {
       return next();
     }
+    const requestId = randomUUID().slice(0, 8);
+    res.locals.requestId = requestId;
     const start = Date.now();
     res.on("finish", () => {
-      // Log POST/PUT/DELETE (mutations) and non-2xx errors (skip 404 from tool-disabled guards)
-      if (req.method !== "GET" || (res.statusCode >= 400 && res.statusCode !== 404)) {
-        console.log(`Web: ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+      const elapsed = Date.now() - start;
+      const shouldLog = logAllRequests
+        || req.method !== "GET"
+        || (res.statusCode >= 400 && res.statusCode !== 404);
+      if (shouldLog) {
+        const slow = elapsed > 1000 ? " SLOW" : "";
+        console.log(`Web: [${requestId}] ${req.method} ${req.path} ${res.statusCode} ${elapsed}ms${slow}`);
       }
     });
     next();
@@ -313,6 +325,12 @@ export function startWeb(state: AppState): Server | null {
   // Token usage stats
   app.get("/api/tokens", (_req, res) => {
     res.json(getTokenStats());
+  });
+
+  // External API health stats (rolling 1-hour window)
+  app.get("/api/health", async (_req, res) => {
+    const { getHealthReport } = await import("./api-health.js");
+    res.json(getHealthReport());
   });
 
   // Reset token stats
@@ -799,8 +817,8 @@ export function startWeb(state: AppState): Server | null {
   });
 
   // Execute a tool directly via REST API
-  app.post("/api/tools/:name/execute", async (req, res) => {
-    const { name } = req.params;
+  app.post("/api/tools/:name/execute", asyncHandler(async (req, res) => {
+    const name = req.params.name as string;
     const { args = {}, channelId = null, userId = null } = req.body ?? {};
 
     const tool = getAllTools().find((t) => t.name === name);
@@ -821,7 +839,7 @@ export function startWeb(state: AppState): Server | null {
       result: result.text,
       ...(result.data !== undefined ? { data: result.data } : {}),
     });
-  });
+  }));
 
   // Toggle a tool on/off
   app.post("/api/tools/:name/toggle", (req, res) => {
@@ -953,14 +971,14 @@ export function startWeb(state: AppState): Server | null {
   });
 
   // Memory  -  daily log dates
-  app.get("/api/memory/logs", async (_req, res) => {
+  app.get("/api/memory/logs", asyncHandler(async (_req, res) => {
     const { listLogDates } = await import("./daily-log.js");
     res.json(listLogDates());
-  });
+  }));
 
   // Memory  -  read a specific daily log
-  app.get("/api/memory/logs/:date", async (req, res) => {
-    const { date } = req.params;
+  app.get("/api/memory/logs/:date", asyncHandler(async (req, res) => {
+    const date = req.params.date as string;
     const { readLog } = await import("./daily-log.js");
     const content = readLog(date);
     if (!content) {
@@ -968,13 +986,13 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     res.json({ date, content });
-  });
+  }));
 
   // Memory  -  conversation summaries
-  app.get("/api/memory/summaries", async (_req, res) => {
+  app.get("/api/memory/summaries", asyncHandler(async (_req, res) => {
     const { getConversationSummaries } = await import("./llm.js");
     res.json(getConversationSummaries());
-  });
+  }));
 
   // --- Notes CRUD ---
 
@@ -1364,7 +1382,7 @@ export function startWeb(state: AppState): Server | null {
   }
 
   // GET /api/supabase/status  -  whether Aelora can read `quests` (connectivity + schema/RLS)
-  app.get("/api/supabase/status", async (_req, res) => {
+  app.get("/api/supabase/status", asyncHandler(async (_req, res) => {
     const url = config.supabase?.url;
     const hasKey = !!(config.supabase?.anonKey && String(config.supabase.anonKey).length > 0);
     if (!url || !hasKey) {
@@ -1408,7 +1426,7 @@ export function startWeb(state: AppState): Server | null {
       },
       questsUseServiceRole: !!config.supabase?.serviceRoleKey?.trim(),
     });
-  });
+  }));
 
   // --- Patyna quests (Supabase Auth user_id; same writes as `quest` tool) ---
 
@@ -2367,7 +2385,7 @@ export function startWeb(state: AppState): Server | null {
 
   // --- Data export ---
 
-  app.get("/api/export", async (req, res) => {
+  app.get("/api/export", asyncHandler(async (req, res) => {
     const requested = typeof req.query.sections === "string"
       ? req.query.sections.split(",").map((s) => s.trim())
       : null;
@@ -2395,7 +2413,7 @@ export function startWeb(state: AppState): Server | null {
     const date = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Disposition", `attachment; filename=aelora-export-${date}.json`);
     res.type("application/json").send(payload);
-  });
+  }));
 
   // --- Ambient awareness ---
 
@@ -2433,6 +2451,15 @@ export function startWeb(state: AppState): Server | null {
       res.json({ name: req.params.name, enabled });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // Global error handler — catches unhandled errors from any route
+  app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const requestId = res.locals.requestId ?? "no-id";
+    console.error(`Web: [${requestId}] Unhandled error in ${req.method} ${req.path}: ${err.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error", requestId });
     }
   });
 

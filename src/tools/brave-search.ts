@@ -1,4 +1,5 @@
 import { defineTool, param, getToolConfigValue } from "./types.js";
+import { record } from "../api-health.js";
 
 // ============================================================
 // Types
@@ -38,6 +39,7 @@ type OpenAIResponsesResponse = {
 
 async function searchBrave(query: string, count: number, apiKey: string): Promise<SearchResult[]> {
   const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`;
+  const start = Date.now();
 
   const res = await fetch(url, {
     headers: {
@@ -46,12 +48,16 @@ async function searchBrave(query: string, count: number, apiKey: string): Promis
       "X-Subscription-Token": apiKey,
     },
   });
+  const duration = Date.now() - start;
 
   if (!res.ok) {
     const body = await res.text();
+    console.warn(`External: [brave] search failed ${res.status} ${duration}ms`);
+    record("brave", false, duration, `${res.status}`);
     throw new Error(`Brave Search API error (${res.status}): ${body.slice(0, 200)}`);
   }
 
+  record("brave", true, duration);
   const data = (await res.json()) as BraveSearchResponse;
   return (data.web?.results ?? []).map((r) => ({
     title: r.title,

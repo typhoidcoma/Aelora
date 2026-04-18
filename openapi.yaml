@@ -28,7 +28,7 @@ info:
     ## Rate Limiting
 
     - **General:** 1000 requests / 15 minutes per IP on all `/api/*` routes
-    - **Chat:** 60 requests / minute per IP on `/api/chat` and `/api/chat/stream`
+    - **Chat:** 60 requests / minute per IP on all `/api/chat/*` routes (`/api/chat`, `/api/chat/stream`, `/api/chat/system`, `/api/chat/system/stream`)
 
     Rate limit headers (`RateLimit-*`) are included in responses.
 
@@ -633,15 +633,28 @@ paths:
     get:
       tags: [Status]
       summary: OpenAPI specification
-      description: Raw OpenAPI 3.1 YAML specification. Always public.
+      description: Raw OpenAPI 3.1 YAML specification (this document). Served as `application/yaml`. Always public.
       security: []
       responses:
         "200":
           description: OpenAPI YAML
           content:
+            application/yaml:
+              schema:
+                type: string
+                example: |
+                  openapi: 3.1.0
+                  info:
+                    title: Aelora API
+                    version: 1.0.0
             text/yaml:
               schema:
                 type: string
+                example: |
+                  openapi: 3.1.0
+                  info:
+                    title: Aelora API
+                    version: 1.0.0
 
   # â”€â”€ Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/status:
@@ -657,6 +670,125 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Status"
+                example:
+                  connected: true
+                  username: "Aelora"
+                  userId: "987654321098765432"
+                  guildCount: 2
+                  uptime: 38412.5
+                  authRequired: true
+                  liveClients:
+                    sseClients: 1
+                    wsClients: 3
+                    maxSseClients: 50
+                    maxWsClients: 50
+
+  /api/health:
+    get:
+      tags: [Status]
+      summary: External API health report
+      description: |
+        Rolling 1-hour window of external API call outcomes (success/error counts,
+        last error, last success, average duration) per service (e.g. `openai`,
+        `google`, `supabase`, `linear`). Useful for detecting upstream outages.
+      responses:
+        "200":
+          description: Health report keyed by service name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    success:
+                      type: integer
+                      description: Successful calls in the current hour
+                    error:
+                      type: integer
+                      description: Failed calls in the current hour
+                    totalDurationMs:
+                      type: integer
+                      description: Sum of all call durations in ms
+                    avgDurationMs:
+                      type: integer
+                      description: Average call duration across success+error
+                    lastError:
+                      type: object
+                      nullable: true
+                      properties:
+                        message:
+                          type: string
+                        at:
+                          type: string
+                          format: date-time
+                    lastSuccess:
+                      type: string
+                      format: date-time
+                      nullable: true
+                example:
+                  openai:
+                    success: 142
+                    error: 1
+                    totalDurationMs: 58210
+                    avgDurationMs: 407
+                    lastError:
+                      message: "429 Too Many Requests"
+                      at: "2026-04-18T14:12:44.112Z"
+                    lastSuccess: "2026-04-18T14:32:01.902Z"
+                  google:
+                    success: 23
+                    error: 0
+                    totalDurationMs: 4150
+                    avgDurationMs: 180
+                    lastSuccess: "2026-04-18T14:31:10.224Z"
+
+  /api/supabase/status:
+    get:
+      tags: [Status]
+      summary: Supabase connectivity check
+      description: |
+        Reports whether Supabase is configured (`supabase.url` + `supabase.anonKey`
+        in `settings.yaml`), whether the client initialized, and whether the
+        `quests` table is readable (includes RLS/schema probe).
+      responses:
+        "200":
+          description: Supabase status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                    description: Whether supabase.url + anonKey are set in settings.yaml
+                  clientReady:
+                    type: boolean
+                    description: Whether the Supabase client initialized successfully
+                  quests:
+                    type: object
+                    nullable: true
+                    properties:
+                      readable:
+                        type: boolean
+                      error:
+                        type: string
+                      code:
+                        type: string
+                      hint:
+                        type: string
+                  questsUseServiceRole:
+                    type: boolean
+                    description: True when supabase.serviceRoleKey is set (bypasses RLS for quest writes)
+                  message:
+                    type: string
+                    description: Present when configured=false
+                example:
+                  configured: true
+                  clientReady: true
+                  quests:
+                    readable: true
+                  questsUseServiceRole: true
 
   # â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/config:
@@ -671,12 +803,27 @@ paths:
             application/json:
               schema:
                 type: object
+                example:
+                  persona:
+                    active: "wendy"
+                    botName: "Wendy"
+                  llm:
+                    model: "claude-opus-4-7"
+                    maxTokens: 4096
+                  memory:
+                    consolidationEnabled: true
+                    triageEnabled: true
+                  knowledge:
+                    enabled: true
+                    syncIntervalMinutes: 30
         "401":
           description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Unauthorized"
 
   # â”€â”€ Persona â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/persona:
@@ -720,6 +867,25 @@ paths:
                           type: boolean
                         contentLength:
                           type: integer
+                example:
+                  enabled: true
+                  activePersona: "wendy"
+                  botName: "Wendy"
+                  loadedAt: "2026-04-18T14:00:00.000Z"
+                  promptLength: 8421
+                  files:
+                    - path: "wendy/persona.md"
+                      label: "Core persona"
+                      section: "identity"
+                      order: 1
+                      enabled: true
+                      contentLength: 2130
+                    - path: "wendy/style.md"
+                      label: "Voice & style"
+                      section: "identity"
+                      order: 2
+                      enabled: true
+                      contentLength: 1021
 
   /api/persona/reload:
     post:
@@ -746,6 +912,13 @@ paths:
                     type: integer
                   enabledCount:
                     type: integer
+                example:
+                  success: true
+                  activePersona: "wendy"
+                  botName: "Wendy"
+                  promptLength: 8421
+                  fileCount: 6
+                  enabledCount: 5
 
   /api/personas:
     get:
@@ -775,6 +948,17 @@ paths:
                           type: integer
                   activePersona:
                     type: string
+                example:
+                  personas:
+                    - name: "wendy"
+                      botName: "Wendy"
+                      description: "Warm, detail-loving assistant."
+                      fileCount: 6
+                    - name: "default"
+                      botName: "Aelora"
+                      description: "Default Aelora persona."
+                      fileCount: 4
+                  activePersona: "wendy"
     post:
       tags: [Persona]
       summary: Create a new persona
@@ -794,6 +978,10 @@ paths:
                   type: string
                   description: Character display name
               required: [name]
+              example:
+                name: "wendy"
+                description: "Warm, detail-loving assistant."
+                botName: "Wendy"
       responses:
         "200":
           description: Created
@@ -801,12 +989,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "400":
           description: Validation error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "persona name must be lowercase alphanumeric with hyphens"
 
   /api/persona/switch:
     post:
@@ -822,6 +1014,8 @@ paths:
                 persona:
                   type: string
               required: [persona]
+              example:
+                persona: "wendy"
       responses:
         "200":
           description: Switched
@@ -838,6 +1032,11 @@ paths:
                     type: string
                   promptLength:
                     type: integer
+                example:
+                  success: true
+                  activePersona: "wendy"
+                  botName: "Wendy"
+                  promptLength: 8421
 
   /api/persona/files:
     get:
@@ -856,6 +1055,17 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/PersonaFile"
+                example:
+                  files:
+                    - path: "wendy/persona.md"
+                      content: "You are Wendy, a warm and detail-loving assistant..."
+                      meta:
+                        label: "Core persona"
+                        section: "identity"
+                        order: 1
+                        enabled: true
+                        description: "Primary character identity"
+                        botName: "Wendy"
 
   /api/persona/file:
     get:
@@ -868,6 +1078,7 @@ paths:
           schema:
             type: string
           description: Relative path (e.g. "aelora/persona.md")
+          example: "wendy/persona.md"
       responses:
         "200":
           description: File content and metadata
@@ -875,12 +1086,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PersonaFile"
+                example:
+                  path: "wendy/persona.md"
+                  content: "You are Wendy, a warm and detail-loving assistant..."
+                  meta:
+                    label: "Core persona"
+                    section: "identity"
+                    order: 1
+                    enabled: true
+                    description: "Primary character identity"
+                    botName: "Wendy"
         "404":
           description: File not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "File not found: wendy/missing.md"
     post:
       tags: [Persona]
       summary: Create a new persona file
@@ -898,6 +1121,14 @@ paths:
                 meta:
                   type: object
               required: [path]
+              example:
+                path: "wendy/style.md"
+                content: "# Voice & style\n\nWendy speaks warmly and precisely..."
+                meta:
+                  label: "Voice & style"
+                  section: "identity"
+                  order: 2
+                  enabled: true
       responses:
         "200":
           description: Created
@@ -905,12 +1136,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "403":
           description: Sensitive route blocked when API key is unset and request is non-local
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "This route requires either an API key or a local request"
     put:
       tags: [Persona]
       summary: Update a persona file
@@ -928,6 +1163,11 @@ paths:
                 meta:
                   type: object
               required: [path, content]
+              example:
+                path: "wendy/style.md"
+                content: "# Voice & style\n\n(updated) Wendy speaks warmly..."
+                meta:
+                  enabled: true
       responses:
         "200":
           description: Updated
@@ -935,12 +1175,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "403":
           description: Sensitive route blocked when API key is unset and request is non-local
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "This route requires either an API key or a local request"
     delete:
       tags: [Persona]
       summary: Delete a persona file
@@ -953,6 +1197,7 @@ paths:
           schema:
             type: string
           description: Relative path (e.g. "aelora/notes.md"). Alternative to request body.
+          example: "wendy/style.md"
       requestBody:
         content:
           application/json:
@@ -962,6 +1207,8 @@ paths:
                 path:
                   type: string
               required: [path]
+              example:
+                path: "wendy/style.md"
       responses:
         "200":
           description: Deleted
@@ -969,12 +1216,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "403":
           description: Sensitive route blocked when API key is unset and request is non-local
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "This route requires either an API key or a local request"
 
   # â”€â”€ Chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/chat:
@@ -1005,6 +1256,11 @@ paths:
                 username:
                   type: string
                   description: Optional display name (required if userId is provided)
+              example:
+                message: "What's on my plate tomorrow?"
+                sessionId: "web-2026-04-18-tess"
+                userId: "987654321098765432"
+                username: "tess"
       responses:
         "200":
           description: Bot response
@@ -1017,6 +1273,9 @@ paths:
                     type: string
                   sessionId:
                     type: string
+                example:
+                  reply: "Tomorrow you have a 9am standup and the Q2 roadmap review at 2pm."
+                  sessionId: "web-2026-04-18-tess"
         "400":
           description: Missing required fields
           content:
@@ -1026,6 +1285,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "sessionId is required"
 
   /api/chat/stream:
     post:
@@ -1051,6 +1312,11 @@ paths:
                   type: string
                 username:
                   type: string
+              example:
+                message: "Write a haiku about debugging"
+                sessionId: "web-2026-04-18-tess"
+                userId: "987654321098765432"
+                username: "tess"
       responses:
         "200":
           description: SSE stream of tokens
@@ -1058,12 +1324,138 @@ paths:
             text/event-stream:
               schema:
                 type: string
+                example: |
+                  data: {"token":"Stack"}
+
+                  data: {"token":" trace"}
+
+                  data: {"token":" blooms"}
+
+                  data: {"done":true,"reply":"Stack trace blooms /  ..."}
         "413":
           description: Message too large (max server-side length exceeded)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "message exceeds maximum length"
+
+  /api/chat/system:
+    post:
+      tags: [Chat]
+      summary: Send a system directive (frontend-issued instruction)
+      description: |
+        Run an LLM turn driven by a frontend-issued **system directive** rather than a user message.
+        The directive is injected as a `role:"system"` instruction after the conversation history,
+        so the model treats it as the system telling the assistant what to do — not as the user asking.
+
+        Use cases: proactive greetings on app load, contextual nudges driven by frontend state,
+        persona-voice openers. Combine with `POST /api/persona/switch` to pre-select the voice.
+
+        Side effects (intentionally narrower than `/api/chat`): no fact extraction, no mood
+        classification, no user/session identity recording. The assistant reply IS appended to
+        history so subsequent user turns retain continuity. No user-role message is ever stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [directive, sessionId]
+              properties:
+                directive:
+                  type: string
+                  description: Instruction for the assistant, framed as a system directive (e.g. "Greet the user warmly as if they just opened the app").
+                sessionId:
+                  type: string
+                  description: Conversation identifier (maps to internal channelId)
+                userId:
+                  type: string
+                  description: Optional user identifier so persona/profile context is loaded for the response
+              example:
+                directive: "Greet the user warmly as if they just opened the app."
+                sessionId: "web-2026-04-18-tess"
+                userId: "987654321098765432"
+      responses:
+        "200":
+          description: Bot response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                  sessionId:
+                    type: string
+                example:
+                  reply: "Hey tess! Great to see you back. Ready to tackle the day?"
+                  sessionId: "web-2026-04-18-tess"
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "directive is required"
+        "413":
+          description: Directive too large (max server-side length exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "directive exceeds maximum length"
+
+  /api/chat/system/stream:
+    post:
+      tags: [Chat]
+      summary: Send a system directive (streaming)
+      description: |
+        Streaming variant of `POST /api/chat/system`. Tokens stream via Server-Sent Events.
+        Each token is sent as `data: {"token":"..."}`. Final event is `data: {"done":true,"reply":"..."}`.
+        On error: `data: {"error":"..."}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [directive, sessionId]
+              properties:
+                directive:
+                  type: string
+                sessionId:
+                  type: string
+                userId:
+                  type: string
+              example:
+                directive: "Provide a short end-of-day summary based on today's activity."
+                sessionId: "web-2026-04-18-tess"
+                userId: "987654321098765432"
+      responses:
+        "200":
+          description: SSE stream of tokens
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  data: {"token":"Today"}
+
+                  data: {"token":" you"}
+
+                  data: {"done":true,"reply":"Today you shipped 3 PRs and closed 4 tasks."}
+        "413":
+          description: Directive too large (max server-side length exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "directive exceeds maximum length"
 
   /api/chat/{sessionId}:
     delete:
@@ -1077,6 +1469,7 @@ paths:
           schema:
             type: string
           description: The session to reset
+          example: "web-2026-04-18-tess"
       responses:
         "200":
           description: Session reset
@@ -1087,6 +1480,8 @@ paths:
                 properties:
                   success:
                     type: boolean
+                example:
+                  success: true
 
   # â”€â”€ Cron â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/cron:
@@ -1102,6 +1497,28 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/CronJob"
+                example:
+                  - name: "morning-briefing"
+                    schedule: "0 9 * * *"
+                    timezone: "America/Los_Angeles"
+                    channelId: "1234567890123456789"
+                    type: "llm"
+                    prompt: "Summarize today's calendar and top 3 tasks."
+                    enabled: true
+                    silent: false
+                    lastRun: "2026-04-18T09:00:04.521Z"
+                    nextRun: "2026-04-19T09:00:00.000Z"
+                    lastError: null
+                  - name: "daily-summary"
+                    schedule: "0 18 * * *"
+                    timezone: "America/Los_Angeles"
+                    channelId: "1234567890123456789"
+                    type: "static"
+                    message: "End of day. Reviewing progress..."
+                    enabled: true
+                    silent: false
+                    lastRun: null
+                    nextRun: "2026-04-18T18:00:00.000Z"
     post:
       tags: [Cron]
       summary: Create a cron job
@@ -1134,6 +1551,15 @@ paths:
                   type: boolean
                   description: Run without sending output to Discord
               required: [name, schedule, type]
+              example:
+                name: "morning-briefing"
+                schedule: "0 9 * * *"
+                timezone: "America/Los_Angeles"
+                channelId: "1234567890123456789"
+                type: "llm"
+                prompt: "Summarize today's calendar and top 3 tasks."
+                enabled: true
+                silent: false
       responses:
         "200":
           description: Created
@@ -1141,12 +1567,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
+                  name: "morning-briefing"
         "400":
           description: Validation error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "schedule is required"
 
   /api/cron/{name}:
     put:
@@ -1158,6 +1589,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "morning-briefing"
       requestBody:
         required: true
         content:
@@ -1180,6 +1612,9 @@ paths:
                   type: string
                 silent:
                   type: boolean
+              example:
+                schedule: "30 8 * * *"
+                prompt: "Give me a warm morning greeting, today's weather, and my top 3 tasks."
       responses:
         "200":
           description: Updated
@@ -1187,12 +1622,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: 'Job "morning-briefing" not found'
     delete:
       tags: [Cron]
       summary: Delete a cron job
@@ -1202,6 +1641,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "morning-briefing"
       responses:
         "200":
           description: Deleted
@@ -1209,12 +1649,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: 'Job "morning-briefing" not found'
 
   /api/cron/{name}/toggle:
     post:
@@ -1226,6 +1670,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "morning-briefing"
       responses:
         "200":
           description: Toggle result
@@ -1238,12 +1683,17 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                example:
+                  name: "morning-briefing"
+                  enabled: false
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: 'Job "morning-briefing" not found'
 
   /api/cron/{name}/trigger:
     post:
@@ -1255,6 +1705,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "morning-briefing"
       responses:
         "200":
           description: Trigger result
@@ -1269,12 +1720,17 @@ paths:
                     type: string
                   error:
                     type: string
+                example:
+                  success: true
+                  output: "Good morning! You have a standup at 9am and 3 tasks due today."
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: 'Job "morning-briefing" not found'
 
   # â”€â”€ Sessions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/sessions:
@@ -1290,6 +1746,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Session"
+                example:
+                  - channelId: "1234567890123456789"
+                    channelName: "general"
+                    guildId: "9988776655443322"
+                    messageCount: 48
+                    firstMessage: "2026-04-18T09:04:21.000Z"
+                    lastMessage: "2026-04-18T14:32:00.000Z"
+                    users:
+                      "987654321098765432":
+                        username: "tess"
+                        messageCount: 22
+                        lastMessage: "2026-04-18T14:32:00.000Z"
     delete:
       tags: [Sessions]
       summary: Clear all sessions
@@ -1305,6 +1773,9 @@ paths:
                     type: boolean
                   deleted:
                     type: integer
+                example:
+                  success: true
+                  deleted: 4
 
   /api/sessions/{channelId}:
     get:
@@ -1317,6 +1788,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "1234567890123456789"
       responses:
         "200":
           description: Session with memories
@@ -1333,12 +1805,35 @@ paths:
                           type: array
                           items:
                             $ref: "#/components/schemas/MemoryFact"
+                example:
+                  channelId: "1234567890123456789"
+                  channelName: "general"
+                  guildId: "9988776655443322"
+                  messageCount: 48
+                  firstMessage: "2026-04-18T09:04:21.000Z"
+                  lastMessage: "2026-04-18T14:32:00.000Z"
+                  users:
+                    "987654321098765432":
+                      username: "tess"
+                      messageCount: 22
+                      lastMessage: "2026-04-18T14:32:00.000Z"
+                  memories:
+                    "user:987654321098765432":
+                      - fact: "Prefers TypeScript over JavaScript for new projects"
+                        savedAt: "2026-04-17T11:20:00.000Z"
+                        category: "preference"
+                        confidence: "stated"
+                        source: "channel:1234567890123456789"
+                        lastAccessedAt: "2026-04-18T14:32:00.000Z"
+                        accessCount: 5
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Session not found"
     delete:
       tags: [Sessions]
       summary: Delete a session
@@ -1348,6 +1843,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "1234567890123456789"
       responses:
         "200":
           description: Deleted
@@ -1355,12 +1851,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Session not found"
 
   # â”€â”€ Memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/memory:
@@ -1379,6 +1879,22 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/MemoryFact"
+                example:
+                  "user:987654321098765432":
+                    - fact: "Prefers TypeScript over JavaScript for new projects"
+                      savedAt: "2026-04-17T11:20:00.000Z"
+                      category: "preference"
+                      confidence: "stated"
+                      source: "channel:1234567890123456789"
+                      accessCount: 5
+                      lastAccessedAt: "2026-04-18T14:32:00.000Z"
+                  "global":
+                    - fact: "Team standup is at 9am PT daily"
+                      savedAt: "2026-04-10T16:00:00.000Z"
+                      category: "contextual"
+                      confidence: "stated"
+                      source: "manual"
+                      accessCount: 12
 
   /api/memory/scope:
     get:
@@ -1392,6 +1908,7 @@ paths:
           schema:
             type: string
           description: "Scope key (e.g. user:123, channel:456, global)"
+          example: "user:987654321098765432"
       responses:
         "200":
           description: Facts for the scope
@@ -1406,12 +1923,23 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/MemoryFact"
+                example:
+                  scope: "user:987654321098765432"
+                  facts:
+                    - fact: "Prefers TypeScript over JavaScript for new projects"
+                      savedAt: "2026-04-17T11:20:00.000Z"
+                      category: "preference"
+                      confidence: "stated"
+                      source: "channel:1234567890123456789"
+                      accessCount: 5
         "400":
           description: Missing name parameter
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "name is required"
 
   /api/memory/{scope}/{index}:
     delete:
@@ -1424,11 +1952,13 @@ paths:
           schema:
             type: string
           description: "Scope key (e.g. user:123, channel:456, global)"
+          example: "user:987654321098765432"
         - name: index
           in: path
           required: true
           schema:
             type: integer
+          example: 2
       responses:
         "200":
           description: Deleted
@@ -1436,12 +1966,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "404":
           description: Fact not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Fact not found"
 
   /api/memory/{scope}:
     delete:
@@ -1453,6 +1987,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "user:987654321098765432"
       responses:
         "200":
           description: Cleared
@@ -1465,6 +2000,9 @@ paths:
                     type: boolean
                   deleted:
                     type: integer
+                example:
+                  success: true
+                  deleted: 14
 
   /api/memory/logs:
     get:
@@ -1480,6 +2018,10 @@ paths:
                 type: array
                 items:
                   type: string
+                example:
+                  - "2026-04-18"
+                  - "2026-04-17"
+                  - "2026-04-16"
 
   /api/memory/logs/{date}:
     get:
@@ -1492,6 +2034,7 @@ paths:
           schema:
             type: string
           description: Date in YYYY-MM-DD format
+          example: "2026-04-18"
       responses:
         "200":
           description: Log content
@@ -1504,12 +2047,17 @@ paths:
                     type: string
                   content:
                     type: string
+                example:
+                  date: "2026-04-18"
+                  content: "09:04 tess: morning\n09:05 aelora: good morning! ..."
         "404":
           description: No log for that date
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "No log for that date"
 
   /api/memory/summaries:
     get:
@@ -1531,6 +2079,10 @@ paths:
                     updatedAt:
                       type: string
                       format: date-time
+                example:
+                  "1234567890123456789":
+                    summary: "tess and aelora discussed deployment plans; tess mentioned a PR review and a call at 2pm."
+                    updatedAt: "2026-04-18T13:45:00.000Z"
 
   # â”€â”€ Notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/notes:
@@ -1549,6 +2101,17 @@ paths:
                   type: object
                   additionalProperties:
                     $ref: "#/components/schemas/Note"
+                example:
+                  "global":
+                    "meeting-notes":
+                      content: "Q2 roadmap kickoff - key themes: reliability, performance"
+                      createdAt: "2026-04-17T15:00:00.000Z"
+                      updatedAt: "2026-04-17T15:30:00.000Z"
+                  "channel:1234567890123456789":
+                    "project-ideas":
+                      content: "- Auto-triage issues with LLM\n- Nightly digest via email"
+                      createdAt: "2026-04-16T10:00:00.000Z"
+                      updatedAt: "2026-04-18T09:10:00.000Z"
 
   /api/notes/{scope}:
     get:
@@ -1562,6 +2125,7 @@ paths:
           schema:
             type: string
           description: "Note scope (e.g. `global`, `channel:123456`)"
+          example: "global"
       responses:
         "200":
           description: Notes in the requested scope
@@ -1578,6 +2142,14 @@ paths:
                       $ref: "#/components/schemas/Note"
                   count:
                     type: integer
+                example:
+                  scope: "global"
+                  notes:
+                    "meeting-notes":
+                      content: "Q2 roadmap kickoff - key themes: reliability, performance"
+                      createdAt: "2026-04-17T15:00:00.000Z"
+                      updatedAt: "2026-04-17T15:30:00.000Z"
+                  count: 1
 
   /api/notes/{scope}/{title}:
     get:
@@ -1589,11 +2161,13 @@ paths:
           required: true
           schema:
             type: string
+          example: "global"
         - name: title
           in: path
           required: true
           schema:
             type: string
+          example: "meeting-notes"
       responses:
         "200":
           description: The requested note
@@ -1614,6 +2188,12 @@ paths:
                   updatedAt:
                     type: string
                     format: date-time
+                example:
+                  scope: "global"
+                  title: "meeting-notes"
+                  content: "Q2 roadmap kickoff - key themes: reliability, performance"
+                  createdAt: "2026-04-17T15:00:00.000Z"
+                  updatedAt: "2026-04-17T15:30:00.000Z"
         "404":
           description: Note not found
           content:
@@ -1623,6 +2203,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Note not found"
 
     put:
       tags: [Notes]
@@ -1633,11 +2215,13 @@ paths:
           required: true
           schema:
             type: string
+          example: "global"
         - name: title
           in: path
           required: true
           schema:
             type: string
+          example: "meeting-notes"
       requestBody:
         required: true
         content:
@@ -1649,6 +2233,8 @@ paths:
                 content:
                   type: string
                   description: The note content
+              example:
+                content: "Q2 roadmap kickoff - reliability, performance, cost efficiency"
       responses:
         "200":
           description: Note created or updated
@@ -1672,6 +2258,13 @@ paths:
                   created:
                     type: boolean
                     description: True if newly created, false if updated
+                example:
+                  scope: "global"
+                  title: "meeting-notes"
+                  content: "Q2 roadmap kickoff - reliability, performance, cost efficiency"
+                  createdAt: "2026-04-17T15:00:00.000Z"
+                  updatedAt: "2026-04-18T14:32:00.000Z"
+                  created: false
         "400":
           description: Missing content
           content:
@@ -1681,6 +2274,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "content is required"
 
     delete:
       tags: [Notes]
@@ -1691,11 +2286,13 @@ paths:
           required: true
           schema:
             type: string
+          example: "global"
         - name: title
           in: path
           required: true
           schema:
             type: string
+          example: "meeting-notes"
       responses:
         "200":
           description: Note deleted
@@ -1706,6 +2303,8 @@ paths:
                 properties:
                   success:
                     type: boolean
+                example:
+                  success: true
         "404":
           description: Note not found
           content:
@@ -1715,6 +2314,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Note not found"
 
   # â”€â”€ Calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/calendar/events:
@@ -1757,6 +2358,25 @@ paths:
                     type: integer
                   maxResults:
                     type: integer
+                example:
+                  events:
+                    - uid: "evt_abcdef1234"
+                      summary: "Team standup"
+                      description: "Daily sync"
+                      location: "Zoom"
+                      dtstart: "2026-04-19T16:00:00.000Z"
+                      dtend: "2026-04-19T16:15:00.000Z"
+                      url: "https://www.google.com/calendar/event?eid=..."
+                      etag: "\"3382419800000000\""
+                    - uid: "evt_ghijkl5678"
+                      summary: "Q2 Roadmap review"
+                      dtstart: "2026-04-19T21:00:00.000Z"
+                      dtend: "2026-04-19T22:00:00.000Z"
+                      url: "https://www.google.com/calendar/event?eid=..."
+                      etag: "\"3382419900000000\""
+                  count: 2
+                  daysAhead: 14
+                  maxResults: 10
         "502":
           description: Google Calendar API error
           content:
@@ -1766,6 +2386,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Calendar error: Network request failed"
         "503":
           description: Google Calendar not configured
           content:
@@ -1775,6 +2397,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Google Calendar is not configured"
 
   /api/calendar/all-events:
     get:
@@ -1801,7 +2425,7 @@ paths:
             default: 14
           description: How many days ahead to query
       responses:
-        “200”:
+        "200":
           description: Aggregated event list
           content:
             application/json:
@@ -1836,11 +2460,22 @@ paths:
                     type: integer
                   daysAhead:
                     type: integer
-        “404”:
+                example:
+                  events:
+                    - uid: "evt_abcdef1234"
+                      summary: "Team standup"
+                      dtstart: "2026-04-19T16:00:00.000Z"
+                      dtend: "2026-04-19T16:15:00.000Z"
+                      user:
+                        userId: "987654321098765432"
+                        username: "tess"
+                  count: 1
+                  daysAhead: 14
+        "404":
           description: Calendar tool not enabled
-        “500”:
+        "500":
           description: Calendar query failed
-        “503”:
+        "503":
           description: Google not configured
 
   # â”€â”€ Tasks (Google Tasks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1848,7 +2483,9 @@ paths:
     get:
       tags: [Tasks]
       summary: List all tasks
-      description: Returns tasks from Google Tasks. Filter by status.
+      description: |
+        Returns tasks from Google Tasks for the user identified by
+        `X-Discord-User-Id` header (or `?userId=` query param). Filter by status.
       parameters:
         - name: status
           in: query
@@ -1856,6 +2493,13 @@ paths:
             type: string
             enum: [all, pending, completed]
             default: all
+        - name: X-Discord-User-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Discord user ID for per-user task list scoping. Required unless `?userId=` is used.
+          example: "987654321098765432"
       responses:
         "200":
           description: Task list
@@ -1870,21 +2514,55 @@ paths:
                       $ref: "#/components/schemas/TodoItem"
                   count:
                     type: integer
+                example:
+                  tasks:
+                    - uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                      title: "Review PR #42"
+                      description: "Check the new auth flow"
+                      completed: false
+                      priority: "high"
+                      dueDate: "2026-04-19T17:00:00.000Z"
+                      url: "https://tasks.google.com/task/MTIzNDU2Nzg5MDEyMzQ1Ng"
+                      etag: "\"LTEyMzQ1Njc4OTA\""
+                      createdAt: "2026-04-18T09:00:00.000Z"
+                      updatedAt: "2026-04-18T14:32:00.000Z"
+                    - uid: "Nzg5MDEyMzQ1NjA"
+                      title: "Reply to Sarah's email"
+                      completed: false
+                      priority: "medium"
+                      dueDate: null
+                      url: "https://tasks.google.com/task/Nzg5MDEyMzQ1NjA"
+                      etag: "\"LTk4NzY1NDMyMTA\""
+                      createdAt: "2026-04-17T10:15:00.000Z"
+                      updatedAt: "2026-04-17T10:15:00.000Z"
+                  count: 2
         "502":
           description: Google API connection error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Tasks error: Network request failed"
         "503":
           description: Google not configured
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Google Tasks is not configured"
     post:
       tags: [Tasks]
       summary: Create a new task
+      parameters:
+        - name: X-Discord-User-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Discord user ID for per-user task list scoping.
+          example: "987654321098765432"
       requestBody:
         required: true
         content:
@@ -1903,6 +2581,11 @@ paths:
                   type: string
                   format: date-time
               required: [title]
+              example:
+                title: "Review PR #42"
+                description: "Check the new auth flow"
+                priority: "high"
+                dueDate: "2026-04-19T17:00:00.000Z"
       responses:
         "201":
           description: Task created
@@ -1910,18 +2593,78 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TodoItem"
+                example:
+                  uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  title: "Review PR #42"
+                  description: "Check the new auth flow"
+                  completed: false
+                  priority: "high"
+                  dueDate: "2026-04-19T17:00:00.000Z"
+                  url: "https://tasks.google.com/task/MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  etag: "\"LTEyMzQ1Njc4OTA\""
+                  createdAt: "2026-04-18T14:32:00.000Z"
+                  updatedAt: "2026-04-18T14:32:00.000Z"
         "400":
           description: Missing title
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "title is required"
         "502":
           description: Google API connection error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /api/todos:
+    get:
+      tags: [Tasks]
+      summary: List all tasks (deprecated alias of /api/tasks)
+      deprecated: true
+      description: |
+        **Deprecated** — alias of `GET /api/tasks` kept for backwards compatibility
+        with the Patyna aelora-client. Same handler, same response shape.
+        New code should call `/api/tasks` instead.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, pending, completed]
+            default: all
+        - name: X-Discord-User-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Discord user ID for per-user task list scoping.
+          example: "987654321098765432"
+      responses:
+        "200":
+          description: Task list (identical shape to /api/tasks)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TodoItem"
+                  count:
+                    type: integer
+                example:
+                  tasks:
+                    - uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                      title: "Review PR #42"
+                      completed: false
+                      priority: "high"
+                      url: "https://tasks.google.com/task/MTIzNDU2Nzg5MDEyMzQ1Ng"
+                      etag: "\"LTEyMzQ1Njc4OTA\""
+                  count: 1
 
   /api/tasks/{uid}:
     get:
@@ -1934,6 +2677,7 @@ paths:
           description: Google Tasks ID of the task
           schema:
             type: string
+          example: "MTIzNDU2Nzg5MDEyMzQ1Ng"
       responses:
         "200":
           description: Task item
@@ -1941,12 +2685,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TodoItem"
+                example:
+                  uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  title: "Review PR #42"
+                  completed: false
+                  priority: "high"
+                  dueDate: "2026-04-19T17:00:00.000Z"
+                  url: "https://tasks.google.com/task/MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  etag: "\"LTEyMzQ1Njc4OTA\""
+                  createdAt: "2026-04-18T09:00:00.000Z"
+                  updatedAt: "2026-04-18T14:32:00.000Z"
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Task not found"
     put:
       tags: [Tasks]
       summary: Update a task
@@ -1957,6 +2713,7 @@ paths:
           description: Google Tasks ID of the task
           schema:
             type: string
+          example: "MTIzNDU2Nzg5MDEyMzQ1Ng"
       requestBody:
         content:
           application/json:
@@ -1976,6 +2733,8 @@ paths:
                 completed:
                   type: boolean
                   description: Set to true to mark as completed
+              example:
+                completed: true
       responses:
         "200":
           description: Updated task
@@ -1983,12 +2742,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TodoItem"
+                example:
+                  uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  title: "Review PR #42"
+                  completed: true
+                  priority: "high"
+                  url: "https://tasks.google.com/task/MTIzNDU2Nzg5MDEyMzQ1Ng"
+                  etag: "\"LTEyMzQ1Njc4OTA\""
+                  updatedAt: "2026-04-18T14:35:00.000Z"
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Task not found"
     delete:
       tags: [Tasks]
       summary: Delete a task
@@ -1999,6 +2768,7 @@ paths:
           description: Google Tasks ID of the task
           schema:
             type: string
+          example: "MTIzNDU2Nzg5MDEyMzQ1Ng"
       responses:
         "200":
           description: Deleted
@@ -2006,12 +2776,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Task not found"
 
   # â”€â”€ Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/users:
@@ -2028,6 +2802,15 @@ paths:
                 type: object
                 additionalProperties:
                   $ref: "#/components/schemas/UserProfile"
+                example:
+                  "987654321098765432":
+                    userId: "987654321098765432"
+                    username: "tess"
+                    firstSeen: "2026-03-01T10:00:00.000Z"
+                    lastSeen: "2026-04-18T14:32:00.000Z"
+                    messageCount: 412
+                    channels:
+                      - "1234567890123456789"
 
   /api/users/{userId}:
     get:
@@ -2041,6 +2824,7 @@ paths:
           schema:
             type: string
           description: Discord user ID
+          example: "987654321098765432"
       responses:
         "200":
           description: User profile with facts
@@ -2055,6 +2839,20 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/MemoryFact"
+                example:
+                  userId: "987654321098765432"
+                  username: "tess"
+                  firstSeen: "2026-03-01T10:00:00.000Z"
+                  lastSeen: "2026-04-18T14:32:00.000Z"
+                  messageCount: 412
+                  channels:
+                    - "1234567890123456789"
+                  facts:
+                    - fact: "Prefers TypeScript over JavaScript for new projects"
+                      savedAt: "2026-04-17T11:20:00.000Z"
+                      category: "preference"
+                      confidence: "stated"
+                      source: "channel:1234567890123456789"
         "404":
           description: User not found
           content:
@@ -2064,6 +2862,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "User not found"
 
     delete:
       tags: [Users]
@@ -2075,6 +2875,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "987654321098765432"
       responses:
         "200":
           description: User deleted
@@ -2085,6 +2886,8 @@ paths:
                 properties:
                   success:
                     type: boolean
+                example:
+                  success: true
         "404":
           description: User not found
           content:
@@ -2094,6 +2897,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "User not found"
 
   # â”€â”€ Tools â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/tools:
@@ -2109,6 +2914,24 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Tool"
+                example:
+                  - name: "tasks"
+                    description: "Create, list, update, and delete Google Tasks."
+                    enabled: true
+                    parameters:
+                      type: "object"
+                      properties:
+                        action:
+                          type: "string"
+                          enum: ["list", "create", "complete", "update", "delete"]
+                      required: ["action"]
+                  - name: "calendar"
+                    description: "Query Google Calendar events."
+                    enabled: true
+                    parameters:
+                      type: "object"
+                      properties:
+                        daysAhead: { type: "integer" }
 
   /api/tools/{name}:
     get:
@@ -2120,6 +2943,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "tasks"
       responses:
         "200":
           description: Tool detail
@@ -2127,12 +2951,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Tool"
+                example:
+                  name: "tasks"
+                  description: "Create, list, update, and delete Google Tasks."
+                  enabled: true
+                  parameters:
+                    type: "object"
+                    properties:
+                      action:
+                        type: "string"
+                        enum: ["list", "create", "complete", "update", "delete"]
+                    required: ["action"]
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Tool not found"
 
   /api/tools/{name}/execute:
     post:
@@ -2148,6 +2985,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "tasks"
       requestBody:
         content:
           application/json:
@@ -2165,6 +3003,13 @@ paths:
                   type: string
                   nullable: true
                   description: Optional user context for scoped tools
+              example:
+                args:
+                  action: "create"
+                  title: "Review PR #42"
+                  priority: "high"
+                channelId: "1234567890123456789"
+                userId: "987654321098765432"
       responses:
         "200":
           description: Execution result
@@ -2185,18 +3030,33 @@ paths:
                       Structured JSON data for the tool response. Shape varies per tool and action.
                       Present when the tool provides structured output. Omitted on error responses.
                       Typically includes an `action` field and typed result objects.
+                example:
+                  success: true
+                  tool: "tasks"
+                  result: "Created task \"Review PR #42\" (id: MTIzNDU2Nzg5MDEyMzQ1Ng)"
+                  data:
+                    action: "create"
+                    task:
+                      uid: "MTIzNDU2Nzg5MDEyMzQ1Ng"
+                      title: "Review PR #42"
+                      priority: "high"
+                      completed: false
         "400":
           description: Tool is disabled
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Tool is disabled"
         "404":
           description: Tool not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Tool not found"
 
   /api/tools/{name}/toggle:
     post:
@@ -2208,6 +3068,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "tasks"
       responses:
         "200":
           description: Toggle result
@@ -2220,12 +3081,17 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                example:
+                  name: "tasks"
+                  enabled: false
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Tool not found"
 
   # â”€â”€ Agents â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/agents:
@@ -2241,6 +3107,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Agent"
+                example:
+                  - name: "researcher"
+                    description: "Web search and note-taking agent."
+                    enabled: true
+                    tools: ["web_search", "notes"]
+                    maxIterations: 8
+                    model: "claude-opus-4-7"
+                  - name: "sprint_planner"
+                    description: "Builds Linear backlogs from goals."
+                    enabled: true
+                    tools: ["linear"]
+                    maxIterations: 6
+                    model: null
+                  - name: "standup"
+                    description: "Generates daily standup summaries from Linear."
+                    enabled: true
+                    tools: ["linear"]
+                    maxIterations: 4
+                    model: null
 
   /api/agents/{name}/toggle:
     post:
@@ -2252,6 +3137,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "researcher"
       responses:
         "200":
           description: Toggle result
@@ -2264,12 +3150,17 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                example:
+                  name: "researcher"
+                  enabled: false
         "404":
           description: Not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Agent not found"
 
   # â”€â”€ System â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/heartbeat:
@@ -2307,6 +3198,21 @@ paths:
                           type: string
                         enabled:
                           type: boolean
+                example:
+                  running: true
+                  intervalMs: 900000
+                  lastTick: "2026-04-18T14:30:00.000Z"
+                  tickCount: 48
+                  handlers:
+                    - name: "calendar"
+                      description: "Google Calendar reminder heartbeat"
+                      enabled: true
+                    - name: "consolidation"
+                      description: "Fact consolidation pass via LLM"
+                      enabled: true
+                    - name: "knowledge-sync"
+                      description: "Google Drive KB sync"
+                      enabled: true
 
   /api/emotion:
     get:
@@ -2332,6 +3238,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmotionVector"
+                example:
+                  joy: 0.72
+                  trust: 0.54
+                  fear: 0.02
+                  surprise: 0.08
+                  sadness: 0.03
+                  disgust: 0.01
+                  anger: 0.01
+                  anticipation: 0.38
 
   /api/mood:
     get:
@@ -2377,6 +3292,15 @@ paths:
                   updatedAt:
                     type: string
                     format: date-time
+                example:
+                  active: true
+                  emotion: "joy"
+                  intensity: "mid"
+                  label: "joy"
+                  secondary: "trust"
+                  dyad: "love"
+                  note: "User shared good news about a deploy."
+                  updatedAt: "2026-04-18T14:32:00.000Z"
 
     post:
       tags: [System]
@@ -2418,6 +3342,11 @@ paths:
                     reclassify:
                       type: boolean
                       enum: [true]
+              example:
+                emotion: "anticipation"
+                intensity: "high"
+                secondary: "joy"
+                note: "Big demo tomorrow"
       responses:
         "200":
           description: Updated mood state
@@ -2443,6 +3372,14 @@ paths:
                   updatedAt:
                     type: string
                     format: date-time
+                example:
+                  active: true
+                  emotion: "anticipation"
+                  intensity: "high"
+                  label: "vigilance"
+                  secondary: "joy"
+                  note: "Big demo tomorrow"
+                  updatedAt: "2026-04-18T14:32:00.000Z"
         "400":
           description: Missing required fields or invalid values
 
@@ -2460,6 +3397,16 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/LogEntry"
+                example:
+                  - ts: "2026-04-18T14:32:04.102Z"
+                    level: "log"
+                    message: "[chat] replied to tess in channel:1234567890123456789"
+                  - ts: "2026-04-18T14:31:50.001Z"
+                    level: "warn"
+                    message: "[knowledge] skipping file (no text content): image-only.png"
+                  - ts: "2026-04-18T14:30:00.000Z"
+                    level: "log"
+                    message: "[heartbeat] tick #48 — ran 3 handlers"
 
   /api/logs/stream:
     get:
@@ -2480,6 +3427,10 @@ paths:
             text/event-stream:
               schema:
                 type: string
+                example: |
+                  data: {"ts":"2026-04-18T14:32:04.102Z","level":"log","message":"[chat] replied to tess"}
+
+                  data: {"ts":"2026-04-18T14:32:05.221Z","level":"log","message":"[memory] saved 1 new fact"}
 
   /api/reboot:
     post:
@@ -2498,12 +3449,17 @@ paths:
                     type: boolean
                   message:
                     type: string
+                example:
+                  success: true
+                  message: "Reboot initiated"
         "403":
           description: Sensitive route blocked when API key is unset and request is non-local
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "This route requires either an API key or a local request"
 
   # â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/export:
@@ -2521,6 +3477,7 @@ paths:
           schema:
             type: string
           description: "Comma-separated list of sections to include (e.g. `memory,sessions,notes`). Omit for all."
+          example: "memory,sessions,notes"
       responses:
         "200":
           description: Data export bundle
@@ -2555,18 +3512,47 @@ paths:
                   personas:
                     type: array
                     description: All persona descriptions
+                example:
+                  memory:
+                    "user:987654321098765432":
+                      - fact: "Prefers TypeScript over JavaScript for new projects"
+                        category: "preference"
+                  sessions:
+                    - channelId: "1234567890123456789"
+                      messageCount: 48
+                  notes:
+                    "global":
+                      "meeting-notes":
+                        content: "Q2 roadmap notes..."
+                  users:
+                    "987654321098765432":
+                      username: "tess"
+                      messageCount: 412
+                  cron:
+                    - name: "morning-briefing"
+                      enabled: true
+                  mood:
+                    emotion: "joy"
+                    intensity: "mid"
+                  personas:
+                    - name: "wendy"
+                      description: "Warm, detail-loving assistant."
         "403":
           description: Sensitive route blocked when API key is unset and request is non-local
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "This route requires either an API key or a local request"
         "413":
           description: Export payload exceeded server size limit
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "Export exceeds maximum payload size"
 
   # â”€â”€ Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /api/activity/config:
@@ -2587,6 +3573,9 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                example:
+                  clientId: "1112223334445556667"
+                  enabled: true
 
   /api/activity/token:
     post:
@@ -2604,6 +3593,8 @@ paths:
                 code:
                   type: string
               required: [code]
+              example:
+                code: "abc123_DiscordOAuthCode_xyz"
       responses:
         "200":
           description: Access token
@@ -2614,12 +3605,16 @@ paths:
                 properties:
                   access_token:
                     type: string
+                example:
+                  access_token: "discord_access_token_9f8e7d6c5b4a"
         "400":
           description: Missing code
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+                example:
+                  error: "code is required"
 
   # â”€â”€ Scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -2677,6 +3672,38 @@ paths:
                         inputTokens: { type: integer }
                         outputTokens: { type: integer }
                         requests: { type: integer }
+                example:
+                  lifetime:
+                    inputTokens: 184502
+                    outputTokens: 51930
+                    reasoningTokens: 10200
+                    requests: 842
+                    firstTrackedAt: "2026-03-01T00:00:00.000Z"
+                  today:
+                    date: "2026-04-18"
+                    inputTokens: 12400
+                    outputTokens: 3820
+                    reasoningTokens: 820
+                    requests: 54
+                  hourly:
+                    - hour: "2026-04-18T14:00:00.000Z"
+                      inputTokens: 2180
+                      outputTokens: 621
+                      requests: 9
+                  byModel:
+                    "claude-opus-4-7":
+                      inputTokens: 12400
+                      outputTokens: 3820
+                      requests: 54
+                  bySource:
+                    chat:
+                      inputTokens: 8200
+                      outputTokens: 2900
+                      requests: 42
+                    triage:
+                      inputTokens: 1800
+                      outputTokens: 320
+                      requests: 10
 
   /api/tokens/reset:
     post:
@@ -2692,6 +3719,481 @@ paths:
                 type: object
                 properties:
                   success: { type: boolean }
+                example:
+                  success: true
+
+
+  # â”€â”€ Quests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  /api/quests:
+    get:
+      tags: [Quests]
+      summary: List quests for a Supabase user
+      description: |
+        Returns the user's quests filtered by status. Requires `supabaseUserId` (Supabase Auth UUID)
+        as a query parameter. Accepted aliases: `userId`, `supabase_user_id`, `user_id`.
+      parameters:
+        - name: supabaseUserId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, active, completed, abandoned]
+            default: all
+          example: "active"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          example: 25
+      responses:
+        "200":
+          description: Quest list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QuestRow"
+                example:
+                  - id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    title: "Walk 10000 steps"
+                    category: "health"
+                    quest_type: "daily"
+                    target_value: 10000
+                    current_value: 4200
+                    status: "active"
+                    difficulty: "easy"
+                    is_favorite: true
+                    created_at: "2026-04-18T07:00:00.000Z"
+                    started_at: "2026-04-18T07:00:00.000Z"
+        "400":
+          description: Missing or invalid supabaseUserId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "supabaseUserId must be a valid UUID"
+        "503":
+          description: Supabase not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "Supabase is not configured."
+
+    post:
+      tags: [Quests]
+      summary: Create a quest
+      description: |
+        Creates a new quest for a Supabase Auth user. Requires `supabase.serviceRoleKey` in settings
+        (writes bypass RLS). Broadcasts a `"quest"` event with `action: "created"` via SSE/WebSocket.
+
+        Body keys are flexible — title accepts `title`/`name`/`taskTitle`/`label`; user accepts
+        `supabaseUserId`/`userId`/`supabase_user_id`/`user_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supabaseUserId, title]
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                difficulty:
+                  type: string
+                  enum: [easy, medium, hard]
+                quest_type:
+                  type: string
+                  enum: [daily, weekly, one-shot]
+              example:
+                supabaseUserId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                title: "Walk 10000 steps"
+                description: "Daily activity goal."
+                category: "health"
+                difficulty: "easy"
+                quest_type: "daily"
+      responses:
+        "201":
+          description: Quest created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quest:
+                    $ref: "#/components/schemas/QuestRow"
+                example:
+                  quest:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    title: "Walk 10000 steps"
+                    status: "active"
+                    is_favorite: false
+                    created_at: "2026-04-18T07:00:00.000Z"
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "title is required"
+        "503":
+          description: Supabase service-role key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "Patyna quest writes require supabase.serviceRoleKey in settings.yaml."
+
+  /api/quests/{questId}:
+    put:
+      tags: [Quests]
+      summary: Update a quest
+      description: |
+        Updates one or more quest fields. Same handler is reachable via PATCH for REST-purist clients.
+        Requires `supabase.serviceRoleKey`. Broadcasts a `"quest"` event with `action: "updated"`.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supabaseUserId]
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                quest_type:
+                  type: string
+                target_value:
+                  type: number
+                current_value:
+                  type: number
+                status:
+                  type: string
+                  enum: [active, completed, abandoned]
+                difficulty:
+                  type: string
+                is_favorite:
+                  type: boolean
+              example:
+                supabaseUserId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                current_value: 7200
+                status: "active"
+      responses:
+        "200":
+          description: Updated quest
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quest:
+                    $ref: "#/components/schemas/QuestRow"
+                example:
+                  quest:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    title: "Walk 10000 steps"
+                    current_value: 7200
+                    status: "active"
+        "400":
+          description: Invalid quest or user ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "questId must be a valid UUID"
+
+    patch:
+      tags: [Quests]
+      summary: Update a quest (alias of PUT)
+      description: Identical handler to `PUT /api/quests/{questId}`. Same body, same response.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [supabaseUserId]
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+              example:
+                supabaseUserId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                status: "abandoned"
+      responses:
+        "200":
+          description: Updated quest
+          content:
+            application/json:
+              schema:
+                type: object
+
+    delete:
+      tags: [Quests]
+      summary: Delete a quest
+      description: |
+        Deletes a quest and cascades to its `quest_logs` rows. Requires `supabase.serviceRoleKey`.
+        Broadcasts a `"quest"` event with `action: "deleted"`. `supabaseUserId` may be supplied in
+        body or query string.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        - name: supabaseUserId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      responses:
+        "200":
+          description: Quest deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  id:
+                    type: string
+                    format: uuid
+                  title:
+                    type: string
+                example:
+                  ok: true
+                  id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                  title: "Walk 10000 steps"
+        "400":
+          description: Missing or invalid IDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "questId must be a valid UUID"
+
+  /api/quests/{questId}/complete:
+    post:
+      tags: [Quests]
+      summary: Mark a quest complete
+      description: |
+        Marks a quest complete and optionally appends a note to `quest_logs`.
+        Requires `supabase.serviceRoleKey` in settings (writes bypass RLS).
+        Broadcasts a `"quest"` event with `action: "completed"` via SSE/WebSocket.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Quest UUID
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                  description: |
+                    Supabase Auth user UUID. Accepted keys: `supabaseUserId`,
+                    `userId`, `supabase_user_id`, `user_id`.
+                notes:
+                  type: string
+                  description: "Optional completion note saved to `quest_logs`. Accepted keys: `notes`, `note`, `message`."
+              required: [supabaseUserId]
+              example:
+                supabaseUserId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                notes: "Walked 12,450 steps today."
+      responses:
+        "200":
+          description: Quest completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  quest:
+                    $ref: "#/components/schemas/QuestRow"
+                  logInserted:
+                    type: boolean
+                    description: True when a row was added to `quest_logs`
+                  notesSaveError:
+                    type: string
+                    description: Present only if notes were supplied but the log insert failed
+                example:
+                  success: true
+                  quest:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    title: "Walk 10000 steps"
+                    category: "health"
+                    quest_type: "daily"
+                    target_value: 10000
+                    current_value: 12450
+                    status: "completed"
+                    difficulty: "easy"
+                    suggested_by: "user"
+                    is_favorite: true
+                    created_at: "2026-04-18T07:00:00.000Z"
+                    completed_at: "2026-04-18T19:42:11.000Z"
+                    updated_at: "2026-04-18T19:42:11.000Z"
+                    started_at: "2026-04-18T07:00:00.000Z"
+                  logInserted: true
+        "400":
+          description: Invalid or missing supabaseUserId / questId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "supabaseUserId must be a valid UUID"
+        "503":
+          description: Supabase not configured or service role key missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "Patyna quest writes require supabase.serviceRoleKey in settings.yaml."
+
+  /api/quests/{questId}/favorite:
+    post:
+      tags: [Quests]
+      summary: Toggle a quest's favorite flag
+      description: |
+        Sets `is_favorite` on a quest (used for the Patyna "TOP 3" pinned list).
+        Requires `supabase.serviceRoleKey`. Broadcasts a `"quest"` event with
+        `action: "updated"`.
+      parameters:
+        - name: questId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Quest UUID
+          example: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                supabaseUserId:
+                  type: string
+                  format: uuid
+                  description: Supabase Auth user UUID. Accepted keys like `/complete`.
+                is_favorite:
+                  type: boolean
+                  description: New favorite state. Accepted keys `is_favorite` or `isFavorite`.
+              required: [supabaseUserId, is_favorite]
+              example:
+                supabaseUserId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                is_favorite: true
+      responses:
+        "200":
+          description: Favorite flag updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  quest:
+                    $ref: "#/components/schemas/QuestRow"
+                example:
+                  quest:
+                    id: "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+                    user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    title: "Walk 10000 steps"
+                    category: "health"
+                    quest_type: "daily"
+                    target_value: 10000
+                    current_value: 7800
+                    status: "in_progress"
+                    difficulty: "easy"
+                    suggested_by: "user"
+                    is_favorite: true
+                    created_at: "2026-04-18T07:00:00.000Z"
+                    completed_at: null
+                    updated_at: "2026-04-18T14:32:00.000Z"
+                    started_at: "2026-04-18T07:00:00.000Z"
+        "400":
+          description: Missing or invalid fields
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+                example:
+                  error: "is_favorite is required (boolean)."
+        "503":
+          description: Supabase not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
 
   # â”€â”€ Linear â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2719,6 +4221,15 @@ paths:
                       type: string
                     description:
                       type: string
+                example:
+                  - id: "team_01H8XYZ"
+                    name: "Engineering"
+                    key: "ENG"
+                    description: "Core product engineering"
+                  - id: "team_01H8ABC"
+                    name: "Design"
+                    key: "DES"
+                    description: "Product design"
         "503":
           description: Linear not configured
 
@@ -2733,9 +4244,23 @@ paths:
             type: integer
             default: 25
             maximum: 50
+          example: 10
       responses:
         "200":
           description: Project list with progress
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example:
+                  - id: "proj_01H8XYZ"
+                    name: "Q2 Roadmap"
+                    state: "started"
+                    progress: 0.42
+                    teamKeys: ["ENG"]
+                    targetDate: "2026-06-30"
         "503":
           description: Linear not configured
     post:
@@ -2761,9 +4286,23 @@ paths:
                   type: string
                   enum: [planned, started, paused, completed, canceled]
               required: [name, team]
+              example:
+                name: "Q2 Roadmap"
+                team: "ENG"
+                description: "Plans for reliability, perf, and cost efficiency."
+                status: "planned"
       responses:
         "201":
           description: Created project
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "proj_01H8XYZ"
+                  name: "Q2 Roadmap"
+                  state: "planned"
+                  url: "https://linear.app/team/project/q2-roadmap"
         "503":
           description: Linear not configured
 
@@ -2777,6 +4316,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "Q2 Roadmap"
       requestBody:
         required: true
         content:
@@ -2795,9 +4335,21 @@ paths:
                 targetDate:
                   type: string
                   format: date
+              example:
+                status: "started"
+                targetDate: "2026-06-30"
       responses:
         "200":
           description: Updated project
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "proj_01H8XYZ"
+                  name: "Q2 Roadmap"
+                  state: "started"
+                  targetDate: "2026-06-30"
         "404":
           description: Project not found
         "503":
@@ -2813,6 +4365,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "Q2 Roadmap"
       requestBody:
         required: true
         content:
@@ -2827,9 +4380,19 @@ paths:
                   type: string
                   enum: [onTrack, atRisk, offTrack]
               required: [body]
+              example:
+                body: "Week 3 update: on track for milestone 1. Shipped auth refactor."
+                health: "onTrack"
       responses:
         "201":
           description: Posted update
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "update_01H8XYZ"
+                  url: "https://linear.app/team/project/q2-roadmap/updates/abc"
         "404":
           description: Project not found
         "503":
@@ -2845,17 +4408,20 @@ paths:
           schema:
             type: string
           description: Filter by team key
+          example: "ENG"
         - name: status
           in: query
           schema:
             type: string
           description: Filter by status name
+          example: "In Progress"
         - name: since
           in: query
           schema:
             type: string
             format: date-time
           description: Only issues updated after this timestamp
+          example: "2026-04-11T00:00:00.000Z"
         - name: limit
           in: query
           schema:
@@ -2865,6 +4431,25 @@ paths:
       responses:
         "200":
           description: Issue list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example:
+                  - id: "issue_01H8XYZ"
+                    identifier: "ENG-123"
+                    title: "Refactor auth flow"
+                    status: "In Progress"
+                    priority: 2
+                    assignee: "tess@example.com"
+                    url: "https://linear.app/team/issue/ENG-123"
+                  - id: "issue_01H8ABC"
+                    identifier: "ENG-124"
+                    title: "Add OTEL tracing"
+                    status: "Todo"
+                    priority: 3
         "503":
           description: Linear not configured
     post:
@@ -2908,9 +4493,27 @@ paths:
                   type: string
                   description: Issue identifier for creating a sub-issue
               required: [team, title]
+              example:
+                team: "ENG"
+                title: "Add OTEL tracing"
+                description: "Instrument the chat endpoint with OpenTelemetry."
+                priority: 3
+                dueDate: "2026-04-30"
+                estimate: 3
+                assigneeEmail: "tesselstrom@gmail.com"
+                labels: ["observability", "infra"]
+                project: "Q2 Roadmap"
       responses:
         "201":
           description: Created issue
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "issue_01H8ABC"
+                  identifier: "ENG-124"
+                  url: "https://linear.app/team/issue/ENG-124"
         "503":
           description: Linear not configured
 
@@ -2923,6 +4526,7 @@ paths:
           in: query
           schema:
             type: string
+          example: "In Progress"
         - name: limit
           in: query
           schema:
@@ -2932,6 +4536,18 @@ paths:
       responses:
         "200":
           description: Issues assigned to the API key owner
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example:
+                  - id: "issue_01H8XYZ"
+                    identifier: "ENG-123"
+                    title: "Refactor auth flow"
+                    status: "In Progress"
+                    priority: 2
         "503":
           description: Linear not configured
 
@@ -2947,9 +4563,28 @@ paths:
           schema:
             type: string
           description: Issue identifier (e.g. "ENG-123")
+          example: "ENG-123"
       responses:
         "200":
           description: Issue detail with comments
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "issue_01H8XYZ"
+                  identifier: "ENG-123"
+                  title: "Refactor auth flow"
+                  description: "Simplify the OAuth2 token-refresh logic..."
+                  status: "In Progress"
+                  priority: 2
+                  assignee: "tess@example.com"
+                  labels: ["auth", "refactor"]
+                  project: "Q2 Roadmap"
+                  comments:
+                    - id: "comment_01H8"
+                      body: "First pass is up for review."
+                      createdAt: "2026-04-17T18:22:00.000Z"
         "503":
           description: Linear not configured
     patch:
@@ -2961,6 +4596,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "ENG-123"
       requestBody:
         required: true
         content:
@@ -2988,9 +4624,20 @@ paths:
                     type: string
                 project:
                   type: string
+              example:
+                status: "Done"
+                labels: ["auth", "refactor", "shipped"]
       responses:
         "200":
           description: Updated issue
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "issue_01H8XYZ"
+                  identifier: "ENG-123"
+                  status: "Done"
         "503":
           description: Linear not configured
     delete:
@@ -3002,9 +4649,16 @@ paths:
           required: true
           schema:
             type: string
+          example: "ENG-123"
       responses:
         "200":
           description: Deleted issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+                example:
+                  success: true
         "503":
           description: Linear not configured
 
@@ -3019,9 +4673,21 @@ paths:
           schema:
             type: string
           description: Parent issue identifier
+          example: "ENG-123"
       responses:
         "200":
           description: Child issues of the parent
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example:
+                  - id: "issue_01H8DEF"
+                    identifier: "ENG-125"
+                    title: "Migrate existing sessions"
+                    status: "Todo"
         "503":
           description: Linear not configured
 
@@ -3035,6 +4701,7 @@ paths:
           required: true
           schema:
             type: string
+          example: "ENG-123"
       requestBody:
         required: true
         content:
@@ -3046,9 +4713,18 @@ paths:
                   type: string
                   description: Comment body in markdown
               required: [body]
+              example:
+                body: "Rebased onto main and addressed review comments."
       responses:
         "201":
           description: Comment added
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  id: "comment_01H8"
+                  url: "https://linear.app/team/issue/ENG-123#comment-01H8"
         "503":
           description: Linear not configured
 
@@ -3063,6 +4739,7 @@ paths:
           schema:
             type: string
           description: Search query text
+          example: "auth refactor"
         - name: limit
           in: query
           schema:
@@ -3072,6 +4749,17 @@ paths:
       responses:
         "200":
           description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                example:
+                  - id: "issue_01H8XYZ"
+                    identifier: "ENG-123"
+                    title: "Refactor auth flow"
+                    status: "In Progress"
         "400":
           description: Missing q parameter
         "503":
@@ -3116,6 +4804,22 @@ paths:
                           type: integer
                         lastSyncedAt:
                           type: string
+                example:
+                  enabled: true
+                  fileCount: 12
+                  chunkCount: 248
+                  lastSyncAt: "2026-04-18T14:00:00.000Z"
+                  files:
+                    - fileId: "1abc...xyz"
+                      name: "Team Handbook.gdoc"
+                      mimeType: "application/vnd.google-apps.document"
+                      chunkCount: 42
+                      lastSyncedAt: "2026-04-18T14:00:00.000Z"
+                    - fileId: "1def...uvw"
+                      name: "API Spec.pdf"
+                      mimeType: "application/pdf"
+                      chunkCount: 18
+                      lastSyncedAt: "2026-04-18T14:00:00.000Z"
 
   /api/knowledge/sync:
     post:
@@ -3138,6 +4842,11 @@ paths:
                     type: integer
                   removed:
                     type: integer
+                example:
+                  success: true
+                  added: 2
+                  updated: 1
+                  removed: 0
         "503":
           description: Knowledge base not enabled or vector store not ready
           content:
@@ -3147,6 +4856,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Knowledge base is not enabled"
 
   /api/knowledge/files/{fileId}/chunks:
     get:
@@ -3160,6 +4871,7 @@ paths:
           schema:
             type: string
           description: Google Drive file ID
+          example: "1abc...xyz"
       responses:
         "200":
           description: File chunks
@@ -3179,6 +4891,13 @@ paths:
                           type: string
                         index:
                           type: integer
+                example:
+                  fileId: "1abc...xyz"
+                  chunks:
+                    - index: 0
+                      text: "# Team Handbook\n\nWelcome to Aelora. This handbook outlines our engineering practices..."
+                    - index: 1
+                      text: "## Code review\n\nAll PRs require one approval and passing CI..."
 
   /api/knowledge/files/{fileId}:
     delete:
@@ -3192,6 +4911,7 @@ paths:
           schema:
             type: string
           description: Google Drive file ID
+          example: "1abc...xyz"
       responses:
         "200":
           description: File removed
@@ -3204,6 +4924,9 @@ paths:
                     type: boolean
                   chunksRemoved:
                     type: integer
+                example:
+                  success: true
+                  chunksRemoved: 42
         "404":
           description: File not found in knowledge base
           content:
@@ -3213,6 +4936,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "File not found in knowledge base"
 
   # —— Ambient Awareness ————————————————
 
@@ -3271,6 +4996,30 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/BufferStats"
+                example:
+                  enabled: true
+                  evaluationIntervalMs: 60000
+                  globalSendsLastHour: 2
+                  globalRateLimitPerHour: 6
+                  triggers:
+                    - name: "converse"
+                      description: "Join a lively channel conversation"
+                      enabled: true
+                      cooldownMinutes: 30
+                      skipChance: 0.3
+                      lastFiredAt: "2026-04-18T13:15:00.000Z"
+                      lastEvaluatedAt: "2026-04-18T14:30:00.000Z"
+                      cooldownRemaining: 1200
+                      evaluated: 14
+                      fired: 1
+                      skipped: 4
+                  bufferStats:
+                    - channelId: "1234567890123456789"
+                      channelName: "general"
+                      messageCount: 9
+                      oldestMessage: 1745003100
+                      newestMessage: 1745004321
+                      lastAmbientSendAt: 1744998900
 
   /api/ambient/buffers:
     get:
@@ -3286,6 +5035,13 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/BufferStats"
+                example:
+                  - channelId: "1234567890123456789"
+                    channelName: "general"
+                    messageCount: 9
+                    oldestMessage: 1745003100
+                    newestMessage: 1745004321
+                    lastAmbientSendAt: 1744998900
 
   /api/ambient/triggers/{name}/toggle:
     post:
@@ -3299,6 +5055,7 @@ paths:
           schema:
             type: string
           description: Trigger name (e.g. "converse", "image-react")
+          example: "converse"
       requestBody:
         required: true
         content:
@@ -3309,6 +5066,8 @@ paths:
                 enabled:
                   type: boolean
               required: [enabled]
+              example:
+                enabled: false
       responses:
         "200":
           description: Trigger toggled
@@ -3321,6 +5080,9 @@ paths:
                     type: string
                   enabled:
                     type: boolean
+                example:
+                  name: "converse"
+                  enabled: false
         "400":
           description: Missing enabled field
           content:
@@ -3330,6 +5092,8 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "enabled is required (boolean)"
         "404":
           description: Trigger not found
           content:
@@ -3339,4 +5103,6 @@ paths:
                 properties:
                   error:
                     type: string
+                example:
+                  error: "Trigger not found"
 

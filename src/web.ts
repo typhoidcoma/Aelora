@@ -17,7 +17,7 @@ import {
   createPersona,
   type PersonaState,
 } from "./persona.js";
-import { getLLMResponse, clearSession } from "./llm.js";
+import { getLLMResponse, getSystemDirectiveResponse, clearSession } from "./llm.js";
 import { getAllTools, toggleTool, isToolEnabled, executeTool } from "./tool-registry.js";
 import { getAllAgents, toggleAgent } from "./agent-registry.js";
 import { getHeartbeatState } from "./heartbeat.js";
@@ -773,6 +773,89 @@ export function startWeb(state: AppState): Server | null {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
       console.error("Web chat/stream error:", errMsg);
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
+      }
+    } finally {
+      res.end();
+    }
+  });
+
+  // Chat  -  system directive (frontend-issued instruction, NOT a user message)
+  app.post("/api/chat/system", async (req, res) => {
+    const { directive, sessionId, userId } = req.body ?? {};
+
+    if (!directive || typeof directive !== "string") {
+      res.status(400).json({ error: "directive is required" });
+      return;
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      res.status(400).json({ error: "sessionId is required" });
+      return;
+    }
+    if (directive.length > MAX_STREAM_MESSAGE_CHARS) {
+      res.status(413).json({ error: `directive too large (max ${MAX_STREAM_MESSAGE_CHARS} chars)` });
+      return;
+    }
+
+    trackMessage(sessionId);
+
+    try {
+      const reply = await getSystemDirectiveResponse(sessionId, directive, undefined, userId ?? undefined);
+
+      appendLog({ channelName: sessionId, userId: userId ?? "system", username: "system", summary: `**System directive:** ${directive.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
+
+      res.json({ reply, sessionId });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      console.error("Web chat/system error:", errMsg);
+      res.status(500).json({ error: errMsg });
+    }
+  });
+
+  // Chat  -  system directive streaming version
+  app.post("/api/chat/system/stream", async (req, res) => {
+    const { directive, sessionId, userId } = req.body ?? {};
+
+    if (!directive || typeof directive !== "string") {
+      res.status(400).json({ error: "directive is required" });
+      return;
+    }
+    if (!sessionId || typeof sessionId !== "string") {
+      res.status(400).json({ error: "sessionId is required" });
+      return;
+    }
+    if (directive.length > MAX_STREAM_MESSAGE_CHARS) {
+      res.status(413).json({ error: `directive too large (max ${MAX_STREAM_MESSAGE_CHARS} chars)` });
+      return;
+    }
+
+    trackMessage(sessionId);
+
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+
+    let closed = false;
+    req.on("close", () => { closed = true; });
+
+    try {
+      const reply = await getSystemDirectiveResponse(sessionId, directive, (token) => {
+        if (!closed) {
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+      }, userId ?? undefined);
+
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
+      }
+
+      appendLog({ channelName: sessionId, userId: userId ?? "system", username: "system", summary: `**System directive:** ${directive.slice(0, 200)}\n**Bot:** ${reply.slice(0, 200)}` });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : typeof err === "object" && err !== null ? JSON.stringify(err) : String(err);
+      console.error("Web chat/system/stream error:", errMsg);
       if (!closed) {
         res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
       }

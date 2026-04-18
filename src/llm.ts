@@ -452,6 +452,65 @@ export async function getLLMResponse(
 }
 
 /**
+ * Frontend-issued system directive: produces an assistant turn framed as
+ * "the system is asking the assistant to do X" rather than "the user is asking
+ * for X". Use for proactive greetings, app-state-driven prompts, etc.
+ *
+ * No user message enters history. The assistant reply is appended so that
+ * subsequent user turns retain continuity.
+ */
+export async function getSystemDirectiveResponse(
+  channelId: string,
+  directive: string,
+  onToken?: OnTokenCallback,
+  userId?: string,
+  onToolCall?: OnToolCallCallback,
+): Promise<string> {
+  const llmStartTime = Date.now();
+  broadcastEvent("mindmap", { type: "conversation:start", conversationId: channelId, userId, source: "system", timestamp: new Date().toISOString() });
+  broadcastEvent("mindmap", { type: "conversation:message", conversationId: channelId, role: "system", preview: truncatePreview(directive), timestamp: new Date().toISOString() });
+
+  const history = getHistory(channelId);
+  const cleaned = sanitizeHistory(history);
+  if (cleaned > 0) {
+    console.log(`LLM: sanitized ${cleaned} poisoned history entries for channel ${channelId}`);
+  }
+
+  const allDefs = getAllDefinitions();
+  const relevantDefs = filterToolsByRelevance(allDefs, directive);
+  const tools = config.llm.lite ? slimDefinitions(relevantDefs) : relevantDefs;
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: await buildSystemPrompt(userId, channelId) },
+    ...history,
+    { role: "system", content: `[SYSTEM DIRECTIVE — not from the user]\n${directive}` },
+  ];
+
+  const currentMood = loadMood();
+  const emotionAnalyzer = new StreamEmotionAnalyzer(
+    channelId,
+    currentMood ? moodStateToVector(currentMood) : undefined,
+  );
+  broadcastEvent("emotion", { ...(currentMood ? moodStateToVector(currentMood) : {}), conversationId: channelId, source: "stream" });
+
+  try {
+    const result = await runCompletionLoop(messages, tools, channelId, undefined, undefined, true, onToken, userId, onToolCall, emotionAnalyzer);
+
+    if (!result.startsWith("(I encountered a formatting issue")) {
+      history.push({ role: "assistant", content: result });
+      trimHistory(history, channelId);
+    }
+
+    broadcastEvent("mindmap", { type: "conversation:message", conversationId: channelId, role: "assistant", preview: truncatePreview(result), timestamp: new Date().toISOString() });
+    broadcastEvent("mindmap", { type: "conversation:end", conversationId: channelId, totalDurationMs: Date.now() - llmStartTime, timestamp: new Date().toISOString() });
+    return result;
+  } catch (err) {
+    broadcastEvent("mindmap", { type: "conversation:end", conversationId: channelId, totalDurationMs: Date.now() - llmStartTime, error: true, timestamp: new Date().toISOString() });
+    throw err;
+  }
+}
+
+/**
  * Stateless one-shot LLM call with tool/agent support (for cron, heartbeat, dashboard).
  */
 export async function getLLMOneShot(prompt: string, onToken?: OnTokenCallback): Promise<string> {

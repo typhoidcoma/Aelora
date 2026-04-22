@@ -405,13 +405,19 @@ export async function getLLMResponse(
     .map((m) => m.content as string)
     .join(" ");
 
+  // KB search works better with a focused query, not a joined history blob.
+  // Use the latest user message so short direct questions still trigger retrieval.
+  const kbQuery = typeof userMessage === "string" && userMessage.trim()
+    ? userMessage
+    : recentUserMsgs;
+
   // Filter tools by relevance to the conversation, then apply lite mode if needed
   const filterContext = recentUserMsgs || (typeof userMessage === "string" ? userMessage : "");
   const relevantDefs = filterToolsByRelevance(allDefs, filterContext);
   const tools = config.llm.lite ? slimDefinitions(relevantDefs) : relevantDefs;
 
   const messages: ChatMessage[] = [
-    { role: "system", content: await buildSystemPrompt(userId, channelId, recentUserMsgs || undefined) },
+    { role: "system", content: await buildSystemPrompt(userId, channelId, recentUserMsgs || undefined, kbQuery || undefined) },
     ...history,
   ];
 
@@ -581,7 +587,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
  * Appends live system state and a live inventory of enabled tools/agents
  * so the LLM always knows the current state of its environment.
  */
-export async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string): Promise<string> {
+export async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string, kbQuery?: string): Promise<string> {
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
 
@@ -649,10 +655,14 @@ export async function buildSystemPrompt(userId?: string, channelId?: string, con
 
   // --- Memory + Knowledge Base (semi-static) ---
   {
+    // KB search uses kbQuery (focused, latest user msg) when available, falling
+    // back to conversationContext. Short direct questions like "who's tyler?"
+    // should still trigger retrieval, so the minimum-length gate is small.
+    const kbSearchQuery = kbQuery || conversationContext;
     const [memoryBlock, kbResults] = await Promise.all([
       getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
-      conversationContext && conversationContext.length >= 20
-        ? searchKnowledgeBase(conversationContext).catch((err) => {
+      kbSearchQuery && kbSearchQuery.trim().length >= 3
+        ? searchKnowledgeBase(kbSearchQuery).catch((err) => {
             console.warn("KnowledgeBase: search failed during prompt build:", err instanceof Error ? err.message : err);
             return [] as Awaited<ReturnType<typeof searchKnowledgeBase>>;
           })

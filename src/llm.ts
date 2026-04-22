@@ -262,13 +262,13 @@ const compactionQueue = new Map<string, ChatMessage[]>();
 
 export function initLLM(cfg: Config): void {
   config = cfg;
-  const transport = createLLMTransport(cfg);
-  const openaiOptions: Record<string, unknown> = {
+  // Install undici global dispatcher (HTTP/2 + keepalive). Safe no-op if disabled.
+  // SDK continues to use its native fetch — dispatcher intercepts transparently.
+  createLLMTransport(cfg);
+  client = new OpenAI({
     baseURL: cfg.llm.baseURL,
     apiKey: cfg.llm.apiKey || undefined,
-  };
-  if (transport.fetch) openaiOptions.fetch = transport.fetch;
-  client = new OpenAI(openaiOptions as ConstructorParameters<typeof OpenAI>[0]);
+  });
   loadSummaries();
   loadConversations();
   if (pruneTicker) clearInterval(pruneTicker);
@@ -724,7 +724,10 @@ export async function buildSystemPrompt(userId?: string, channelId?: string, con
   // The bot gets tool schemas via the tools array; runtime state is rarely needed.
 
   const buildMs = Date.now() - buildStart;
-  if (buildMs > 250) {
+  // Cold-path floor is ~400ms (embedding API + KB search round-trip). Warm-path
+  // (embed cache hit) should be <50ms. Anything past 1500ms means unexpected IO,
+  // stalled Promise, or embedding API slowdown worth surfacing.
+  if (buildMs > 1500) {
     console.warn(`LLM: buildSystemPrompt slow (${buildMs}ms) — hot-path IO regression?`);
   }
 

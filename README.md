@@ -86,9 +86,9 @@ The model provides reasoning. Aelora provides everything else — memory, tools,
 |---|---|---|
 | **Discord** | Discord.js | Primary conversational interface with ambient awareness |
 | **REST API** | Express | Full CRUD for all subsystems, OpenAPI spec at `/api/docs` |
-| **WebSocket** | `/ws` | Bidirectional streaming chat for Unity/game clients |
+| **WebSocket** | `/ws` | Bidirectional streaming chat + topic-subscribed event bus (chat, emotion, mindmap, logs, tokens, heartbeat) with permessage-deflate |
 | **Web Dashboard** | Browser | 7-tab real-time visualization, data management, persona editing |
-| **Discord Activity** | Embedded iframe | WebGL app in Discord voice channels via `/play` |
+| **Discord Activity** | Embedded iframe | ThreeJS web frontend in Discord voice channels via `/play` (Unity WebGL support retired) |
 
 ---
 
@@ -119,14 +119,17 @@ The model provides reasoning. Aelora provides everything else — memory, tools,
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
 - **Image Generation** - DALL-E 3 / gpt-image-1 via the luminizer tool
 - **Heartbeat** - Periodic handlers for calendar reminders, memory compaction, fact consolidation, data cleanup, knowledge base sync
-- **Discord Activity** - Embedded Unity WebGL or web app in Discord voice channels via `/play`
+- **Discord Activity** - Embedded ThreeJS web frontend in Discord voice channels via `/play` (Unity WebGL retired; Activity iframe + OAuth flow unchanged)
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations), auto-classified per response
 - **Real-Time Emotion Vectors** - Continuous 8D emotion vectors broadcast during LLM streaming via heuristic lexicon analysis for 3D mesh animation
 - **Ambient Awareness** - Passive channel monitoring with message buffers, engagement tracking, and configurable triggers that let the bot join conversations naturally
 - **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with stat cards, live console, real-time LLM visualization, and full data management
-- **WebSocket Chat** - Bidirectional chat over `/ws` for Unity or game clients
+- **WebSocket Chat + Event Bus** - Bidirectional chat over `/ws` for the ThreeJS frontend and other browser clients, with topic-subscribed broadcast (`chat`, `emotion`, `mindmap`, `logs`, `tokens`, `heartbeat`), permessage-deflate compression, and opt-in binary frames for high-rate emotion vectors
+- **HTTP/2 Keepalive to LLM** - Undici global dispatcher reuses one TLS+H2 connection across every LLM call (connection pool visible at `GET /api/llm/transport`)
+- **Provider Prompt Caching** - Static system-prompt prefix is scoped by `persona+channel` and sent with `prompt_cache_key` to boost prefix-cache hit rate; cached tokens tracked as a separate field in `/api/tokens` and on the dashboard
+- **Cross-Request Embedding Cache** - LRU+TTL cache (cap 2000) in `src/vector-store.ts` dedupes embedding API calls across messages; stats at `GET /api/llm/transport`
 - **Auto-Restart** - Process wrapper with graceful reboot via exit code signal
-- **Async Persistence Queue** - Debounced/coalesced async writes with bounded flush and graceful shutdown draining
+- **Async Persistence Queue** - Debounced/coalesced async writes (`users.json`, `daily-log`, token stats, summaries, conversations) with bounded flush, atomic rename, and graceful shutdown draining
 
 </details>
 
@@ -209,6 +212,9 @@ All settings can be overridden with environment variables:
 | `AELORA_KB_DRIVE_FOLDER_ID` | `knowledge.driveFolderId` |
 | `AELORA_ACTIVITY_CLIENT_ID` | `activity.clientId` |
 | `AELORA_ACTIVITY_CLIENT_SECRET` | `activity.clientSecret` |
+| `AELORA_LLM_HTTP2` | `llm.http2Enabled` — kill-switch for undici dispatcher |
+| `AELORA_LLM_PROMPT_CACHE` | `llm.promptCacheEnabled` — kill-switch for provider prompt-cache hints |
+| `AELORA_LLM_PROVIDER_HINT` | `llm.providerHint` (`auto` \| `openai` \| `anthropic`) |
 
 </details>
 
@@ -442,9 +448,10 @@ Full OpenAPI spec available at `/api/docs` when running, or see [openapi.yaml](o
 |---|---|---|
 | GET | `/api/status` | Bot connection, uptime, guild count |
 | GET | `/api/config` | Sanitized config (no secrets) |
-| GET | `/api/tokens` | Token usage stats (lifetime, today, hourly, by-model, by-source) |
+| GET | `/api/tokens` | Token usage stats (lifetime, today, hourly, by-model, by-source) — includes `cachedTokens` (subset of `inputTokens` served from provider prompt cache) |
 | POST | `/api/tokens/reset` | Reset token counters |
 | GET | `/api/heartbeat` | Heartbeat handler status |
+| GET | `/api/llm/transport` | LLM transport diagnostics: `{ transport: { enabled, opened, closed, requests, inflight }, embeddingCache: { size, hits, misses, hitRate }, asyncWriteQueue: { queuedFiles, queuedBytes, flushFailures } }` |
 
 ### Chat
 | Method | Path | Description |
@@ -586,20 +593,25 @@ Full OpenAPI spec available at `/api/docs` when running, or see [openapi.yaml](o
 
 ### WebSocket (`/ws`)
 
-Connect with `Authorization: Bearer <key>` header.
+Connect with `Authorization: Bearer <key>` header. Server negotiates `permessage-deflate` automatically when `web.wsCompression: true` (the default).
 
 **Client messages:**
 - `{type: "init", sessionId, userId?, username?}` - Initialize session
 - `{type: "message", content}` - Send message (streaming response)
 - `{type: "clear"}` - Clear session
 - `{type: "presence", status}` - Presence update
+- `{type: "subscribe", topics: string[], binary?: boolean}` - Narrow this client's event feed to the listed topics. Optional `binary: true` (for `emotion`) sends `Float32Array` frames instead of JSON when `web.wsBinaryEmotion: true`.
+- `{type: "unsubscribe", topics: string[]}` - Remove topics from this client's feed.
 
 **Server messages:**
 - `{type: "ready", sessionId}` - Session ready
 - `{type: "token", content}` - Stream token
 - `{type: "done", reply}` - Response complete
 - `{type: "error", error}` - Error
-- `{type: "event", event, data}` - Broadcast event (mood, emotion, tokens, mindmap)
+- `{type: "event", event, data}` - Broadcast event, routed by topic (mood/emotion → `emotion`, `tokens:usage` → `tokens`, conversation graph → `mindmap`, console → `logs`)
+- `{type: "subscribed", topics: string[]}` - Ack for subscribe/unsubscribe
+
+**Topics:** `chat`, `emotion`, `mindmap`, `logs`, `tokens`, `heartbeat`. Clients that never send `subscribe` receive every topic (backward-compat default).
 
 </details>
 
@@ -614,7 +626,8 @@ src/
 |-- boot.ts                     # Process wrapper (auto-restart)
 |-- config.ts                   # YAML config + Zod validation
 |-- async-write-queue.ts        # Debounced/coalesced async file writes
-|-- llm.ts                      # LLM client, history, streaming, tool loop
+|-- llm.ts                      # LLM client, history, streaming, tool loop, prompt-cache key derivation, TTFT timing
+|-- llm/http-client.ts          # Undici global dispatcher (HTTP/2 + keepalive) + connection counters
 |-- persona.ts                  # Persona file discovery and composition
 |-- tool-registry.ts            # Tool auto-discovery and execution
 |-- agent-registry.ts           # Agent auto-discovery and execution
@@ -629,9 +642,9 @@ src/
 |-- knowledge-base.ts           # Google Drive knowledge base
 |-- emotion-vector.ts           # Continuous 8D emotion vectors
 |-- mood.ts                     # Plutchik emotion classification
-|-- logger.ts                   # Console capture + SSE/WS broadcast
-|-- web.ts                      # Express dashboard + REST API
-|-- ws.ts                       # WebSocket chat server
+|-- logger.ts                   # Console capture + SSE/WS topic-routed broadcast
+|-- web.ts                      # Express dashboard + REST API (+ /api/llm/transport diagnostics)
+|-- ws.ts                       # WebSocket chat server, topic subscriptions, permessage-deflate
 |-- heartbeat.ts                # Periodic handler system
 |-- users.ts                    # User profile store
 |-- supabase.ts                 # Supabase client singleton

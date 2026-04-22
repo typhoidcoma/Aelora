@@ -1,11 +1,13 @@
 /**
  * Long-lived undici Agent for LLM calls. HTTP/2 when the endpoint supports it,
- * HTTP/1.1 keepalive otherwise. Exposes connection counters via diagnostics_channel
- * so we can confirm connection reuse in production.
+ * HTTP/1.1 keepalive otherwise. Installed as the global dispatcher so the
+ * OpenAI SDK's built-in fetch transparently picks up the pooled connection —
+ * we do NOT swap the SDK's fetch, which avoids Response/ReadableStream shape
+ * drift between undici and the SDK's internal expectations.
  */
 
 import diagnostics_channel from "node:diagnostics_channel";
-import { Agent, fetch as undiciFetch, setGlobalDispatcher } from "undici";
+import { Agent, setGlobalDispatcher } from "undici";
 import type { Config } from "../config.js";
 
 let agent: Agent | null = null;
@@ -20,29 +22,31 @@ function wireDiagnostics(): void {
   try {
     diagnostics_channel.channel("undici:client:connected").subscribe(() => { connected++; });
     diagnostics_channel.channel("undici:client:disconnected").subscribe(() => { disconnected++; });
+    diagnostics_channel.channel("undici:request:create").subscribe(() => {
+      requestCount++;
+      if (requestCount % 25 === 0) {
+        console.log(`LLM: connection stats — opened=${connected} closed=${disconnected} requests=${requestCount}`);
+      }
+    });
   } catch {
     // diagnostics channels unavailable — counters stay at 0
   }
 }
 
-export type LLMFetch = typeof globalThis.fetch;
-
 export type LLMTransportBundle = {
-  fetch: LLMFetch | undefined;
   agent: Agent | null;
   enabled: boolean;
 };
 
 /**
- * Build an undici-backed fetch if http2Enabled in config. Returns undefined fetch
- * when disabled so the OpenAI SDK falls back to its default.
+ * Install the undici agent as global dispatcher. The OpenAI SDK uses global
+ * fetch which undici routes through this dispatcher — we get pooling + H2
+ * without substituting the fetch implementation.
  */
 export function createLLMTransport(cfg: Config): LLMTransportBundle {
   if (!cfg.llm.http2Enabled) {
-    return { fetch: undefined, agent: null, enabled: false };
+    return { agent: null, enabled: false };
   }
-
-  wireDiagnostics();
 
   if (!agent) {
     agent = new Agent({
@@ -52,23 +56,18 @@ export function createLLMTransport(cfg: Config): LLMTransportBundle {
       pipelining: 1,
       connect: { keepAlive: true },
     });
-    try { setGlobalDispatcher(agent); } catch { /* non-fatal */ }
-    console.log("LLM: HTTP/2 keepalive enabled (undici agent)");
+    try {
+      setGlobalDispatcher(agent);
+      wireDiagnostics();
+      console.log("LLM: HTTP/2 keepalive enabled (undici global dispatcher)");
+    } catch (err) {
+      console.warn("LLM: failed to install undici dispatcher, falling back to default:", err instanceof Error ? err.message : err);
+      agent = null;
+      return { agent: null, enabled: false };
+    }
   }
 
-  const boundAgent = agent;
-  const bound = (async (input: unknown, init?: unknown): Promise<unknown> => {
-    requestCount++;
-    if (requestCount % 25 === 0) {
-      console.log(`LLM: connection stats — opened=${connected} closed=${disconnected} requests=${requestCount}`);
-    }
-    return undiciFetch(
-      input as Parameters<typeof undiciFetch>[0],
-      { ...((init ?? {}) as object), dispatcher: boundAgent } as Parameters<typeof undiciFetch>[1],
-    );
-  }) as unknown as LLMFetch;
-
-  return { fetch: bound, agent: boundAgent, enabled: true };
+  return { agent, enabled: true };
 }
 
 export function getLLMTransportStats(): {

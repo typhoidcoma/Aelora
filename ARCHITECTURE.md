@@ -37,6 +37,11 @@ Technical reference for the Aelora 🦋 LLM harness. Covers every subsystem, how
   ╚══════════════════════════════════════════════╤════════╪════════════╝
                                                  │        │
                           ┌──────────────────────▼──┐     │
+                          │  OpenAI SDK             │     │
+                          │    ↓ global fetch       │     │
+                          │  undici dispatcher      │     │
+                          │  (allowH2, keepAlive)   │     │
+                          │    ↓                    │     │
                           │  LLM API Provider       │     │
                           │  (OpenAI, Ollama,       │     │
                           │   OpenRouter, Groq,     │     │
@@ -86,13 +91,16 @@ Technical reference for the Aelora 🦋 LLM harness. Covers every subsystem, how
   ║  users.ts ────── profile tracking          classification          ║
   ║  daily-log.ts ── activity logging          emotion-vector.ts ───   ║
   ║                                            real-time 8D vectors    ║
-  ║  logger.ts ───── console capture + SSE broadcast + file logging    ║
+  ║  logger.ts ───── console capture + SSE + WS topic-routed broadcast ║
   ║  supabase.ts ─── Supabase client singleton + typed helpers         ║
-  ║  token-tracker.ts ── centralized token usage tracking              ║
+  ║  token-tracker.ts ── centralized token usage tracking (+ cached)   ║
   ║  message-triage.ts ─ pre-response message triage (dates, entities) ║
-  ║  user-profile.ts ─── LLM-synthesized per-user dossiers             ║
+  ║  user-profile.ts ─── LLM-synthesized per-user dossiers (cached)    ║
+  ║  llm/http-client.ts ─ undici Agent + global dispatcher + counters  ║
+  ║  async-write-queue.ts ── debounced/atomic async file writes        ║
   ║                                                                    ║
-  ║  Discord Activity (optional) ── Unity WebGL in Discord iframe      ║
+  ║  Discord Activity (optional) ── ThreeJS web frontend in iframe     ║
+  ║  (Unity WebGL retired; OAuth2 + bridge API unchanged)              ║
   ║  activity/index.html → SDK + OAuth2 + bridge API                   ║
   ╚══════════════════════════════════════════════════════════════════════╝
 ```
@@ -300,19 +308,21 @@ Messages trimmed from history are queued per-channel for async summarization:
 
 > **Patyna (frontend client):** Patyna is also the name of an external web frontend that connects to Aelora's REST and WebSocket APIs as a standalone client. It has its own Supabase Auth for user identity and calls `/api/chat`, `/api/quests`, and other endpoints. When code comments or API descriptions reference "Patyna" in the context of requests, user IDs, or client compatibility, they mean this frontend app -not the Patyna bot persona. The persona and the frontend share a name but are independent systems.
 
-### WebSocket Chat
+### WebSocket Chat + Event Bus
 
-**File:** [src/ws.ts](src/ws.ts)
+**File:** [src/ws.ts](src/ws.ts), [src/logger.ts](src/logger.ts)
 
-A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirectional real-time chat -ideal for Unity or other game clients where SSE isn't natively supported.
+A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirectional real-time chat for the ThreeJS web frontend, dashboard, and any other browser client, plus a **topic-subscribed event bus** for server-pushed signals (mood, emotion, mindmap graph, tokens, logs, heartbeat).
 
 **Connection flow:**
 
-1. Client connects to `ws://host:port/ws` (or `ws://host:port/ws?token=API_KEY` if auth is enabled)
-2. Client sends `init` with `sessionId` and optionally `userId`/`username`
-3. Server responds with `ready`
-4. Client sends `message` → server streams `token` frames, then `done`
-5. Live events (mood changes, etc.) pushed as `event` frames automatically
+1. Client connects to `ws://host:port/ws` with `Authorization: Bearer <key>` header
+2. Server negotiates `permessage-deflate` (≥1 KB frames compressed, level 6) if `web.wsCompression: true` (default)
+3. Client sends `init` with `sessionId` and optionally `userId`/`username`
+4. Server responds with `ready`
+5. (Optional) client sends `subscribe` with a topic list to narrow its event feed
+6. Client sends `message` → server streams `token` frames, then `done`
+7. Live events (mood, emotion, mindmap, tokens, logs, heartbeat) pushed as `event` frames according to subscription
 
 **Protocol (JSON over WebSocket):**
 
@@ -320,16 +330,26 @@ A WebSocket server attached to the same HTTP server on `/ws`. Provides bidirecti
 |-----------|------|--------|
 | Client → Server | `init` | `sessionId` (required), `userId?`, `username?` |
 | Client → Server | `message` | `content` (required) |
-| Client → Server | `clear` | -|
+| Client → Server | `clear` | — |
+| Client → Server | `presence` | `status` |
+| Client → Server | `subscribe` | `topics: string[]`, `binary?: boolean` |
+| Client → Server | `unsubscribe` | `topics: string[]` |
 | Server → Client | `ready` | `sessionId` |
 | Server → Client | `token` | `content` (streamed chunk) |
 | Server → Client | `done` | `reply` (full response) |
 | Server → Client | `error` | `error` (message) |
 | Server → Client | `event` | `event` (name), `data` (payload) |
+| Server → Client | `subscribed` | `topics: string[]` (ack) |
 
-Each message runs the same pipeline as the REST chat: `recordMessage()` → `updateUser()` → `getLLMResponse()` with token streaming → `appendLog()` + `classifyMood()`.
+**Topics:** `chat`, `emotion`, `mindmap`, `logs`, `tokens`, `heartbeat`. `broadcastEvent()` in [src/logger.ts](src/logger.ts) maps each event name to a topic via `topicForEvent()` and only sends to subscribed clients (JSON.stringify is hoisted and skipped entirely if no client subscribes).
 
-Connection management: ping/pong heartbeat every 30s, automatic cleanup on disconnect.
+**Backward compat:** clients that never send `subscribe` keep a `null` topic set and receive every event, preserving pre-topic behavior for the dashboard and legacy consumers.
+
+**Binary emotion (opt-in):** when `web.wsBinaryEmotion: true` *and* a client subscribes to `emotion` with `binary: true`, the server encodes the 8D Plutchik vector as a `Float32Array` frame instead of JSON. This is intended for the ThreeJS frontend's mesh animation path at 30–60 Hz.
+
+Each chat message runs the same pipeline as REST: `recordMessage()` → `updateUser()` → `getLLMResponse()` with token streaming → `appendLog()` + `classifyMood()`.
+
+Connection management: ping/pong heartbeat every 30s, automatic cleanup on disconnect, hard cap of 150 concurrent connections.
 
 ### Agent Loop
 
@@ -351,25 +371,126 @@ Centralized token tracking across all LLM call sites. Every `chat.completions.cr
 
 ```typescript
 type TokenStats = {
-  lifetime: { inputTokens, outputTokens, reasoningTokens, requests, firstTrackedAt };
-  today:    { date, inputTokens, outputTokens, reasoningTokens, requests };
-  hourly:   HourlyBucket[];       // rolling 48-hour window
-  byModel:  Record<string, ModelStats>;
-  bySource: Record<string, SourceStats>;
+  lifetime: { inputTokens, outputTokens, reasoningTokens, cachedTokens, requests, firstTrackedAt };
+  today:    { date, inputTokens, outputTokens, reasoningTokens, cachedTokens, requests };
+  hourly:   HourlyBucket[];       // rolling 48-hour window, includes cachedTokens
+  byModel:  Record<string, ModelStats>;   // includes cachedTokens
+  bySource: Record<string, SourceStats>;  // includes cachedTokens
 };
 ```
 
-Each usage event includes a `source` tag identifying the call site (e.g. `"chat"`, `"extraction"`, `"triage"`, `"mood"`, `"consolidation"`, `"ambient"`, `"compaction"`, `"correction"`).
+`cachedTokens` is the count of input tokens served from the provider's prompt cache. It is a **subset** of `inputTokens` — do not subtract; the canonical input-token meter stays `inputTokens`. Extracted from `usage.prompt_tokens_details.cached_tokens` (OpenAI) or `usage.cache_read_input_tokens` (Anthropic).
+
+Each usage event includes a `source` tag identifying the call site (e.g. `"chat"`, `"extraction"`, `"triage"`, `"mood"`, `"consolidation"`, `"ambient"`, `"compaction"`, `"correction"`, `"profile"`).
 
 ### Persistence
 
-Stats are persisted to `data/token-usage.json` via the async write queue. The `today` bucket auto-rolls at midnight. Hourly buckets older than 48 hours are pruned on each write.
+Stats are persisted to `data/token-usage.json` via the async write queue. The `today` bucket auto-rolls at midnight. Hourly buckets older than 48 hours are pruned on each write. Older snapshots without `cachedTokens` fields load transparently — `backfillStatsShape()` fills in zeros on read, so rolling back to a pre-cache build is safe.
 
 ### API & Dashboard
 
-- `GET /api/tokens` — returns the full `TokenStats` object
+- `GET /api/tokens` — returns the full `TokenStats` object (including `cachedTokens` across every bucket)
 - `POST /api/tokens/reset` — clears all stats
-- WebSocket broadcast: `tokens:usage` events pushed on every LLM call, consumed by the dashboard's "Tokens Today" stat card
+- `GET /api/llm/transport` — companion endpoint for transport + cache diagnostics (see Diagnostics section below)
+- WebSocket broadcast: `tokens:usage` events pushed on every LLM call (routed to the `tokens` topic), consumed by the dashboard's "Tokens Today" stat card. Each event carries `cachedTokens` for a cache-hit-rate tile.
+
+---
+
+## LLM Transport
+
+**File:** [src/llm/http-client.ts](src/llm/http-client.ts)
+
+The LLM client is a singleton `OpenAI` instance constructed in `initLLM()` ([src/llm.ts](src/llm.ts)). Before construction, `createLLMTransport()` installs a long-lived `undici.Agent` as the **Node global dispatcher** (`setGlobalDispatcher`) when `llm.http2Enabled: true` (default). The SDK then uses Node's native `fetch`, which transparently routes through the dispatcher — no fetch swap, no Response/ReadableStream shape drift between undici and the SDK's internals.
+
+**Agent configuration:**
+
+```
+Agent({
+  allowH2: true,              // negotiate HTTP/2 via ALPN when available
+  keepAliveTimeout: 60_000,   // idle socket timeout
+  keepAliveMaxTimeout: 600_000, // hard cap on keepalive
+  pipelining: 1,
+  connect: { keepAlive: true },
+})
+```
+
+**Fallback behavior:** if the endpoint doesn't support H2, undici transparently downgrades to HTTP/1.1 with keepalive. If the agent install throws for any reason, `createLLMTransport()` logs the failure and returns `{ enabled: false }` — the bot keeps running on Node's default fetch.
+
+**Kill-switches:** set `llm.http2Enabled: false` in `settings.yaml` or `AELORA_LLM_HTTP2=false` in the environment to skip the dispatcher entirely.
+
+### Prompt Caching
+
+`buildPromptCacheKey(channelId)` in [src/llm.ts](src/llm.ts) derives an opaque string of the form `${activePersona}:${channelId}` (scope configurable via `llm.promptCacheScope`). The key is threaded through `RuntimeTurnParams.promptCacheKey` and set as `prompt_cache_key` on the Chat Completions request. OpenAI uses it to disambiguate prefix-cache lookups across concurrent turns; unknown-field-tolerant providers (OpenAI-compatible endpoints) ignore it.
+
+Cache hits are reported by the provider in `usage.prompt_tokens_details.cached_tokens` (OpenAI) or `usage.cache_read_input_tokens` (Anthropic OpenAI-compat). Both paths flow into `cachedTokens` on the token tracker.
+
+`buildSystemPrompt()` orders sections **static → dynamic** so the prefix (persona base, tool inventory, mood, user profile, memory, KB excerpts) stays byte-identical across turns and the dynamic tail (conversation summary, current date/time) is appended last. This order is what makes prefix caching pay off — do not reshuffle casually.
+
+Disable entirely with `llm.promptCacheEnabled: false` or `AELORA_LLM_PROMPT_CACHE=false`.
+
+### Connection & Cache Counters
+
+`diagnostics_channel` subscribers on `undici:client:connected`, `undici:client:disconnected`, and `undici:request:create` track opened/closed sockets and total requests. Every 25th request logs a line like:
+
+```
+LLM: connection stats — opened=2 closed=0 requests=50
+```
+
+If `opened` keeps climbing 1:1 with requests, pooling is broken. Under healthy operation `opened` settles at 1–2 and stops growing.
+
+---
+
+## Latency Budget
+
+The Discord and WebSocket hot paths share one canonical budget. From message arrival to first token:
+
+| Stage | Log line | Typical | Investigate if |
+|---|---|---|---|
+| Discord handler prelude (typing, attachments) | `Discord: [user] +NNNms <stage>` | < 200 ms | any stage > 2 s |
+| `buildSystemPrompt` | `LLM: buildSystemPrompt slow (NNNms) …` (warn at 1500 ms) | 50–500 ms | > 1500 ms |
+| LLM API to first token (TTFT) | `LLM: response NNNms TTFT=NNms …` | 200–800 ms (warm pool, cached prefix) | > 2000 ms |
+| Total round-trip | `Discord: LLM response NNNms (N chars)` | depends on response length | — |
+
+**Channel-lock hardening:** [src/discord/client.ts](src/discord/client.ts) wraps every message in a per-channel `Promise` chain to serialise history. If a turn hangs, every subsequent message in the same channel queues behind it forever. A hard `Promise.race` timeout of **180 s** on `getLLMResponse` prevents permanent wedging — a timed-out call throws `LLM call timed out after 180000ms`, the catch releases the lock, and the next message runs.
+
+**Per-stage trace:** the `stageTrace()` helper logs `Discord: [user] +NNNms <stage>` at each await on the prelude path. When a turn goes silent, the last printed stage points at the culprit.
+
+**Sync-IO guards:** user record and daily-log writes are async-queued via [src/async-write-queue.ts](src/async-write-queue.ts) (`queueTextWrite` with atomic rename, `queueTextAppend` for append-only files). User profile markdown is cached in-memory via a 1000-entry LRU in [src/user-profile.ts](src/user-profile.ts), invalidated by `buildUserProfile()` itself. The hot path between message arrival and the LLM call issues zero synchronous disk writes and (after first access per user) zero synchronous disk reads.
+
+---
+
+## Diagnostics
+
+`GET /api/llm/transport` (bearer auth) returns a consolidated view of the new low-latency subsystems:
+
+```json
+{
+  "transport": {
+    "enabled": true,
+    "opened": 2,
+    "closed": 0,
+    "requests": 147,
+    "inflight": 1
+  },
+  "embeddingCache": {
+    "size": 312,
+    "hits": 418,
+    "misses": 260,
+    "hitRate": 0.6165
+  },
+  "asyncWriteQueue": {
+    "queuedFiles": 3,
+    "queuedBytes": 28401,
+    "flushFailures": 0
+  }
+}
+```
+
+- **`transport`** — undici agent counters (see LLM Transport above). `inflight = opened - closed` and should hover near zero for a healthy pool.
+- **`embeddingCache`** — LRU+TTL cache in [src/vector-store.ts](src/vector-store.ts). Cap 2000 entries. Query-text embeddings use a 5-min TTL; fact-indexing embeddings use `Infinity` (evicted only by LRU). Hit rate above ~40% confirms the cross-request cache is paying off; near-zero hits usually means the embedding text is varying unpredictably per call.
+- **`asyncWriteQueue`** — current queue depth across every file being written via [src/async-write-queue.ts](src/async-write-queue.ts). `flushFailures > 0` is the signal to look for disk or permission issues.
+
+Pair this with `GET /api/tokens` (especially `bySource.chat.cachedTokens`) to see end-to-end whether prompt caching is firing.
 
 ---
 
@@ -431,6 +552,12 @@ Profiles are organized into fixed sections:
 ### System Prompt Injection
 
 The profile (capped at 3500 characters) is always injected into the system prompt under `## Current User`. If no profile file exists yet, the system falls back to the `personalitySummary` field from `users.ts`.
+
+### In-Memory Cache
+
+`getUserProfile(userId)` and `getProfileForPrompt(userId)` are backed by a **module-level LRU cache** (cap 1000 entries). First access for a user does a single `readFileSync`; every subsequent call in the process lifetime is a Map lookup. `buildUserProfile()` updates the cache in place immediately after queueing the disk write — the next system-prompt build sees the new dossier without touching disk.
+
+Admin code that needs to force a re-read can call `invalidateUserProfileCache(userId?)` (drop one user or the whole cache).
 
 ---
 
@@ -1282,7 +1409,7 @@ Each of Plutchik's 8 emotions has a mapped color (gold for joy, green for trust,
 
 **File:** [src/emotion-vector.ts](src/emotion-vector.ts)
 
-In addition to discrete mood events, the system broadcasts continuous **EmotionVector** objects — all 8 Plutchik emotions as floats from 0.0 to 1.0. Designed for the Unity 3D frontend (42 blend shapes, built-in emotion engine) which connects directly to `/ws`.
+In addition to discrete mood events, the system broadcasts continuous **EmotionVector** objects — all 8 Plutchik emotions as floats from 0.0 to 1.0. Consumed by the ThreeJS web frontend for mesh animation; the optional binary Float32Array frame path (`web.wsBinaryEmotion: true` + client `subscribe` with `binary: true`) is intended for this high-rate use case. Clients connect directly to `/ws` and subscribe to the `emotion` topic.
 
 ```typescript
 type EmotionVector = {
@@ -1319,7 +1446,7 @@ Both user-text and stream-heuristic analyses share a `scanText()` helper that pe
 
 **REST endpoint:** `GET /api/emotion` returns the current EmotionVector derived from the persisted mood state (no `source` or `conversationId` fields).
 
-The `"mood"` event (discrete labels) and `"emotion"` event (continuous vectors) are independent — clients can listen to either or both. The Unity frontend uses the emotion vectors; the web dashboard uses the discrete mood events.
+The `"mood"` event (discrete labels) and `"emotion"` event (continuous vectors) are independent — clients can listen to either or both. The ThreeJS frontend uses the emotion vectors; the web dashboard uses the discrete mood events.
 
 ---
 
@@ -1481,7 +1608,7 @@ The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interac
 When `activity.enabled` is true:
 - `/` serves `activity/index.html` with injected config (clientId, serverUrl) -this is what Discord's Activity iframe loads
 - `/dashboard` serves the web dashboard (`public/index.html`)
-- `/activity/*` serves Unity build files with CORS headers and gzip `Content-Encoding` for `.gz` files
+- `/activity/*` serves the ThreeJS web frontend build with CORS headers (gzip `Content-Encoding` still supported for `.gz` files if the build is pre-compressed)
 
 When `activity.enabled` is false:
 - `/` serves the web dashboard normally
@@ -1729,7 +1856,7 @@ type MemoryFact = {
 3. **Semantic search:** `semanticSearch()` returns the top-K most relevant facts across specified scopes, ranked by cosine similarity. Used by the memory tool for smarter recall.
 4. **Weighted ranking:** When injecting facts into the system prompt, `rankFact()` blends semantic similarity (70%), temporal recency with exponential decay (20%), and access frequency boost (10%). Facts with `relevantDate` within 48 hours get a 1.5x boost. Expired facts (`expiresAt` < now) are heavily penalized (0.05 score).
 5. **Access tracking:** Facts injected into the system prompt have their `lastAccessedAt` and `accessCount` updated (debounced save every 10 seconds to avoid disk thrashing).
-6. **LRU cache:** Recent embeddings are cached in-memory (500 entries) to avoid redundant API calls for repeated text.
+6. **LRU+TTL embedding cache:** Embedding results are cached in-memory (cap **2000 entries**) to avoid redundant API calls across requests. Query-text embeddings carry a 5-minute TTL (refreshed on hit); fact-indexing embeddings have `Infinity` TTL and stay until LRU eviction. Two counters (`hits`, `misses`) are exposed via `getEmbeddingCacheStats()` and surfaced at `GET /api/llm/transport`. This is the single biggest latency win for subsequent messages in a conversation — the embedding round-trip disappears.
 7. **Batch rebuild:** `rebuildIndex()` re-embeds all facts from the JSON store in batches of 100. Run automatically on first boot if the vector index is missing, or manually via `npx tsx src/migrate-vectors.ts`.
 
 ### Upcoming Section
@@ -1834,7 +1961,7 @@ After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence pers
 
 ### Overview
 
-Discord Activities are interactive web apps that run inside Discord voice channels via an iframe. Aelora can host a Unity WebGL build (or any web app) as an Activity.
+Discord Activities are interactive web apps that run inside Discord voice channels via an iframe. Aelora hosts a **ThreeJS web frontend** as the Activity. (Unity WebGL support was retired; the Activity iframe, OAuth2 flow, and `window.discordBridge` interop shape are unchanged — only the embedded client differs.)
 
 ### Architecture
 
@@ -1844,8 +1971,9 @@ Discord voice channel
        └→ Express serves activity/index.html (with injected clientId)
             ├→ Discord SDK init (DiscordSDK from esm.sh CDN)
             ├→ OAuth2: authorize() → POST /.proxy/api/activity/token → authenticate()
-            ├→ Unity WebGL loader (Build/*.gz files via /.proxy/activity/)
-            └→ window.discordBridge (Unity ↔ JavaScript interop)
+            ├→ ThreeJS frontend (static assets via /.proxy/activity/)
+            │  └→ connects to /ws, subscribes to `emotion` + `mindmap` topics
+            └→ window.discordBridge (frontend ↔ Discord SDK interop)
 ```
 
 All requests from the Activity iframe go through Discord's `/.proxy/` prefix, which maps to the server URL configured in the Developer Portal's URL Mappings.
@@ -1854,9 +1982,9 @@ All requests from the Activity iframe go through Discord's `/.proxy/` prefix, wh
 
 **Root handler** (`GET /`): When Activity is enabled, serves `activity/index.html` with server-side template injection. Replaces `<!-- __ACTIVITY_CONFIG__ -->` with a `<script>` tag containing `window.__ACTIVITY_CONFIG__ = { clientId, serverUrl }`.
 
-**Static file serving** (`/activity/*`): Serves Unity build files with:
+**Static file serving** (`/activity/*`): Serves the ThreeJS frontend's built assets with:
 - CORS headers (`Access-Control-Allow-Origin: *`)
-- Gzip `Content-Encoding` for `.wasm.gz`, `.js.gz`, `.data.gz` files
+- Gzip `Content-Encoding` passthrough for any pre-compressed `.gz` files the build pipeline emits
 - Appropriate `Content-Type` headers
 
 **Token exchange** (`POST /api/activity/token`): Receives an OAuth2 authorization code from the client, exchanges it with Discord's API using the client secret, and returns the access token.
@@ -1866,26 +1994,13 @@ All requests from the Activity iframe go through Discord's `/.proxy/` prefix, wh
 1. **Discord SDK**: Imported from `https://esm.sh/@discord/embedded-app-sdk@2` (no npm install needed)
 2. **Config injection**: Reads `window.__ACTIVITY_CONFIG__` (set by server), falls back to fetching `/.proxy/api/activity/config`
 3. **OAuth2 flow**: `sdk.commands.authorize()` → token exchange via backend → `sdk.commands.authenticate()`
-4. **Unity loader**: Dynamically loads `Builds.loader.js`, then calls `createUnityInstance()` with gzip-compressed build files
-5. **Discord bridge**: Exposes `window.discordBridge` with `getUser()` and `getContext()` for Unity C# interop
-6. **Ready notification**: Sends `OnDiscordReady` to Unity's `DiscordManager` game object once both SDK and Unity are initialized
+4. **ThreeJS frontend**: loads the built ThreeJS bundle, opens a WebSocket to `/ws`, subscribes to `emotion` and `mindmap` topics for real-time avatar animation and conversation visualisation
+5. **Discord bridge**: Exposes `window.discordBridge` with `getUser()` and `getContext()` for the frontend to read Discord-provided identity
+6. **Ready notification**: Signals the ThreeJS scene once both SDK and avatar assets are initialised
 
 ### Test Page (activity/test.html)
 
-A standalone page that loads Unity without the Discord SDK -uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
-
-### Unity Build Files
-
-Build files go in `activity/Build/`. The server expects gzip-compressed versions for large files:
-
-| File | Purpose |
-|------|---------|
-| `Builds.loader.js` | Unity loader script (~39KB, not compressed) |
-| `Builds.data.gz` | Game data (gzip compressed) |
-| `Builds.framework.js.gz` | Unity framework (gzip compressed) |
-| `Builds.wasm.gz` | WebAssembly binary (gzip compressed) |
-
-Compress with `gzip -k -9 Builds.data Builds.framework.js Builds.wasm` after each Unity build.
+A standalone page that loads the ThreeJS frontend without the Discord SDK — uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
 
 ### Entry Point Command
 

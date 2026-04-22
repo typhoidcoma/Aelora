@@ -49,6 +49,10 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       disableThinking: false,
       verifyToolClaims: false,
       maxVerificationRetries: 1,
+      http2Enabled: false,
+      promptCacheEnabled: false,
+      providerHint: "auto",
+      promptCacheScope: "persona+channel",
       ...overrides,
     },
     web: {
@@ -59,6 +63,8 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
         allowQueryToken: true,
         allowWsQueryToken: true,
       },
+      wsCompression: false,
+      wsBinaryEmotion: false,
     },
     persona: {
       enabled: true,

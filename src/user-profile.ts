@@ -27,6 +27,32 @@ const MAX_PROFILE_CHARS = 3500;       // ~875 tokens hard cap
 
 const factsAddedSince = new Map<string, number>();
 
+type ProfileCacheEntry = { content: string | null; loadedAt: number; version: number };
+const profileCache = new Map<string, ProfileCacheEntry>();
+const PROFILE_CACHE_CAP = 1000;
+
+function cachePut(userId: string, content: string | null): ProfileCacheEntry {
+  // Evict oldest when over cap (Map preserves insertion order).
+  if (profileCache.size >= PROFILE_CACHE_CAP && !profileCache.has(userId)) {
+    const oldest = profileCache.keys().next().value;
+    if (oldest !== undefined) profileCache.delete(oldest);
+  }
+  const prev = profileCache.get(userId);
+  const entry: ProfileCacheEntry = {
+    content,
+    loadedAt: Date.now(),
+    version: (prev?.version ?? 0) + 1,
+  };
+  profileCache.set(userId, entry);
+  return entry;
+}
+
+/** Drop a single user's profile from cache, or the whole cache when no userId is given. */
+export function invalidateUserProfileCache(userId?: string): void {
+  if (userId) profileCache.delete(userId);
+  else profileCache.clear();
+}
+
 // ── Profile builder prompt ──────────────────────────────
 
 function buildProfilePrompt(username: string): string {
@@ -54,15 +80,21 @@ function buildProfilePrompt(username: string): string {
 
 // ── Public API ──────────────────────────────────────────
 
-/** Read a user's profile file from disk. Returns content or null. */
+/** Read a user's profile file from disk. Returns content or null. Cached in-memory after first read. */
 export function getUserProfile(userId: string): string | null {
+  const hit = profileCache.get(userId);
+  if (hit) return hit.content;
+
   const filePath = `${PROFILE_DIR}/${userId}.md`;
+  let content: string | null = null;
   try {
     if (existsSync(filePath)) {
-      return readFileSync(filePath, "utf-8").trim();
+      content = readFileSync(filePath, "utf-8").trim();
     }
   } catch { /* file not readable */ }
-  return null;
+
+  cachePut(userId, content);
+  return content;
 }
 
 /** Read profile and truncate to token-safe length for prompt injection. */
@@ -155,9 +187,11 @@ export async function buildUserProfile(userId: string): Promise<void> {
       content = lastSection > 0 ? truncated.slice(0, lastSection).trim() : truncated.trim();
     }
 
-    // Write to disk
+    // Write to disk (async queue) and update in-memory cache immediately so
+    // the next buildSystemPrompt sees the new content without a disk read.
     const filePath = `${PROFILE_DIR}/${userId}.md`;
     queueTextWrite(filePath, content, { debounceMs: 500, atomic: true });
+    cachePut(userId, content);
 
     // Update user profile tracking
     updateUserProfileBuild(userId, facts.length);

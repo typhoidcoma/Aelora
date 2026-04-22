@@ -14,6 +14,7 @@ export type RuntimeUsage = {
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  cachedTokens?: number;
 };
 
 export type RuntimeContinuation = {
@@ -30,6 +31,8 @@ export type RuntimeTurnParams = {
   userId?: string;
   continuation?: RuntimeContinuation;
   onTextDelta?: (delta: string) => void;
+  /** OpenAI-compatible prompt cache key — scoped by persona+channel to maximise prefix-cache hit rate. */
+  promptCacheKey?: string;
 };
 
 export type RuntimeTurnResult = {

@@ -44,9 +44,49 @@ let index: LocalIndex<Record<string, MetadataTypes>> | null = null;
 let embeddings: OpenAIEmbeddings | null = null;
 let config: VectorStoreConfig | null = null;
 
-// Simple LRU cache for recent embeddings to avoid redundant API calls
-const embeddingCache = new Map<string, number[]>();
-const CACHE_MAX = 500;
+// LRU+TTL embedding cache — avoids redundant API calls across requests.
+// Two spaces: "search" queries (short-lived, heavy churn, TTL matters) and
+// indexed-fact embeddings (long-lived, no TTL, stay hot until eviction).
+type EmbeddingCacheEntry = { vec: number[]; expiresAt: number };
+const embeddingCache = new Map<string, EmbeddingCacheEntry>();
+const CACHE_MAX = 2000;
+const CACHE_TTL_MS = 5 * 60_000; // 5 min — long enough to dedupe rapid-fire queries, short enough to not pin drift
+let embeddingCacheHits = 0;
+let embeddingCacheMisses = 0;
+
+function cacheGet(key: string): number[] | null {
+  const entry = embeddingCache.get(key);
+  if (!entry) { embeddingCacheMisses++; return null; }
+  if (entry.expiresAt !== Infinity && entry.expiresAt < Date.now()) {
+    embeddingCache.delete(key);
+    embeddingCacheMisses++;
+    return null;
+  }
+  // Bump recency: re-insert to move to the end of insertion order.
+  embeddingCache.delete(key);
+  embeddingCache.set(key, entry);
+  embeddingCacheHits++;
+  return entry.vec;
+}
+
+function cacheSet(key: string, vec: number[], ttlMs: number): void {
+  if (embeddingCache.size >= CACHE_MAX) {
+    const firstKey = embeddingCache.keys().next().value;
+    if (firstKey !== undefined) embeddingCache.delete(firstKey);
+  }
+  embeddingCache.set(key, { vec, expiresAt: ttlMs === Infinity ? Infinity : Date.now() + ttlMs });
+}
+
+/** Exposed for /api/llm/transport and dashboard observability. */
+export function getEmbeddingCacheStats(): { size: number; hits: number; misses: number; hitRate: number } {
+  const total = embeddingCacheHits + embeddingCacheMisses;
+  return {
+    size: embeddingCache.size,
+    hits: embeddingCacheHits,
+    misses: embeddingCacheMisses,
+    hitRate: total > 0 ? embeddingCacheHits / total : 0,
+  };
+}
 
 // ── Initialisation ───────────────────────────────────────
 
@@ -122,11 +162,11 @@ export function formatError(err: unknown): string {
 
 // ── Embedding helper ─────────────────────────────────────
 
-async function embed(text: string): Promise<number[] | null> {
+async function embed(text: string, opts?: { ttlMs?: number }): Promise<number[] | null> {
   if (!embeddings) return null;
 
-  // Check cache
-  const cached = embeddingCache.get(text);
+  const ttlMs = opts?.ttlMs ?? CACHE_TTL_MS;
+  const cached = cacheGet(text);
   if (cached) return cached;
 
   try {
@@ -137,14 +177,7 @@ async function embed(text: string): Promise<number[] | null> {
     }
 
     const vec = res.output[0];
-
-    // Cache with eviction
-    if (embeddingCache.size >= CACHE_MAX) {
-      const firstKey = embeddingCache.keys().next().value;
-      if (firstKey !== undefined) embeddingCache.delete(firstKey);
-    }
-    embeddingCache.set(text, vec);
-
+    cacheSet(text, vec, ttlMs);
     return vec;
   } catch (err) {
     console.warn("VectorStore: embedding call failed:", formatError(err));
@@ -163,14 +196,11 @@ async function embedBatch(texts: string[]): Promise<(number[] | null)[]> {
       return texts.map(() => null);
     }
 
-    // Cache results
+    // Cache results. Indexed-fact embeddings get no TTL — they stay hot until
+    // LRU-evicted. They are keyed on the raw fact text, same as before.
     for (let i = 0; i < texts.length; i++) {
       if (res.output[i]) {
-        if (embeddingCache.size >= CACHE_MAX) {
-          const firstKey = embeddingCache.keys().next().value;
-          if (firstKey !== undefined) embeddingCache.delete(firstKey);
-        }
-        embeddingCache.set(texts[i], res.output[i]);
+        cacheSet(texts[i], res.output[i], Infinity);
       }
     }
 

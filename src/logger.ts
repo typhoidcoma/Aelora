@@ -30,8 +30,22 @@ export function configureLogger(opts: { maxBuffer?: number; fileEnabled?: boolea
   }
 }
 
+export const WS_TOPICS = ["chat", "emotion", "mindmap", "logs", "tokens", "heartbeat"] as const;
+export type WSTopic = typeof WS_TOPICS[number];
+
+/** Map a broadcastEvent name onto a topic the client can subscribe to. */
+export function topicForEvent(event: string): WSTopic {
+  if (event.startsWith("mindmap")) return "mindmap";
+  if (event.startsWith("emotion")) return "emotion";
+  if (event.startsWith("tokens")) return "tokens";
+  if (event.startsWith("chat")) return "chat";
+  if (event.startsWith("log") || event.startsWith("web")) return "logs";
+  return "heartbeat";
+}
+
 const sseClients = new Set<Response>();
-const wsClients = new Set<WebSocket>();
+/** null = legacy client subscribed to all topics (backward compat). */
+const wsClients = new Map<WebSocket, Set<WSTopic> | null>();
 const MAX_SSE_CLIENTS = 150;
 const MAX_WS_CLIENTS = 150;
 
@@ -143,8 +157,32 @@ export function addWSClient(ws: WebSocket): void {
     ws.close(1013, "Server busy");
     return;
   }
-  wsClients.add(ws);
+  wsClients.set(ws, null); // legacy: no subscription set yet → receives everything
   ws.on("close", () => wsClients.delete(ws));
+}
+
+/** Replace a client's subscription set. Pass null to restore legacy all-topics behavior. */
+export function setWSClientTopics(ws: WebSocket, topics: Set<WSTopic> | null): void {
+  if (wsClients.has(ws)) wsClients.set(ws, topics);
+}
+
+/** Mutate a client's subscription set. */
+export function updateWSClientTopics(
+  ws: WebSocket,
+  topics: WSTopic[],
+  mode: "add" | "remove" | "replace",
+): void {
+  const current = wsClients.get(ws);
+  if (current === undefined) return;
+  let next: Set<WSTopic>;
+  if (mode === "replace" || current === null) {
+    next = new Set(mode === "remove" ? WS_TOPICS.filter((t) => !topics.includes(t)) : topics);
+  } else {
+    next = new Set(current);
+    if (mode === "add") for (const t of topics) next.add(t);
+    else for (const t of topics) next.delete(t);
+  }
+  wsClients.set(ws, next);
 }
 
 /** Send a named SSE event to all connected clients (SSE + WebSocket). */
@@ -158,8 +196,13 @@ export function broadcastEvent(event: string, data: unknown): void {
     }
   }
 
-  const wsPayload = JSON.stringify({ type: "event", event, data });
-  for (const ws of wsClients) {
+  if (wsClients.size === 0) return;
+
+  const topic = topicForEvent(event);
+  let wsPayload: string | null = null;
+  for (const [ws, topics] of wsClients) {
+    if (topics && !topics.has(topic)) continue;
+    if (wsPayload === null) wsPayload = JSON.stringify({ type: "event", event, data });
     try {
       ws.send(wsPayload);
     } catch {
@@ -173,12 +216,22 @@ export function getLiveClientMetrics(): {
   wsClients: number;
   maxSseClients: number;
   maxWsClients: number;
+  wsTopicCounts: Record<WSTopic, number>;
 } {
+  const topicCounts = Object.fromEntries(WS_TOPICS.map((t) => [t, 0])) as Record<WSTopic, number>;
+  for (const topics of wsClients.values()) {
+    if (topics === null) {
+      for (const t of WS_TOPICS) topicCounts[t]++;
+    } else {
+      for (const t of topics) topicCounts[t]++;
+    }
+  }
   return {
     sseClients: sseClients.size,
     wsClients: wsClients.size,
     maxSseClients: MAX_SSE_CLIENTS,
     maxWsClients: MAX_WS_CLIENTS,
+    wsTopicCounts: topicCounts,
   };
 }
 

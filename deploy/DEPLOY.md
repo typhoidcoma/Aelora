@@ -69,7 +69,16 @@ sudo journalctl -u aelora -f
 
 # Check the web dashboard (if enabled)
 curl http://localhost:3000/api/status
+
+# Deeper diagnostics — HTTP/2 connection reuse, embedding cache hit rate,
+# and async-write queue depth (bearer auth required if web.apiKey is set)
+curl -H "Authorization: Bearer $AELORA_WEB_API_KEY" http://localhost:3000/api/llm/transport
+
+# Token usage including cache hits (cachedTokens is a subset of inputTokens)
+curl -H "Authorization: Bearer $AELORA_WEB_API_KEY" http://localhost:3000/api/tokens
 ```
+
+Under a healthy HTTP/2 pool, `GET /api/llm/transport` settles at a small `opened` count (1–2) regardless of request volume, `inflight` oscillates near 0, and `embeddingCache.hitRate` climbs toward ~0.4+ once the bot is handling repeat conversations. If `transport.opened` keeps growing 1:1 with `requests`, the keepalive pool isn't reusing connections — check that the LLM endpoint supports keepalive and that no intermediate proxy is closing idle sockets.
 
 ## 6. Remote access with Tailscale
 

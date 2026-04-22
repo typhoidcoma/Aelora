@@ -43,6 +43,10 @@ const llmSchema = z.object({
   disableThinking: z.boolean().default(false),
   verifyToolClaims: z.boolean().default(true),
   maxVerificationRetries: z.number().int().min(0).max(3).default(1),
+  http2Enabled: z.boolean().default(true),
+  promptCacheEnabled: z.boolean().default(true),
+  providerHint: z.enum(["auto", "openai", "anthropic"]).default("auto"),
+  promptCacheScope: z.enum(["persona", "channel", "persona+channel"]).default("persona+channel"),
 });
 
 const memorySchema = z.object({
@@ -85,6 +89,8 @@ const webSchema = z.object({
     allowQueryToken: z.boolean().default(true),
     allowWsQueryToken: z.boolean().default(true),
   }).default({}),
+  wsCompression: z.boolean().default(true),
+  wsBinaryEmotion: z.boolean().default(false),
 });
 
 const personaSchema = z.object({
@@ -242,6 +248,23 @@ function applyEnvOverrides(config: Config): void {
     config.tools.linear = config.tools.linear ?? {};
     config.tools.linear.apiKey = env.AELORA_LINEAR_API_KEY;
     applied.push("AELORA_LINEAR_API_KEY");
+  }
+  if (env.AELORA_LLM_HTTP2) {
+    const v = env.AELORA_LLM_HTTP2.toLowerCase();
+    config.llm.http2Enabled = v === "1" || v === "true" || v === "yes";
+    applied.push("AELORA_LLM_HTTP2");
+  }
+  if (env.AELORA_LLM_PROMPT_CACHE) {
+    const v = env.AELORA_LLM_PROMPT_CACHE.toLowerCase();
+    config.llm.promptCacheEnabled = v === "1" || v === "true" || v === "yes";
+    applied.push("AELORA_LLM_PROMPT_CACHE");
+  }
+  if (env.AELORA_LLM_PROVIDER_HINT) {
+    const hint = env.AELORA_LLM_PROVIDER_HINT.toLowerCase();
+    if (hint === "auto" || hint === "openai" || hint === "anthropic") {
+      config.llm.providerHint = hint;
+      applied.push("AELORA_LLM_PROVIDER_HINT");
+    }
   }
   if (env.AELORA_EMBEDDING_API_KEY)   { config.memory.embeddingApiKey = env.AELORA_EMBEDDING_API_KEY; applied.push("AELORA_EMBEDDING_API_KEY"); }
   if (env.AELORA_EMBEDDING_BASE_URL)  { config.memory.embeddingBaseURL = env.AELORA_EMBEDDING_BASE_URL; applied.push("AELORA_EMBEDDING_BASE_URL"); }

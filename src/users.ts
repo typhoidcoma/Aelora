@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { queueTextWrite } from "./async-write-queue.js";
 
 const USERS_FILE = "data/users.json";
 
@@ -30,12 +31,8 @@ function load(): void {
 }
 
 function save(): void {
-  try {
-    mkdirSync("data", { recursive: true });
-    writeFileSync(USERS_FILE, JSON.stringify(store, null, 2));
-  } catch (err) {
-    console.error("Users: failed to save:", err);
-  }
+  // Hot-path safe: debounced async write. Queue handles mkdir + atomic rename.
+  queueTextWrite(USERS_FILE, JSON.stringify(store, null, 2), { debounceMs: 1000, atomic: true });
 }
 
 // Load on module init

@@ -19,7 +19,7 @@ export class ChatCompletionsRuntime implements ProviderRuntime {
 
 function buildChatRequest(params: RuntimeTurnParams): OpenAI.Chat.Completions.ChatCompletionCreateParams {
   const TOKEN_FLOOR_WITH_TOOLS = 16384;
-  return {
+  const base: Record<string, unknown> = {
     model: params.model,
     messages: params.messages,
     ...(params.tools.length > 0
@@ -34,6 +34,11 @@ function buildChatRequest(params: RuntimeTurnParams): OpenAI.Chat.Completions.Ch
         ? { max_completion_tokens: params.maxOutputTokens }
         : {}),
   };
+  // Prompt cache key — OpenAI + Anthropic OpenAI-compat endpoints read this to
+  // boost prefix-cache hit rate. Unknown providers ignore it.
+  if (params.promptCacheKey) base.prompt_cache_key = params.promptCacheKey;
+  if (params.userId) base.user = params.userId;
+  return base as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParams;
 }
 
 async function runStreamingTurn(
@@ -62,7 +67,13 @@ async function runStreamingTurn(
           }>;
         };
       }>;
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+        cache_read_input_tokens?: number;
+      };
     };
 
     const delta = chunk.choices?.[0]?.delta;
@@ -90,6 +101,10 @@ async function runStreamingTurn(
         inputTokens: chunk.usage.prompt_tokens,
         outputTokens: chunk.usage.completion_tokens,
         totalTokens: chunk.usage.total_tokens,
+        cachedTokens:
+          chunk.usage.prompt_tokens_details?.cached_tokens ??
+          chunk.usage.cache_read_input_tokens ??
+          0,
       };
     }
   }
@@ -110,14 +125,25 @@ async function runNonStreamingTurn(
   );
   const choice = completion.choices[0];
 
+  const rawUsage = completion.usage as
+    | (OpenAI.CompletionUsage & {
+        prompt_tokens_details?: { cached_tokens?: number };
+        cache_read_input_tokens?: number;
+      })
+    | undefined;
+
   return {
     content: choice?.message.content ?? null,
     toolCalls: normalizeChatToolCalls(choice?.message.tool_calls),
-    usage: completion.usage
+    usage: rawUsage
       ? {
-          inputTokens: completion.usage.prompt_tokens,
-          outputTokens: completion.usage.completion_tokens,
-          totalTokens: completion.usage.total_tokens,
+          inputTokens: rawUsage.prompt_tokens,
+          outputTokens: rawUsage.completion_tokens,
+          totalTokens: rawUsage.total_tokens,
+          cachedTokens:
+            rawUsage.prompt_tokens_details?.cached_tokens ??
+            rawUsage.cache_read_input_tokens ??
+            0,
         }
       : undefined,
   };

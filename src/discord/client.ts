@@ -379,6 +379,11 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
   let editTimer: ReturnType<typeof setInterval> | null = null;
   let typingTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Diagnostic trace — catches silent hangs between Discord msg log and LLM response.
+  // Remove or raise the threshold once stability is confirmed.
+  const handleStart = Date.now();
+  const stageTrace = (stage: string) => console.log(`Discord: [${message.author.username}] +${Date.now() - handleStart}ms ${stage}`);
+
   try {
     // If name-triggered (not @mentioned), give context and let LLM decide whether to reply
     if (nameTriggered) {
@@ -390,11 +395,14 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
     }
 
     // Keep typing indicator alive throughout response generation
+    stageTrace("before sendTyping");
     await channel.sendTyping();
+    stageTrace("after sendTyping");
     typingTimer = setInterval(() => {
       channel.sendTyping().catch((err) => console.warn("Discord: sendTyping failed:", err.message ?? err));
     }, TYPING_INTERVAL);
     const userContent = await processAttachments(message, content, config.llm.model);
+    stageTrace("after processAttachments");
 
     // Streaming state  -  no placeholder reply; typing indicator covers the wait
     let buffer = "";
@@ -457,8 +465,16 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
 
     editTimer = setInterval(doEdit, STREAM_EDIT_INTERVAL);
 
+    stageTrace("calling getLLMResponse");
     const llmStart = Date.now();
-    const text = await getLLMResponse(message.channelId, userContent, (token) => {
+    // Hard timeout: a hung LLM call must not wedge the channel lock forever.
+    // 180s covers tool loops + slow models; anything past that is a real hang.
+    const LLM_TIMEOUT_MS = 180_000;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`LLM call timed out after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS);
+    });
+    const text = await Promise.race([
+      getLLMResponse(message.channelId, userContent, (token) => {
       buffer += token;
     }, message.author.id, async (toolNames) => {
       // Tools are about to run - show a clean status instead of partial streaming text
@@ -477,7 +493,9 @@ async function handleMessage(message: Message, config: Config, nameTriggered = f
       // Reset buffer so the final LLM response starts fresh
       buffer = "";
       activeOffset = 0;
-    });
+    }),
+      timeoutPromise,
+    ]);
     console.log(`Discord: LLM response ${Date.now() - llmStart}ms (${text.length} chars)`);
 
     // Stop streaming edits and wait for any in-flight Discord API call to settle

@@ -324,7 +324,12 @@ export interface SyncResult {
   removed: number;
   chunksIndexed: number;
   errors: number;
+  remaining: number;
 }
+
+// Cap files processed per sync run so the heartbeat handler can finish within
+// its 60s budget. Leftover files roll over to the next tick.
+const MAX_FILES_PER_SYNC = 3;
 
 export async function syncKnowledgeBase(): Promise<SyncResult | null> {
   if (!kbConfig?.enabled || !kbConfig.driveFolderId || !googleConfig) return null;
@@ -333,7 +338,7 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
     return null;
   }
 
-  const result: SyncResult = { added: 0, updated: 0, removed: 0, chunksIndexed: 0, errors: 0 };
+  const result: SyncResult = { added: 0, updated: 0, removed: 0, chunksIndexed: 0, errors: 0, remaining: 0 };
 
   try {
     const driveFiles = await listDriveFiles();
@@ -350,7 +355,8 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
       }
     }
 
-    // Process new and updated files
+    // Process new and updated files (capped per run)
+    let processed = 0;
     for (const file of driveFiles) {
       const existing = manifest.files[file.id];
       const isNew = !existing;
@@ -358,11 +364,17 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
 
       if (!isNew && !isUpdated) continue;
 
+      if (processed >= MAX_FILES_PER_SYNC) {
+        result.remaining++;
+        continue;
+      }
+
       try {
         console.log(`KnowledgeBase: processing ${file.name} (${file.mimeType})`);
         const text = await extractText(file);
         if (!text) {
           console.log(`KnowledgeBase: no text extracted from ${file.name}, skipping`);
+          processed++;
           continue;
         }
 
@@ -382,7 +394,8 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
           result.chunksIndexed++;
         }
 
-        // Update manifest
+        // Update manifest and persist immediately so partial progress survives
+        // a timeout or crash mid-batch.
         manifest.files[file.id] = {
           name: file.name,
           mimeType: file.mimeType,
@@ -391,6 +404,7 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
           indexedAt: new Date().toISOString(),
           charCount: text.length,
         };
+        saveManifest();
 
         if (isNew) {
           result.added++;
@@ -399,9 +413,11 @@ export async function syncKnowledgeBase(): Promise<SyncResult | null> {
           result.updated++;
           console.log(`KnowledgeBase: re-indexed ${file.name} (${chunks.length} chunks)`);
         }
+        processed++;
       } catch (err) {
         console.warn(`KnowledgeBase: failed to process ${file.name}: ${formatError(err)}`);
         result.errors++;
+        processed++;
       }
     }
 

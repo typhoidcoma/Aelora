@@ -162,8 +162,8 @@ const knowledgeSchema = z.object({
   syncIntervalMinutes: z.number().int().positive().default(30),
   chunkSize: z.number().int().positive().default(800),
   chunkOverlap: z.number().int().nonnegative().default(100),
-  maxChunksPerPrompt: z.number().int().positive().default(5),
-  minRelevanceScore: z.number().min(0).max(1).default(0.35),
+  maxChunksPerPrompt: z.number().int().positive().default(6),
+  minRelevanceScore: z.number().min(0).max(1).default(0.25),
 });
 
 const configSchema = z.object({

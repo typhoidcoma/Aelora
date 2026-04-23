@@ -4229,13 +4229,20 @@ async function deleteQuest(id) {
 
 // --- User Profiles ---
 let _userProfilesCache = null;
+let _profileRebuildInFlight = new Set();
+
 async function fetchUserProfiles() {
   const list = document.getElementById("profiles-list");
   if (!list) return;
   showSkeleton(list, 5);
 
-  let users;
-  try { users = await safeFetchJson("/api/users"); } catch { return; }
+  let raw;
+  try { raw = await safeFetchJson("/api/users"); } catch { return; }
+
+  // /api/users returns a Record<userId, UserProfile>, not an array.
+  // Match the Object.values() convention used by fetchUsers().
+  const users = Object.values(raw || {});
+  users.sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
   _userProfilesCache = users;
 
   if (!users.length) {
@@ -4244,16 +4251,16 @@ async function fetchUserProfiles() {
   }
 
   list.innerHTML = users.map((u) => `
-    <button class="profiles-list-item" type="button" data-user-id="${escapeHtml(u.id || u.userId)}">
-      <div class="profiles-list-name">${escapeHtml(u.username || u.name || u.id || u.userId)}</div>
-      <div class="profiles-list-meta muted text-sm">Msgs: ${u.messageCount ?? 0}</div>
+    <button class="profiles-list-item" type="button" data-user-id="${escapeHtml(u.userId)}">
+      <div class="profiles-list-name">${escapeHtml(u.username || u.userId)}</div>
+      <div class="profiles-list-meta muted text-sm">Msgs: ${u.messageCount ?? 0} · Facts: ${u.factCount ?? "?"}</div>
     </button>`).join("");
 
   list.querySelectorAll(".profiles-list-item").forEach((btn) => {
     btn.onclick = () => selectUserProfile(btn.dataset.userId);
   });
 
-  if (users[0]) selectUserProfile(users[0].id || users[0].userId);
+  if (users[0]) selectUserProfile(users[0].userId);
 }
 
 async function selectUserProfile(userId) {
@@ -4267,21 +4274,98 @@ async function selectUserProfile(userId) {
   let data;
   try { data = await safeFetchJson(`/api/users/${encodeURIComponent(userId)}/profile`); } catch { return; }
 
+  const header = renderProfileHeader(userId, data);
+
   if (!data.markdown) {
-    const { html, bind } = renderEmptyState({
+    const factCount = data.factCount ?? 0;
+    const minFacts = data.profileMinFacts ?? 3;
+    const needs = Math.max(0, minFacts - factCount);
+    const msg = needs > 0
+      ? `Needs ${needs} more fact${needs === 1 ? "" : "s"} before the dossier builds automatically (has ${factCount}/${minFacts}).`
+      : `Dossier will build on the next extracted fact. Click Rebuild to force it now.`;
+    const empty = renderEmptyState({
       icon: "∅",
       title: "No dossier yet",
-      message: `Profile will be built automatically once ${escapeHtml(data.username || userId)} has at least 5 extracted facts.`,
+      message: msg,
     });
-    detail.innerHTML = html;
-    bind(detail);
+    detail.innerHTML = header + empty.html;
+    empty.bind(detail);
+    bindProfileHeaderActions(detail, userId);
     return;
   }
 
-  const built = data.profileBuiltAt ? new Date(data.profileBuiltAt).toLocaleString() : "—";
+  const built = data.profileBuiltAt ? timeAgo(data.profileBuiltAt) : "—";
+  const drift = (data.factCount != null && data.factCountAtProfileBuild != null)
+    ? Math.max(0, data.factCount - data.factCountAtProfileBuild) : null;
+  const driftPill = drift && drift > 0
+    ? `<span class="badge" style="background:var(--warning-bg);color:var(--warning);">+${drift} facts since</span>`
+    : "";
   detail.innerHTML = `
-    <div class="muted text-sm" style="margin-bottom:var(--space-xs);">Built: ${escapeHtml(built)} · Facts at build: ${data.factCountAtProfileBuild ?? "—"}</div>
+    ${header}
+    <div class="muted text-sm" style="margin-bottom:var(--space-sm);display:flex;gap:var(--space-xs);align-items:center;flex-wrap:wrap;">
+      <span>Built ${escapeHtml(built)}</span>
+      <span>·</span>
+      <span>Facts at build: ${data.factCountAtProfileBuild ?? "—"}</span>
+      ${driftPill}
+    </div>
     <div class="profile-markdown">${renderMarkdownLite(data.markdown)}</div>`;
+  bindProfileHeaderActions(detail, userId);
+}
+
+function renderProfileHeader(userId, data) {
+  const name = escapeHtml(data.username || userId);
+  const inFlight = _profileRebuildInFlight.has(userId);
+  const btnLabel = inFlight ? "Rebuilding…" : "Rebuild";
+  const btnDisabled = inFlight ? "disabled" : "";
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-sm);margin-bottom:var(--space-sm);">
+      <h3 style="color:var(--text-primary);text-transform:none;letter-spacing:0;font-size:var(--font-size-lg);">${name}</h3>
+      <button class="btn btn-xs" data-rebuild-profile="${escapeHtml(userId)}" ${btnDisabled}>${btnLabel}</button>
+    </div>`;
+}
+
+function bindProfileHeaderActions(rootEl, userId) {
+  const btn = rootEl.querySelector(`[data-rebuild-profile]`);
+  if (btn) btn.onclick = () => rebuildUserProfile(userId);
+}
+
+async function rebuildUserProfile(userId) {
+  if (_profileRebuildInFlight.has(userId)) return;
+  _profileRebuildInFlight.add(userId);
+  // Refresh header to show "Rebuilding…" immediately
+  selectUserProfile(userId);
+
+  try {
+    await safeFetchJson(`/api/users/${encodeURIComponent(userId)}/profile/rebuild`, { method: "POST" });
+    toast.info("Rebuilding profile…", "User Profile");
+  } catch {
+    _profileRebuildInFlight.delete(userId);
+    selectUserProfile(userId);
+    return;
+  }
+
+  // Poll for up to 60s; refresh when profileBuiltAt advances.
+  const start = Date.now();
+  const before = (await safeFetchJson(`/api/users/${encodeURIComponent(userId)}/profile`, { silent: true }).catch(() => null))?.profileBuiltAt || null;
+  const poll = async () => {
+    if (Date.now() - start > 60_000) {
+      _profileRebuildInFlight.delete(userId);
+      toast.warning("Rebuild did not finish in 60s — check logs.", "User Profile");
+      selectUserProfile(userId);
+      return;
+    }
+    let data;
+    try { data = await safeFetchJson(`/api/users/${encodeURIComponent(userId)}/profile`, { silent: true }); }
+    catch { return setTimeout(poll, 3000); }
+    if (data?.profileBuiltAt && data.profileBuiltAt !== before) {
+      _profileRebuildInFlight.delete(userId);
+      toast.success("Profile rebuilt", "User Profile");
+      selectUserProfile(userId);
+      return;
+    }
+    setTimeout(poll, 3000);
+  };
+  setTimeout(poll, 3000);
 }
 
 // Tiny markdown-to-HTML converter (headings, bold, italic, code, lists).

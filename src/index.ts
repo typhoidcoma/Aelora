@@ -21,6 +21,7 @@ import { startWeb, type AppState } from "./web.js";
 import { startWebSocket } from "./ws.js";
 import { saveState, consumePreviousState, loadActivePersona } from "./state.js";
 import { configureMemory } from "./memory.js";
+import { configureUserProfile } from "./user-profile.js";
 import { configureTriageCooldown } from "./message-triage.js";
 import { configureLogger } from "./logger.js";
 import { appendSystemEvent } from "./daily-log.js";
@@ -54,6 +55,13 @@ async function main(): Promise<void> {
     },
   });
   configureTriageCooldown(config.memory.triageCooldownMs);
+  configureUserProfile({
+    enabled: config.memory.profileEnabled,
+    maxChars: config.memory.profileMaxChars,
+    minFacts: config.memory.profileMinFacts,
+    rebuildThreshold: config.memory.profileRebuildThreshold,
+    rebuildDebounceMs: config.memory.profileRebuildDebounceMs,
+  });
   configureCron({ ...config.cron, defaultTimezone: config.timezone });
   console.log(`Config: model=${config.llm.model}, mode=${config.discord.guildMode}, tz=${config.timezone}`);
 

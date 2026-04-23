@@ -105,6 +105,11 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       triageEnabled: true,
       triageCooldownMs: 30000,
       temporalExpiryEnabled: true,
+      profileEnabled: true,
+      profileMaxChars: 7000,
+      profileMinFacts: 3,
+      profileRebuildThreshold: 2,
+      profileRebuildDebounceMs: 5000,
     },
     logger: {
       maxBuffer: 200,

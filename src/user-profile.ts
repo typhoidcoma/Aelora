@@ -6,7 +6,7 @@
  * Profiles are rebuilt automatically when enough new facts accumulate.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import type OpenAI from "openai";
 import { getFacts } from "./memory.js";
 import { getUser } from "./users.js";
@@ -19,19 +19,47 @@ import { updateUserProfileBuild } from "./users.js";
 // ── Constants ───────────────────────────────────────────
 
 const PROFILE_DIR = "data/users";
-const PROFILE_REBUILD_THRESHOLD = 3;  // rebuild after this many new facts
-const PROFILE_MIN_FACTS = 5;          // don't build until user has this many facts
-const MAX_PROFILE_CHARS = 3500;       // ~875 tokens hard cap
+const PROFILE_CACHE_CAP = 1000;
+
+// Config-driven knobs. Defaults match config.ts defaults; boot.ts calls
+// configureUserProfile to wire the active config through.
+type UserProfileConfig = {
+  enabled: boolean;
+  maxChars: number;
+  minFacts: number;
+  rebuildThreshold: number;
+  rebuildDebounceMs: number;
+};
+let cfg: UserProfileConfig = {
+  enabled: true,
+  maxChars: 7000,
+  minFacts: 3,
+  rebuildThreshold: 2,
+  rebuildDebounceMs: 5000,
+};
+
+export function configureUserProfile(next: Partial<UserProfileConfig>): void {
+  cfg = { ...cfg, ...next };
+}
+
+export function getUserProfileConfig(): UserProfileConfig {
+  return { ...cfg };
+}
 
 // ── State ───────────────────────────────────────────────
 
 const factsAddedSince = new Map<string, number>();
 
-type ProfileCacheEntry = { content: string | null; loadedAt: number; version: number };
-const profileCache = new Map<string, ProfileCacheEntry>();
-const PROFILE_CACHE_CAP = 1000;
+// Rebuild concurrency guard. Prevents three parallel rebuilds for the same
+// user when three facts land in the same tick, and debounces back-to-back
+// rebuilds (lastRunAt). Both cleared when the rebuild's finally block runs.
+const rebuildInFlight = new Set<string>();
+const rebuildLastRunAt = new Map<string, number>();
 
-function cachePut(userId: string, content: string | null): ProfileCacheEntry {
+type ProfileCacheEntry = { content: string | null; loadedAt: number; mtimeMs: number; version: number };
+const profileCache = new Map<string, ProfileCacheEntry>();
+
+function cachePut(userId: string, content: string | null, mtimeMs = 0): ProfileCacheEntry {
   // Evict oldest when over cap (Map preserves insertion order).
   if (profileCache.size >= PROFILE_CACHE_CAP && !profileCache.has(userId)) {
     const oldest = profileCache.keys().next().value;
@@ -41,6 +69,7 @@ function cachePut(userId: string, content: string | null): ProfileCacheEntry {
   const entry: ProfileCacheEntry = {
     content,
     loadedAt: Date.now(),
+    mtimeMs,
     version: (prev?.version ?? 0) + 1,
   };
   profileCache.set(userId, entry);
@@ -56,6 +85,8 @@ export function invalidateUserProfileCache(userId?: string): void {
 // ── Profile builder prompt ──────────────────────────────
 
 function buildProfilePrompt(username: string): string {
+  const hardCap = cfg.maxChars;
+  const softTarget = Math.max(1000, Math.floor(hardCap * 0.92));
   return (
     "You are building a comprehensive personal dossier for an AI companion's knowledge of a user.\n\n" +
     `The user's name/handle is "${username}".\n\n` +
@@ -72,7 +103,7 @@ function buildProfilePrompt(username: string): string {
     "- If an existing profile is provided, UPDATE it — preserve information that isn't contradicted by new facts.\n" +
     "- Write in third person: 'They are...' / 'Their name is...'\n" +
     "- Be specific and factual. Include names, tools, dates, preferences — not vague generalities.\n" +
-    "- Stay under 3000 characters total.\n" +
+    `- Be thorough. Include every meaningful fact you are given — do not summarize away specifics. Target up to ${softTarget} characters; hard cap ${hardCap}.\n` +
     "- Output ONLY the markdown document. No preamble, no explanation.\n" +
     "- Do NOT include a top-level heading with the user's name — start directly with the first ## section."
   );
@@ -80,28 +111,54 @@ function buildProfilePrompt(username: string): string {
 
 // ── Public API ──────────────────────────────────────────
 
-/** Read a user's profile file from disk. Returns content or null. Cached in-memory after first read. */
+/**
+ * Read a user's profile file from disk. Returns content or null.
+ *
+ * Cached in memory after first read. Cache is mtime-aware — if the file is
+ * edited externally (operator tweaks the dossier by hand, or the async write
+ * queue flushes a rebuild), the next call reloads instead of serving stale
+ * content. Falls back to the cached value when stat fails.
+ */
 export function getUserProfile(userId: string): string | null {
-  const hit = profileCache.get(userId);
-  if (hit) return hit.content;
-
   const filePath = `${PROFILE_DIR}/${userId}.md`;
+  const hit = profileCache.get(userId);
+
+  // Fast path with freshness check.
+  if (hit) {
+    try {
+      const st = statSync(filePath);
+      if (st.mtimeMs <= hit.mtimeMs) return hit.content;
+      // File changed on disk; fall through to reload.
+    } catch {
+      // File missing or unreadable. If cache thinks there's content, the file
+      // was deleted — drop the cache entry so a fresh miss is recorded below.
+      if (hit.content !== null) {
+        profileCache.delete(userId);
+      } else {
+        return hit.content;
+      }
+    }
+  }
+
   let content: string | null = null;
+  let mtimeMs = 0;
   try {
     if (existsSync(filePath)) {
       content = readFileSync(filePath, "utf-8").trim();
+      mtimeMs = statSync(filePath).mtimeMs;
     }
   } catch { /* file not readable */ }
 
-  cachePut(userId, content);
+  cachePut(userId, content, mtimeMs);
   return content;
 }
 
 /** Read profile and truncate to token-safe length for prompt injection. */
 export function getProfileForPrompt(userId: string): string | null {
+  if (!cfg.enabled) return null;
   const content = getUserProfile(userId);
   if (!content) return null;
-  return content.slice(0, MAX_PROFILE_CHARS);
+  return content.slice(0, cfg.maxChars);
 }
 
 /** Track that a new fact was saved for a user. Call after each successful saveFact. */
@@ -111,17 +168,38 @@ export function trackProfileFactAdded(userId: string): void {
 
 /** Check if a user's profile should be rebuilt based on accumulated new facts. */
 export function shouldRebuildProfile(userId: string): boolean {
+  if (!cfg.enabled) return false;
   const added = factsAddedSince.get(userId) ?? 0;
-  if (added < PROFILE_REBUILD_THRESHOLD) return false;
+  if (added < cfg.rebuildThreshold) return false;
   const totalFacts = getFacts(`user:${userId}`).length;
-  return totalFacts >= PROFILE_MIN_FACTS;
+  return totalFacts >= cfg.minFacts;
 }
 
 /**
  * Rebuild a user's profile from all their facts using an LLM synthesis pass.
  * Fire-and-forget — errors are logged but don't propagate.
+ *
+ * Concurrency: the in-flight Set blocks parallel rebuilds for the same user,
+ * and rebuildLastRunAt enforces a minimum gap between successive rebuilds so
+ * a burst of 3 facts in one tick doesn't fire 3 LLM calls.
  */
 export async function buildUserProfile(userId: string): Promise<void> {
+  if (!cfg.enabled) return;
+  if (rebuildInFlight.has(userId)) return;
+
+  const last = rebuildLastRunAt.get(userId) ?? 0;
+  if (Date.now() - last < cfg.rebuildDebounceMs) return;
+
+  rebuildInFlight.add(userId);
+  try {
+    await buildUserProfileInner(userId);
+  } finally {
+    rebuildInFlight.delete(userId);
+    rebuildLastRunAt.set(userId, Date.now());
+  }
+}
+
+async function buildUserProfileInner(userId: string): Promise<void> {
   // Reset counter
   factsAddedSince.set(userId, 0);
 
@@ -180,18 +258,20 @@ export async function buildUserProfile(userId: string): Promise<void> {
     content = content.replace(/^```(?:markdown|md)?\s*\n?/gm, "").replace(/\n?```\s*$/gm, "").trim();
 
     // Enforce character cap
-    if (content.length > MAX_PROFILE_CHARS) {
+    if (content.length > cfg.maxChars) {
       // Truncate at the last complete section boundary within the cap
-      const truncated = content.slice(0, MAX_PROFILE_CHARS);
+      const truncated = content.slice(0, cfg.maxChars);
       const lastSection = truncated.lastIndexOf("\n## ");
       content = lastSection > 0 ? truncated.slice(0, lastSection).trim() : truncated.trim();
     }
 
     // Write to disk (async queue) and update in-memory cache immediately so
     // the next buildSystemPrompt sees the new content without a disk read.
+    // Seed mtimeMs with Date.now() so the mtime check in getUserProfile
+    // accepts this cache entry until the async write lands.
     const filePath = `${PROFILE_DIR}/${userId}.md`;
     queueTextWrite(filePath, content, { debounceMs: 500, atomic: true });
-    cachePut(userId, content);
+    cachePut(userId, content, Date.now());
 
     // Update user profile tracking
     updateUserProfileBuild(userId, facts.length);

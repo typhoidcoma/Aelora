@@ -67,6 +67,14 @@ const memorySchema = z.object({
   triageEnabled: z.boolean().default(true),
   triageCooldownMs: z.number().int().positive().default(30000),
   temporalExpiryEnabled: z.boolean().default(true),
+  // Per-user profile dossiers (data/users/{userId}.md). Always-inject layer
+  // separate from semantic fact retrieval. Raise profileMaxChars for richer
+  // dossiers; lower profileMinFacts to surface profiles sooner.
+  profileEnabled: z.boolean().default(true),
+  profileMaxChars: z.number().int().positive().default(7000),
+  profileMinFacts: z.number().int().nonnegative().default(3),
+  profileRebuildThreshold: z.number().int().positive().default(2),
+  profileRebuildDebounceMs: z.number().int().nonnegative().default(5000),
 });
 
 const loggerSchema = z.object({

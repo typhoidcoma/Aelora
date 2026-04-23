@@ -87,8 +87,7 @@ The model provides reasoning. Aelora provides everything else — memory, tools,
 | **Discord** | Discord.js | Primary conversational interface with ambient awareness |
 | **REST API** | Express | Full CRUD for all subsystems, OpenAPI spec at `/api/docs` |
 | **WebSocket** | `/ws` | Bidirectional streaming chat + topic-subscribed event bus (chat, emotion, mindmap, logs, tokens, heartbeat) with permessage-deflate |
-| **Web Dashboard** | Browser | 7-tab real-time visualization, data management, persona editing |
-| **Discord Activity** | Embedded iframe | ThreeJS web frontend in Discord voice channels via `/play` (Unity WebGL support retired) |
+| **Web Dashboard** | Browser | 6-tab real-time visualization, data management, persona editing |
 
 ---
 
@@ -119,11 +118,10 @@ The model provides reasoning. Aelora provides everything else — memory, tools,
 - **User Profiles** - Per-user tracking across channels with detail overlay and cascading delete
 - **Image Generation** - DALL-E 3 / gpt-image-1 via the luminizer tool
 - **Heartbeat** - Periodic handlers for calendar reminders, memory compaction, fact consolidation, data cleanup, knowledge base sync
-- **Discord Activity** - Embedded ThreeJS web frontend in Discord voice channels via `/play` (Unity WebGL retired; Activity iframe + OAuth flow unchanged)
 - **Mood System** - Plutchik's wheel emotion tracking (8 emotions x 3 intensities, 8 named dyad combinations), auto-classified per response
 - **Real-Time Emotion Vectors** - Continuous 8D emotion vectors broadcast during LLM streaming via heuristic lexicon analysis for 3D mesh animation
 - **Ambient Awareness** - Passive channel monitoring with message buffers, engagement tracking, and configurable triggers that let the bot join conversations naturally
-- **Web Dashboard** - 7-tab layout (Home, Persona, Data, People, Automation, System, Mindmap) with stat cards, live console, real-time LLM visualization, and full data management
+- **Web Dashboard** - 6-tab layout (Home, Character, Knowledge, Automation, System, Mindmap) with stat cards, live console, real-time LLM visualization, and full data management
 - **WebSocket Chat + Event Bus** - Bidirectional chat over `/ws` for the ThreeJS frontend and other browser clients, with topic-subscribed broadcast (`chat`, `emotion`, `mindmap`, `logs`, `tokens`, `heartbeat`), permessage-deflate compression, and opt-in binary frames for high-rate emotion vectors
 - **HTTP/2 Keepalive to LLM** - Undici global dispatcher reuses one TLS+H2 connection across every LLM call (connection pool visible at `GET /api/llm/transport`)
 - **Provider Prompt Caching** - Static system-prompt prefix is scoped by `persona+channel` and sent with `prompt_cache_key` to boost prefix-cache hit rate; cached tokens tracked as a separate field in `/api/tokens` and on the dashboard
@@ -187,7 +185,6 @@ All configuration lives in `settings.yaml`. See [settings.example.yaml](settings
 | `logger` | SSE buffer size, file logging toggle, log file retention |
 | `cron` | Max execution history records per job |
 | `web` | Dashboard toggle, port, apiKey, basePath, auth compatibility flags |
-| `activity` | Discord Activity toggle, client ID/secret, server URL |
 | `knowledge` | Google Drive knowledge base: folder ID, sync interval, chunk size, relevance threshold |
 | `ambient` | Ambient-awareness trigger system (buffer, cadence, per-trigger cooldowns) |
 | `supabase` | Supabase project URL and keys (for quests and per-user data) |
@@ -210,8 +207,6 @@ All settings can be overridden with environment variables:
 | `AELORA_SUPABASE_ANON_KEY` | `supabase.anonKey` |
 | `AELORA_SUPABASE_SERVICE_ROLE_KEY` | `supabase.serviceRoleKey` |
 | `AELORA_KB_DRIVE_FOLDER_ID` | `knowledge.driveFolderId` |
-| `AELORA_ACTIVITY_CLIENT_ID` | `activity.clientId` |
-| `AELORA_ACTIVITY_CLIENT_SECRET` | `activity.clientSecret` |
 | `AELORA_LLM_HTTP2` | `llm.http2Enabled` — kill-switch for undici dispatcher |
 | `AELORA_LLM_PROMPT_CACHE` | `llm.promptCacheEnabled` — kill-switch for provider prompt-cache hints |
 | `AELORA_LLM_PROVIDER_HINT` | `llm.providerHint` (`auto` \| `openai` \| `anthropic`) |
@@ -432,7 +427,6 @@ export default defineTool({
 | `/note delete [scope] [title]` | Delete a note |
 | `/help` | List all available commands |
 | `/reboot` | Graceful restart |
-| `/play` | Launch the Discord Activity in a voice channel |
 
 </details>
 

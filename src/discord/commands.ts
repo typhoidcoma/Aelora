@@ -1,8 +1,5 @@
 import {
   SlashCommandBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   EmbedBuilder,
   MessageFlags,
   type ChatInputCommandInteraction,
@@ -144,10 +141,6 @@ export function getSlashCommandDefinitions() {
       .setDescription("Restart the bot process"),
 
     new SlashCommandBuilder()
-      .setName("play")
-      .setDescription("Launch the Activity in this channel"),
-
-    new SlashCommandBuilder()
       .setName("memory")
       .setDescription("View or manage your memory facts")
       .addSubcommand((sub) =>
@@ -248,9 +241,6 @@ export async function handleSlashCommand(
       break;
     case "reboot":
       await handleReboot(interaction);
-      break;
-    case "play":
-      await handlePlay(interaction);
       break;
     case "memory":
       await handleMemory(interaction);
@@ -397,40 +387,6 @@ async function handleReboot(
     flags: MessageFlags.Ephemeral,
   });
   setTimeout(() => reboot(), 500);
-}
-
-async function handlePlay(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
-  const applicationId = interaction.client.application?.id;
-
-  if (!applicationId) {
-    await interaction.reply({
-      embeds: [buildErrorEmbed("Activity not available: could not determine application ID.")],
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  const activityUrl = `https://discord.com/activities/${applicationId}`;
-
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setLabel("Launch Activity")
-      .setStyle(ButtonStyle.Link)
-      .setURL(activityUrl),
-  );
-
-  const embed = new EmbedBuilder()
-    .setTitle("Launch Activity")
-    .setDescription("Click the button below to launch the Activity!")
-    .setColor(0xa78bfa)
-    .setTimestamp();
-
-  await interaction.reply({
-    embeds: [embed],
-    components: [row],
-  });
 }
 
 async function handleMemory(
@@ -678,7 +634,6 @@ async function handleHelp(
     { name: "/note get", desc: "Read a note" },
     { name: "/note save", desc: "Create or update a note" },
     { name: "/note delete", desc: "Delete a note" },
-    { name: "/play", desc: "Launch the Activity in this channel" },
     { name: "/reboot", desc: "Restart the bot process" },
     { name: "/help", desc: "Show this help message" },
   ];

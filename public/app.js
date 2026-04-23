@@ -346,7 +346,6 @@ window.addEventListener("hashchange", handleHashChange);
 // that sub-section becomes active. Existing fetch* functions are reused.
 registerSubTabRefresh("character/persona", async () => { await fetchPersonas(); await fetchPersona(); });
 registerSubTabRefresh("character/mood", async () => { await fetchMoodAndEmotion?.(); });
-registerSubTabRefresh("character/activity", async () => { /* Activity iframe loads on button click */ });
 
 registerSubTabRefresh("knowledge/memory", async () => { await fetchMemory(); });
 registerSubTabRefresh("knowledge/notes", async () => { await fetchNotes(); });
@@ -3175,18 +3174,6 @@ async function rebootBot() {
     btn.disabled = false;
     btn.textContent = "Reboot";
   }
-}
-
-// --- Activity Preview ---
-
-function loadActivityPreview() {
-  const btn = document.getElementById("activity-load-btn");
-  const wrap = document.getElementById("activity-frame-wrap");
-  const frame = document.getElementById("activity-frame");
-
-  btn.style.display = "none";
-  wrap.style.display = "";
-  frame.src = buildUrl("/activity/test.html");
 }
 
 // --- Home Tab ---

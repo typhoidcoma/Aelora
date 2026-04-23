@@ -118,13 +118,6 @@ const agentsSchema = z.object({
   maxIterations: z.number().int().positive().default(5),
 });
 
-const activitySchema = z.object({
-  enabled: z.boolean().default(false),
-  clientId: z.string().default(""),
-  clientSecret: z.string().default(""),
-  serverUrl: z.string().default(""),
-});
-
 const supabaseSchema = z
   .object({
     url: z.string(),
@@ -183,7 +176,6 @@ const configSchema = z.object({
   heartbeat: heartbeatSchema.default({}),
   agents: agentsSchema.default({}),
   tools: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
-  activity: activitySchema.default({}),
   memory: memorySchema.default({}),
   logger: loggerSchema.default({}),
   cron: cronSchema.default({}),
@@ -249,8 +241,6 @@ function applyEnvOverrides(config: Config): void {
     const p = parseInt(env.AELORA_WEB_PORT, 10);
     if (!Number.isNaN(p)) { config.web.port = p; applied.push("AELORA_WEB_PORT"); }
   }
-  if (env.AELORA_ACTIVITY_CLIENT_ID)     { config.activity.clientId = env.AELORA_ACTIVITY_CLIENT_ID; applied.push("AELORA_ACTIVITY_CLIENT_ID"); }
-  if (env.AELORA_ACTIVITY_CLIENT_SECRET) { config.activity.clientSecret = env.AELORA_ACTIVITY_CLIENT_SECRET; applied.push("AELORA_ACTIVITY_CLIENT_SECRET"); }
   if (env.AELORA_LINEAR_API_KEY) {
     config.tools = config.tools ?? {};
     config.tools.linear = config.tools.linear ?? {};

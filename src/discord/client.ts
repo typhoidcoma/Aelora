@@ -129,7 +129,7 @@ export async function startDiscord(config: Config): Promise<Client> {
             console.warn(`Discord: guild ${config.discord.guildId} not found in cache  -  commands not registered`);
           }
         } else {
-          // Fetch existing commands to preserve Discord-managed ones (e.g. Activity Entry Point)
+          // Fetch existing commands to preserve any Discord-managed ones (non-slash types)
           const existing = await readyClient.application.commands.fetch();
           const entryPoints = existing.filter((cmd) => cmd.type !== 1).map((cmd) => cmd.toJSON());
 

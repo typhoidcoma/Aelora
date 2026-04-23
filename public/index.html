@@ -115,7 +115,6 @@
       <nav class="subnav" aria-label="Character sections">
         <button class="subnav-btn active" data-subtab="persona" onclick="switchSubTab('character','persona')">Persona</button>
         <button class="subnav-btn" data-subtab="mood" onclick="switchSubTab('character','mood')">Mood &amp; Emotion</button>
-        <button class="subnav-btn" data-subtab="activity" onclick="switchSubTab('character','activity')">Activity</button>
       </nav>
 
       <!-- Sub: Persona -->
@@ -266,22 +265,6 @@
           </div>
         </section>
       </div><!-- /subtab: mood -->
-
-      <!-- Sub: Activity (moved from System) -->
-      <div class="subtab-pane" data-subtab="activity">
-        <section>
-          <div class="section-header">
-            <h2>Activity Preview</h2>
-            <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
-          </div>
-          <div class="section-body">
-            <p class="muted activity-desc">Test your Unity WebGL build without Discord. Uses stub user data.</p>
-            <div id="activity-frame-wrap" style="display: none;">
-              <iframe id="activity-frame" src="" class="activity-iframe"></iframe>
-            </div>
-          </div>
-        </section>
-      </div><!-- /subtab: activity -->
 
       </div><!-- /tab: character -->
 

@@ -98,10 +98,6 @@ Technical reference for the Aelora 🦋 LLM harness. Covers every subsystem, how
   ║  user-profile.ts ─── LLM-synthesized per-user dossiers (cached)    ║
   ║  llm/http-client.ts ─ undici Agent + global dispatcher + counters  ║
   ║  async-write-queue.ts ── debounced/atomic async file writes        ║
-  ║                                                                    ║
-  ║  Discord Activity (optional) ── ThreeJS web frontend in iframe     ║
-  ║  (Unity WebGL retired; OAuth2 + bridge API unchanged)              ║
-  ║  activity/index.html → SDK + OAuth2 + bridge API                   ║
   ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -1567,7 +1563,6 @@ Slash commands registered on startup:
 | `/note [list/get/save/delete]` | Manage scoped notes |
 | `/help` | List all available commands |
 | `/reboot` | Graceful restart |
-| `/play` | Launch the Discord Activity (embed with Link button) |
 
 ### attachments.ts
 
@@ -1597,27 +1592,21 @@ Express 5 server serving the dashboard frontend and REST API.
 
 The full API spec is an [OpenAPI 3.1](openapi.yaml) document served with interactive Swagger UI at `/api/docs` when the bot is running. The spec file lives at the project root (`openapi.yaml`).
 
-**Auth:** Optional bearer token via `web.apiKey` in `settings.yaml`. When set, all `/api/*` routes (except `/api/status`, `/api/activity/*`, and `/api/docs`) require `Authorization: Bearer <key>`. SSE endpoints accept `?token=<key>` instead. No key configured = no auth.
+**Auth:** Optional bearer token via `web.apiKey` in `settings.yaml`. When set, all `/api/*` routes (except `/api/status` and `/api/docs`) require `Authorization: Bearer <key>`. SSE endpoints accept `?token=<key>` instead. No key configured = no auth.
 
 **Rate limits:** 1000 req/15 min general, 60 req/min on chat endpoints.
 
-**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (3), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Activity (2), Tokens (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Quests (3 -create, complete, favorite), Export (1).
+**Route groups:** Status, Config, Persona (11 routes -includes `POST /api/personas` for creation), Chat (3), Cron (6), Sessions (4), Memory (7 -includes scoped lookup), Notes (5), Calendar (2 -per-user events + all-events aggregation), Tasks (5, requires `X-Discord-User-Id` header), Users (4 -includes `/profile` dossier + rebuild), Tools (4 -list, detail, execute, toggle), Agents (2), System (5 -includes mood), Tokens (2), Linear (15 -teams, projects, issues CRUD, search, comments, project updates), Knowledge Base (4 -stats, sync, chunks, delete), Ambient (3 -status, buffers, trigger toggle), Quests (3 -create, complete, favorite), Export (1).
 
 ### Routing
 
-When `activity.enabled` is true:
-- `/` serves `activity/index.html` with injected config (clientId, serverUrl) -this is what Discord's Activity iframe loads
-- `/dashboard` serves the web dashboard (`public/index.html`)
-- `/activity/*` serves the ThreeJS web frontend build with CORS headers (gzip `Content-Encoding` still supported for `.gz` files if the build is pre-compressed)
-
-When `activity.enabled` is false:
-- `/` serves the web dashboard normally
+- `/` and `/dashboard` both serve the web dashboard (`public/index.html`).
 
 ### Frontend
 
 Single-page vanilla JS app in `public/`. Dark design (#0c0c0e), Roboto font, purple accent (#a78bfa). Collapsible panels for each section. Live console via SSE `EventSource`. All controls (toggle, reload, reboot, LLM test) hit the REST API. The active persona card shows a **live mood indicator** (colored dot + emotion label) that updates via named SSE events -no page refresh needed.
 
-Dashboard is organized into **7 tabs**: Home, Persona, Data, People, Automation, System, and Mindmap. The **Home tab** shows at-a-glance stat cards (mood, tokens today, next event, next cron), a two-column grid of widgets (upcoming events, recent tasks, persona summary, cron activity), and quick-glance information. The **Persona tab** has persona card grid + file editor and LLM test. The **Data tab** covers Memory (with emoji icons per fact category), Notes, and Knowledge Base (file table, stats, sync, chunk preview). The **People tab** has Sessions and Users. The **Automation tab** has Calendar events, Scheduled Tasks (cron), and Tasks (with per-user lists). The **System tab** has Tools, Agents, Activity Preview, Export, and Console (live log stream). The **Mindmap tab** provides a real-time visualization of LLM conversation processing using Cytoscape.js with a dagre (top-down) layout — showing conversation flow, memory lookups, KB searches, tool calls, fact extraction, and mood classification as an interactive graph. Events are broadcast via the existing SSE `broadcastEvent("mindmap", ...)` system from `src/llm.ts`, `src/fact-extractor.ts`, and `src/mood.ts`. A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
+Dashboard is organized into **6 tabs** with sub-nav where needed: Home, Character (Persona + Mood & Emotion), Knowledge (Memory, Notes, User Profiles, KB, Summaries), Automation (Calendar, Cron, Tasks, Ambient, Linear, Quests), System (Tools, Agents, Heartbeat, Tokens, Logs, Users & Sessions), and Mindmap. The **Home tab** shows at-a-glance stat cards (mood, persona, cron, tokens today, KB, heartbeat), a 24h token sparkline, and a two-column widget grid (upcoming events, recent tasks, recent facts, cron activity, heartbeat health). The **Mindmap tab** provides a real-time visualization of LLM conversation processing using Cytoscape.js with a dagre (top-down) layout. Events are broadcast via `broadcastEvent("mindmap", ...)` from `src/llm.ts`, `src/fact-extractor.ts`, and `src/mood.ts`. A sidebar shows status, quick glance widget, and Discord user ID input. An **Export Data** button downloads a JSON bundle of all bot data.
 
 ---
 
@@ -1671,12 +1660,6 @@ type Config = {
   heartbeat: { enabled: boolean; intervalMs: number };
   agents: { enabled: boolean; maxIterations: number };
   tools: Record<string, Record<string, unknown>>;  // Free-form per-tool config
-  activity: {
-    enabled: boolean;           // Default: false
-    clientId: string;           // Discord Application ID
-    clientSecret: string;       // OAuth2 Client Secret
-    serverUrl: string;          // Optional direct server URL
-  };
   memory: {
     maxFactsPerScope: number;   // Default: 100
     maxFactLength: number;      // Default: 1000
@@ -1952,59 +1935,6 @@ After a user accumulates 5+ facts, the system auto-generates a 3-4 sentence pers
 | Triage cache | In-memory Map (per-channel) | No |
 | Log files | `data/logs/YYYY-MM-DD.log` (disk, when `logger.fileEnabled`) | Yes |
 | Persona files | Disk (`persona/` directory) | Yes |
-
----
-
-## Discord Activity System
-
-**Files:** [activity/index.html](activity/index.html), [activity/test.html](activity/test.html), [src/web.ts](src/web.ts) (activity routes)
-
-### Overview
-
-Discord Activities are interactive web apps that run inside Discord voice channels via an iframe. Aelora hosts a **ThreeJS web frontend** as the Activity. (Unity WebGL support was retired; the Activity iframe, OAuth2 flow, and `window.discordBridge` interop shape are unchanged — only the embedded client differs.)
-
-### Architecture
-
-```
-Discord voice channel
-  └→ Activity iframe loads https://your-app/.proxy/
-       └→ Express serves activity/index.html (with injected clientId)
-            ├→ Discord SDK init (DiscordSDK from esm.sh CDN)
-            ├→ OAuth2: authorize() → POST /.proxy/api/activity/token → authenticate()
-            ├→ ThreeJS frontend (static assets via /.proxy/activity/)
-            │  └→ connects to /ws, subscribes to `emotion` + `mindmap` topics
-            └→ window.discordBridge (frontend ↔ Discord SDK interop)
-```
-
-All requests from the Activity iframe go through Discord's `/.proxy/` prefix, which maps to the server URL configured in the Developer Portal's URL Mappings.
-
-### Server-Side Components
-
-**Root handler** (`GET /`): When Activity is enabled, serves `activity/index.html` with server-side template injection. Replaces `<!-- __ACTIVITY_CONFIG__ -->` with a `<script>` tag containing `window.__ACTIVITY_CONFIG__ = { clientId, serverUrl }`.
-
-**Static file serving** (`/activity/*`): Serves the ThreeJS frontend's built assets with:
-- CORS headers (`Access-Control-Allow-Origin: *`)
-- Gzip `Content-Encoding` passthrough for any pre-compressed `.gz` files the build pipeline emits
-- Appropriate `Content-Type` headers
-
-**Token exchange** (`POST /api/activity/token`): Receives an OAuth2 authorization code from the client, exchanges it with Discord's API using the client secret, and returns the access token.
-
-### Client-Side (activity/index.html)
-
-1. **Discord SDK**: Imported from `https://esm.sh/@discord/embedded-app-sdk@2` (no npm install needed)
-2. **Config injection**: Reads `window.__ACTIVITY_CONFIG__` (set by server), falls back to fetching `/.proxy/api/activity/config`
-3. **OAuth2 flow**: `sdk.commands.authorize()` → token exchange via backend → `sdk.commands.authenticate()`
-4. **ThreeJS frontend**: loads the built ThreeJS bundle, opens a WebSocket to `/ws`, subscribes to `emotion` and `mindmap` topics for real-time avatar animation and conversation visualisation
-5. **Discord bridge**: Exposes `window.discordBridge` with `getUser()` and `getContext()` for the frontend to read Discord-provided identity
-6. **Ready notification**: Signals the ThreeJS scene once both SDK and avatar assets are initialised
-
-### Test Page (activity/test.html)
-
-A standalone page that loads the ThreeJS frontend without the Discord SDK — uses stub user data instead. Accessible from the dashboard's "Activity Preview" panel or directly at `/activity/test.html`.
-
-### Entry Point Command
-
-Discord auto-creates an Entry Point command for applications with Activities enabled. The bot's command registration in [src/discord/client.ts](src/discord/client.ts) preserves these by fetching existing commands, filtering non-slash commands (`type !== 1`), and including them in the bulk `commands.set()` call.
 
 ---
 

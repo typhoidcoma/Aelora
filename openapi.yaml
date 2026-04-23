@@ -69,8 +69,6 @@ tags:
     description: Heartbeat, logs, reboot
   - name: Export
     description: Data export (full or selective JSON bundle)
-  - name: Activity
-    description: Discord Activity (ThreeJS web frontend) support. Unity WebGL was retired; the Activity iframe, OAuth2 flow, and bridge API are unchanged.
   - name: Tokens
     description: LLM token usage tracking and statistics
   - name: Quests
@@ -3567,68 +3565,6 @@ paths:
                 $ref: "#/components/schemas/Error"
                 example:
                   error: "Export exceeds maximum payload size"
-
-  # â”€â”€ Activity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  /api/activity/config:
-    get:
-      tags: [Activity]
-      summary: Activity client ID
-      description: Returns the Discord application client ID for the Activity SDK. Always public (no secret exposed).
-      security: []
-      responses:
-        "200":
-          description: Activity config
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  clientId:
-                    type: string
-                  enabled:
-                    type: boolean
-                example:
-                  clientId: "1112223334445556667"
-                  enabled: true
-
-  /api/activity/token:
-    post:
-      tags: [Activity]
-      summary: OAuth2 token exchange
-      description: Exchanges a Discord OAuth2 authorization code for an access token. Always public.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                code:
-                  type: string
-              required: [code]
-              example:
-                code: "abc123_DiscordOAuthCode_xyz"
-      responses:
-        "200":
-          description: Access token
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  access_token:
-                    type: string
-                example:
-                  access_token: "discord_access_token_9f8e7d6c5b4a"
-        "400":
-          description: Missing code
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-                example:
-                  error: "code is required"
 
   # â”€â”€ Scoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

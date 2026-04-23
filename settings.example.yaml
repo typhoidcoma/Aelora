@@ -276,19 +276,6 @@ logger:
 cron:
   maxHistory: 10              # Max execution history records per cron job
 
-# --- Discord Activity ---
-# Embed a web app (ThreeJS web frontend by default) as a Discord Activity.
-# Requires Activities enabled in the Discord Developer Portal.
-# Place build files in the activity/ directory at project root.
-# Note: Unity WebGL support was retired in favor of ThreeJS; the Activity
-# iframe + OAuth2 flow are unchanged, only the embedded client differs.
-
-activity:
-  enabled: false
-  clientId: "YOUR_APPLICATION_ID"
-  clientSecret: "YOUR_CLIENT_SECRET"
-  # serverUrl: "https://your-tunnel.example.com"
-
 # --- Knowledge Base (Google Drive) ---
 # Sync a Google Drive folder to the semantic vector index.
 # Files are periodically fetched, chunked, embedded, and indexed.

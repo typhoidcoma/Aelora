@@ -139,28 +139,9 @@ export function startWeb(state: AppState): Server | null {
     next();
   });
 
-  // If activity enabled, serve activity page at root (Discord Activity iframe loads /)
-  if (config.activity.enabled) {
-    const activityDir = path.join(__dirname, "..", "activity");
-    app.get("/", async (_req, res) => {
-      // Inject clientId into the HTML so the Activity doesn't need a separate fetch
-      const { readFile } = await import("node:fs/promises");
-      try {
-        let html = await readFile(path.join(activityDir, "index.html"), "utf-8");
-        html = html.replace(
-          "<!-- __ACTIVITY_CONFIG__ -->",
-          `<script>window.__ACTIVITY_CONFIG__ = { clientId: "${config.activity.clientId}", serverUrl: "${config.activity.serverUrl ?? ""}" };</script>`,
-        );
-        res.type("html").send(html);
-      } catch {
-        res.sendFile(path.join(activityDir, "index.html"));
-      }
-    });
-  }
-
   app.use(express.static(publicDir));
 
-  // Dashboard accessible at /dashboard when activity takes over root
+  // Dashboard accessible at /dashboard (and at /).
   app.get("/dashboard", (_req, res) => {
     res.sendFile(path.join(publicDir, "index.html"));
   });
@@ -195,8 +176,6 @@ export function startWeb(state: AppState): Server | null {
   // --- Auth middleware ---
   const PUBLIC_ROUTES = [
     "/api/status",
-    "/api/activity/config",
-    "/api/activity/token",
     "/api/docs",
     "/api/docs/openapi.yaml",
   ];
@@ -2042,78 +2021,6 @@ export function startWeb(state: AppState): Server | null {
     res.write("\n");
     addSSEClient(res);
   });
-
-  // --- Discord Activity support ---
-  if (config.activity.enabled) {
-    const activityDir = path.join(__dirname, "..", "activity");
-
-    // Serve Unity WebGL build with CORS and gzip Content-Encoding for .gz files
-    app.use("/activity", (req, res, next) => {
-      res.set("Access-Control-Allow-Origin", "*");
-      res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-      res.set("Access-Control-Allow-Headers", "Content-Type, Range");
-      if (req.method === "OPTIONS") {
-        res.sendStatus(204);
-        return;
-      }
-
-      // Set Content-Encoding for pre-compressed Unity build files
-      if (req.path.endsWith(".wasm.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/wasm");
-      } else if (req.path.endsWith(".js.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/javascript");
-      } else if (req.path.endsWith(".data.gz")) {
-        res.set("Content-Encoding", "gzip");
-        res.set("Content-Type", "application/octet-stream");
-      }
-
-      next();
-    }, express.static(activityDir));
-
-    // Activity config (exposes clientId only, never the secret)
-    app.get("/api/activity/config", (_req, res) => {
-      res.json({ clientId: config.activity.clientId, enabled: true });
-    });
-
-    // OAuth2 token exchange for Discord Activity SDK
-    app.post("/api/activity/token", async (req, res) => {
-      const { code } = req.body ?? {};
-      if (!code || typeof code !== "string") {
-        res.status(400).json({ error: "code is required" });
-        return;
-      }
-
-      try {
-        const response = await fetch("https://discord.com/api/oauth2/token", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({
-            client_id: config.activity.clientId,
-            client_secret: config.activity.clientSecret,
-            grant_type: "authorization_code",
-            code,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Activity: token exchange failed:", response.status, errorText);
-          res.status(response.status).json({ error: "Token exchange failed" });
-          return;
-        }
-
-        const data = (await response.json()) as { access_token: string };
-        res.json({ access_token: data.access_token });
-      } catch (err) {
-        console.error("Activity: token exchange error:", err);
-        res.status(500).json({ error: "Internal token exchange error" });
-      }
-    });
-
-    console.log(`Web: Activity enabled (serving ${activityDir})`);
-  }
 
   // --- Linear ---
 

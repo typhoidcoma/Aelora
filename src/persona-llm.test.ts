@@ -81,12 +81,6 @@ function makeConfig(overrides?: Partial<Config["llm"]>): Config {
       maxIterations: 5,
     },
     tools: {},
-    activity: {
-      enabled: false,
-      clientId: "",
-      clientSecret: "",
-      serverUrl: "",
-    },
     memory: {
       maxFactsPerScope: 100,
       maxFactLength: 1000,

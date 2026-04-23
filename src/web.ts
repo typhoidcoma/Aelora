@@ -44,6 +44,7 @@ import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTa
 import { listEvents } from "./tools/google-calendar.js";
 import { resolveUserCalendar } from "./tools/calendar.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
+import { getUserProfile as getUserProfileMarkdown } from "./user-profile.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
 import { LinearClient } from "@linear/sdk";
@@ -1887,6 +1888,24 @@ export function startWeb(state: AppState): Server | null {
     }
     const facts = getFacts(`user:${userId}`);
     res.json({ ...profile, facts });
+  });
+
+  // Users  -  LLM-synthesized markdown dossier (data/users/{userId}.md)
+  app.get("/api/users/:userId/profile", (req, res) => {
+    const { userId } = req.params;
+    const profile = getUser(userId);
+    if (!profile) {
+      res.status(404).json({ error: `User "${userId}" not found` });
+      return;
+    }
+    const markdown = getUserProfileMarkdown(userId);
+    res.json({
+      userId,
+      username: profile.username ?? null,
+      markdown: markdown ?? null,
+      profileBuiltAt: (profile as Record<string, unknown>).profileBuiltAt ?? null,
+      factCountAtProfileBuild: (profile as Record<string, unknown>).factCountAtProfileBuild ?? null,
+    });
   });
 
   // Users  -  delete profile

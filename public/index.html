@@ -32,9 +32,8 @@
     <main>
       <nav class="tab-bar">
         <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">Home</button>
-        <button class="tab-btn" data-tab="persona" onclick="switchTab('persona')">Persona</button>
-        <button class="tab-btn" data-tab="data" onclick="switchTab('data')">Data</button>
-        <button class="tab-btn" data-tab="people" onclick="switchTab('people')">People</button>
+        <button class="tab-btn" data-tab="character" onclick="switchTab('character')">Character</button>
+        <button class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">Knowledge</button>
         <button class="tab-btn" data-tab="automation" onclick="switchTab('automation')">Automation</button>
         <button class="tab-btn" data-tab="system" onclick="switchTab('system')">System</button>
         <button class="tab-btn" data-tab="mindmap" onclick="switchTab('mindmap')">Mindmap</button>
@@ -61,6 +60,23 @@
           <span class="home-stat-label">Tokens Today</span>
           <span class="home-stat-value" id="home-tokens-value"><span class="muted">--</span></span>
         </div>
+        <div class="home-stat-card" id="home-kb-card">
+          <span class="home-stat-label">Knowledge Base</span>
+          <span class="home-stat-value" id="home-kb-value"><span class="muted">--</span></span>
+        </div>
+        <div class="home-stat-card" id="home-heartbeat-card">
+          <span class="home-stat-label">Heartbeat</span>
+          <span class="home-stat-value" id="home-heartbeat-value"><span class="muted">--</span></span>
+        </div>
+      </div>
+
+      <!-- Token sparkline -->
+      <div class="home-widget" style="margin-top:var(--space-md);">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <h3>Token Usage (last 24h)</h3>
+          <a href="#system/tokens" class="muted text-sm" style="text-decoration:none;">Details →</a>
+        </div>
+        <svg id="home-tokens-sparkline" class="sparkline" viewBox="0 0 400 48" preserveAspectRatio="none"></svg>
       </div>
 
       <!-- Two-column grid -->
@@ -74,19 +90,36 @@
             <h3>Top Tasks</h3>
             <div id="home-todos" class="home-widget-body"><span class="muted">Loading...</span></div>
           </div>
+          <div class="home-widget">
+            <h3>Recent Facts</h3>
+            <div id="home-recent-facts" class="home-widget-body"><span class="muted">Loading...</span></div>
+          </div>
         </div>
         <div class="home-col">
           <div class="home-widget">
             <h3>Cron Activity</h3>
             <div id="home-cron-activity" class="home-widget-body"><span class="muted">Loading...</span></div>
           </div>
+          <div class="home-widget">
+            <h3>Heartbeat Health</h3>
+            <div id="home-heartbeat-detail" class="home-widget-body"><span class="muted">Loading...</span></div>
+          </div>
         </div>
       </div>
 
       </div><!-- /tab: home -->
 
-      <!-- Tab: Persona -->
-      <div class="tab-pane" data-tab="persona">
+      <!-- Tab: Character -->
+      <div class="tab-pane" data-tab="character">
+
+      <nav class="subnav" aria-label="Character sections">
+        <button class="subnav-btn active" data-subtab="persona" onclick="switchSubTab('character','persona')">Persona</button>
+        <button class="subnav-btn" data-subtab="mood" onclick="switchSubTab('character','mood')">Mood &amp; Emotion</button>
+        <button class="subnav-btn" data-subtab="activity" onclick="switchSubTab('character','activity')">Activity</button>
+      </nav>
+
+      <!-- Sub: Persona -->
+      <div class="subtab-pane active" data-subtab="persona">
 
       <!-- Persona -->
       <section>
@@ -211,10 +244,60 @@
         </div>
       </section>
 
-      </div><!-- /tab: persona -->
+      </div><!-- /subtab: persona -->
 
-      <!-- Tab: Data -->
-      <div class="tab-pane" data-tab="data">
+      <!-- Sub: Mood & Emotion -->
+      <div class="subtab-pane" data-subtab="mood">
+        <section>
+          <div class="section-header">
+            <h2>Mood &amp; Emotion</h2>
+          </div>
+          <div class="section-body">
+            <div class="card" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md);">
+              <div>
+                <h3 style="margin-bottom:var(--space-xs);">Current Mood</h3>
+                <div id="mood-current" class="mood-current"><span class="muted">Loading...</span></div>
+              </div>
+              <div>
+                <h3 style="margin-bottom:var(--space-xs);">Emotion Vector (8D)</h3>
+                <div id="emotion-vector" class="emotion-vector"><span class="muted">Loading...</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div><!-- /subtab: mood -->
+
+      <!-- Sub: Activity (moved from System) -->
+      <div class="subtab-pane" data-subtab="activity">
+        <section>
+          <div class="section-header">
+            <h2>Activity Preview</h2>
+            <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
+          </div>
+          <div class="section-body">
+            <p class="muted activity-desc">Test your Unity WebGL build without Discord. Uses stub user data.</p>
+            <div id="activity-frame-wrap" style="display: none;">
+              <iframe id="activity-frame" src="" class="activity-iframe"></iframe>
+            </div>
+          </div>
+        </section>
+      </div><!-- /subtab: activity -->
+
+      </div><!-- /tab: character -->
+
+      <!-- Tab: Knowledge -->
+      <div class="tab-pane" data-tab="knowledge">
+
+      <nav class="subnav" aria-label="Knowledge sections">
+        <button class="subnav-btn active" data-subtab="memory" onclick="switchSubTab('knowledge','memory')">Memory</button>
+        <button class="subnav-btn" data-subtab="notes" onclick="switchSubTab('knowledge','notes')">Notes</button>
+        <button class="subnav-btn" data-subtab="profiles" onclick="switchSubTab('knowledge','profiles')">User Profiles</button>
+        <button class="subnav-btn" data-subtab="kb" onclick="switchSubTab('knowledge','kb')">Knowledge Base</button>
+        <button class="subnav-btn" data-subtab="summaries" onclick="switchSubTab('knowledge','summaries')">Summaries</button>
+      </nav>
+
+      <!-- Sub: Memory -->
+      <div class="subtab-pane active" data-subtab="memory">
 
       <!-- Memory -->
       <section>
@@ -233,6 +316,11 @@
           <div id="memory-content" class="card"><span class="muted">Loading...</span></div>
         </div>
       </section>
+
+      </div><!-- /subtab: memory -->
+
+      <!-- Sub: Notes -->
+      <div class="subtab-pane" data-subtab="notes">
 
       <!-- Notes -->
       <section>
@@ -267,6 +355,31 @@
           <div id="notes-content" class="card"><span class="muted">Loading...</span></div>
         </div>
       </section>
+
+      </div><!-- /subtab: notes -->
+
+      <!-- Sub: User Profiles -->
+      <div class="subtab-pane" data-subtab="profiles">
+        <section>
+          <div class="section-header">
+            <h2>User Profiles</h2>
+            <span class="muted text-sm ml-auto">LLM-synthesized dossiers at data/users/*.md</span>
+          </div>
+          <div class="section-body">
+            <div class="profiles-layout">
+              <div class="profiles-list" id="profiles-list">
+                <span class="muted">Loading...</span>
+              </div>
+              <div class="profiles-detail card" id="profiles-detail">
+                <div class="muted">Select a user to view their dossier.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div><!-- /subtab: profiles -->
+
+      <!-- Sub: Knowledge Base -->
+      <div class="subtab-pane" data-subtab="kb">
 
       <!-- Knowledge Base -->
       <section>
@@ -311,52 +424,39 @@
         </div>
       </section>
 
-      </div><!-- /tab: data -->
+      </div><!-- /subtab: kb -->
 
-      <!-- Tab: People -->
-      <div class="tab-pane" data-tab="people">
+      <!-- Sub: Summaries -->
+      <div class="subtab-pane" data-subtab="summaries">
+        <section>
+          <div class="section-header">
+            <h2>Conversation Summaries</h2>
+            <span class="muted text-sm ml-auto">Compacted history per channel</span>
+          </div>
+          <div class="section-body">
+            <div id="summaries-list"><span class="muted">Loading...</span></div>
+          </div>
+        </section>
+      </div><!-- /subtab: summaries -->
 
-      <!-- Sessions -->
-      <section>
-        <div class="section-header" data-section="sessions">
-          <span class="chevron">&#9660;</span>
-          <h2>Sessions</h2>
-          <button class="btn btn-danger btn-xs" onclick="clearAllSessions()">Clear All Sessions</button>
-        </div>
-        <div class="section-body" data-section="sessions">
-          <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
-        </div>
-      </section>
+      </div><!-- /tab: knowledge -->
 
-      <!-- Users -->
-      <section>
-        <div class="section-header" data-section="users">
-          <span class="chevron">&#9660;</span>
-          <h2>Users</h2>
-        </div>
-        <div class="section-body" data-section="users">
-          <table>
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>User ID</th>
-                <th>Messages</th>
-                <th>First Seen</th>
-                <th>Last Seen</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="users-body">
-              <tr><td colspan="6" class="muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      </div><!-- /tab: people -->
+      <!-- (People tab removed — content moved to System/Users & Sessions) -->
 
       <!-- Tab: Automation -->
       <div class="tab-pane" data-tab="automation">
+
+      <nav class="subnav" aria-label="Automation sections">
+        <button class="subnav-btn active" data-subtab="calendar" onclick="switchSubTab('automation','calendar')">Calendar</button>
+        <button class="subnav-btn" data-subtab="cron" onclick="switchSubTab('automation','cron')">Cron</button>
+        <button class="subnav-btn" data-subtab="tasks" onclick="switchSubTab('automation','tasks')">Tasks</button>
+        <button class="subnav-btn" data-subtab="ambient" onclick="switchSubTab('automation','ambient')">Ambient</button>
+        <button class="subnav-btn" data-subtab="linear" onclick="switchSubTab('automation','linear')">Linear</button>
+        <button class="subnav-btn" data-subtab="quests" onclick="switchSubTab('automation','quests')">Quests</button>
+      </nav>
+
+      <!-- Sub: Calendar -->
+      <div class="subtab-pane active" data-subtab="calendar">
 
       <!-- Calendar -->
       <section>
@@ -380,6 +480,11 @@
           </table>
         </div>
       </section>
+
+      </div><!-- /subtab: calendar -->
+
+      <!-- Sub: Cron -->
+      <div class="subtab-pane" data-subtab="cron">
 
       <!-- Scheduled Tasks -->
       <section>
@@ -418,6 +523,11 @@
           </div>
         </div>
       </section>
+
+      </div><!-- /subtab: cron -->
+
+      <!-- Sub: Ambient -->
+      <div class="subtab-pane" data-subtab="ambient">
 
       <!-- Ambient Awareness -->
       <section>
@@ -482,8 +592,22 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Recent Evaluations -->
+          <div class="section-header ambient-sub-header" data-section="ambient-evals">
+            <span class="chevron">&#9660;</span>
+            <h3>Recent Evaluations</h3>
+          </div>
+          <div class="section-body" data-section="ambient-evals">
+            <div id="ambient-evals-list"><span class="muted">No evaluations yet.</span></div>
+          </div>
         </div>
       </section>
+
+      </div><!-- /subtab: ambient -->
+
+      <!-- Sub: Tasks -->
+      <div class="subtab-pane" data-subtab="tasks">
 
       <!-- Tasks -->
       <section>
@@ -549,72 +673,236 @@
         </div>
       </section>
 
+      </div><!-- /subtab: tasks -->
+
+      <!-- Sub: Linear -->
+      <div class="subtab-pane" data-subtab="linear">
+        <section>
+          <div class="section-header">
+            <h2>Linear</h2>
+            <div class="flex-row ml-auto">
+              <select id="linear-team-filter" class="memory-filter-select" onchange="fetchLinearIssues()">
+                <option value="">All teams</option>
+              </select>
+              <input id="linear-search" type="text" placeholder="Search issues..." class="text-sm" style="padding:var(--space-xs) var(--space-sm);background:var(--bg-100);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);color:var(--text-primary);">
+              <button class="btn btn-xs" onclick="fetchLinearIssues()">Search</button>
+            </div>
+          </div>
+          <div class="section-body">
+            <div id="linear-stats" class="kb-stats-bar card" style="margin-bottom:var(--space-sm);">
+              <div><span class="muted text-sm">Status</span><br><strong id="linear-status">--</strong></div>
+              <div><span class="muted text-sm">Teams</span><br><strong id="linear-team-count">--</strong></div>
+              <div><span class="muted text-sm">Open Issues</span><br><strong id="linear-open-count">--</strong></div>
+            </div>
+            <table id="linear-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Title</th>
+                  <th>State</th>
+                  <th>Priority</th>
+                  <th>Assignee</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody id="linear-body">
+                <tr><td colspan="6" class="muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div><!-- /subtab: linear -->
+
+      <!-- Sub: Quests -->
+      <div class="subtab-pane" data-subtab="quests">
+        <section>
+          <div class="section-header">
+            <h2>Quests</h2>
+            <div class="flex-row ml-auto">
+              <select id="quests-category-filter" class="memory-filter-select" onchange="fetchQuests()">
+                <option value="">All categories</option>
+                <option value="productivity">Productivity</option>
+                <option value="health">Health</option>
+                <option value="finance">Finance</option>
+                <option value="social">Social</option>
+                <option value="work">Work</option>
+              </select>
+              <button class="btn btn-primary btn-xs" onclick="openQuestForm()">+ New Quest</button>
+            </div>
+          </div>
+          <div class="section-body">
+            <div id="quests-list"><span class="muted">Loading...</span></div>
+          </div>
+        </section>
+      </div><!-- /subtab: quests -->
+
       </div><!-- /tab: automation -->
 
       <!-- Tab: System -->
       <div class="tab-pane" data-tab="system">
 
-      <!-- Tools -->
-      <section>
-        <div class="section-header" data-section="tools">
-          <span class="chevron">&#9660;</span>
-          <h2>Tools</h2>
-        </div>
-        <div class="section-body" data-section="tools">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Enabled</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="tools-body">
-              <tr><td colspan="4" class="muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <nav class="subnav" aria-label="System sections">
+        <button class="subnav-btn active" data-subtab="tools" onclick="switchSubTab('system','tools')">Tools</button>
+        <button class="subnav-btn" data-subtab="agents" onclick="switchSubTab('system','agents')">Agents</button>
+        <button class="subnav-btn" data-subtab="heartbeat" onclick="switchSubTab('system','heartbeat')">Heartbeat</button>
+        <button class="subnav-btn" data-subtab="tokens" onclick="switchSubTab('system','tokens')">Tokens</button>
+        <button class="subnav-btn" data-subtab="logs" onclick="switchSubTab('system','logs')">Logs</button>
+        <button class="subnav-btn" data-subtab="people" onclick="switchSubTab('system','people')">Users &amp; Sessions</button>
+      </nav>
 
-      <!-- Agents -->
-      <section>
-        <div class="section-header" data-section="agents">
-          <span class="chevron">&#9660;</span>
-          <h2>Agents</h2>
-        </div>
-        <div class="section-body" data-section="agents">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Description</th>
-                <th>Tools</th>
-                <th>Enabled</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="agents-body">
-              <tr><td colspan="5" class="muted">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <!-- Activity Preview -->
-      <section>
-        <div class="section-header" data-section="activity-preview">
-          <span class="chevron">&#9660;</span>
-          <h2>Activity Preview</h2>
-          <button class="btn btn-primary btn-xs" id="activity-load-btn" onclick="loadActivityPreview()">Load Preview</button>
-        </div>
-        <div class="section-body" data-section="activity-preview">
-          <p class="muted activity-desc">Test your Unity WebGL build without Discord. Uses stub user data.</p>
-          <div id="activity-frame-wrap" style="display: none;">
-            <iframe id="activity-frame" src="" class="activity-iframe"></iframe>
+      <!-- Sub: Tools -->
+      <div class="subtab-pane active" data-subtab="tools">
+        <section>
+          <div class="section-header">
+            <h2>Tools</h2>
+            <span class="muted text-sm ml-auto" id="tools-count-label"></span>
           </div>
-        </div>
-      </section>
+          <div class="section-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Description</th>
+                  <th>Enabled</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tools-body">
+                <tr><td colspan="4" class="muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div><!-- /subtab: tools -->
+
+      <!-- Sub: Agents -->
+      <div class="subtab-pane" data-subtab="agents">
+        <section>
+          <div class="section-header">
+            <h2>Agents</h2>
+          </div>
+          <div class="section-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Description</th>
+                  <th>Tools</th>
+                  <th>Enabled</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="agents-body">
+                <tr><td colspan="5" class="muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div><!-- /subtab: agents -->
+
+      <!-- Sub: Heartbeat -->
+      <div class="subtab-pane" data-subtab="heartbeat">
+        <section>
+          <div class="section-header">
+            <h2>Heartbeat Handlers</h2>
+            <span class="muted text-sm ml-auto" id="heartbeat-interval-label">--</span>
+          </div>
+          <div class="section-body">
+            <div id="heartbeat-handlers"><span class="muted">Loading...</span></div>
+          </div>
+        </section>
+      </div><!-- /subtab: heartbeat -->
+
+      <!-- Sub: Tokens -->
+      <div class="subtab-pane" data-subtab="tokens">
+        <section>
+          <div class="section-header">
+            <h2>Token Usage</h2>
+            <button class="btn btn-xs btn-danger ml-auto" onclick="resetTokenCounters()">Reset Counters</button>
+          </div>
+          <div class="section-body">
+            <div class="kb-stats-bar card" style="margin-bottom:var(--space-sm);">
+              <div><span class="muted text-sm">Today</span><br><strong id="tokens-today-value">--</strong></div>
+              <div><span class="muted text-sm">Lifetime</span><br><strong id="tokens-lifetime-value">--</strong></div>
+              <div><span class="muted text-sm">Last Hour</span><br><strong id="tokens-hour-value">--</strong></div>
+              <div><span class="muted text-sm">Models</span><br><strong id="tokens-model-count">--</strong></div>
+            </div>
+
+            <div class="card" style="margin-bottom:var(--space-sm);">
+              <h3 style="margin-bottom:var(--space-xs);">Hourly (48h)</h3>
+              <svg id="tokens-sparkline" class="sparkline" viewBox="0 0 400 48" preserveAspectRatio="none"></svg>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-sm);">
+              <div class="card">
+                <h3 style="margin-bottom:var(--space-xs);">By Source</h3>
+                <div id="tokens-by-source" class="bar-chart"><span class="muted">Loading...</span></div>
+              </div>
+              <div class="card">
+                <h3 style="margin-bottom:var(--space-xs);">By Model</h3>
+                <div id="tokens-by-model" class="bar-chart"><span class="muted">Loading...</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div><!-- /subtab: tokens -->
+
+      <!-- Sub: Logs -->
+      <div class="subtab-pane" data-subtab="logs">
+        <section>
+          <div class="section-header">
+            <h2>Logs</h2>
+            <div class="flex-row ml-auto">
+              <select id="logs-level-filter" class="memory-filter-select" onchange="renderLogsFiltered()">
+                <option value="all">All levels</option>
+                <option value="info">Info</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
+              </select>
+              <button class="btn btn-xs" onclick="refreshLogs()">Refresh</button>
+            </div>
+          </div>
+          <div class="section-body">
+            <div id="logs-list" class="card logs-list-full"><span class="muted">Loading...</span></div>
+          </div>
+        </section>
+      </div><!-- /subtab: logs -->
+
+      <!-- Sub: Users & Sessions -->
+      <div class="subtab-pane" data-subtab="people">
+        <section>
+          <div class="section-header">
+            <h2>Sessions</h2>
+            <button class="btn btn-danger btn-xs ml-auto" onclick="clearAllSessions()">Clear All Sessions</button>
+          </div>
+          <div class="section-body">
+            <div id="sessions-content" class="card"><span class="muted">Loading...</span></div>
+          </div>
+        </section>
+
+        <section>
+          <div class="section-header">
+            <h2>Users</h2>
+          </div>
+          <div class="section-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>User ID</th>
+                  <th>Messages</th>
+                  <th>First Seen</th>
+                  <th>Last Seen</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-body">
+                <tr><td colspan="6" class="muted">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div><!-- /subtab: people -->
 
       </div><!-- /tab: system -->
 

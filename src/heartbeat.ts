@@ -14,6 +14,16 @@ export type HeartbeatHandler = {
   execute: (ctx: HeartbeatContext) => Promise<string | void>;
 };
 
+/** Per-handler execution record — populated on each tick for dashboard visibility. */
+type HandlerRun = {
+  lastRunAt: string | null;
+  lastDurationMs: number | null;
+  lastResult: string | null;
+  lastError: string | null;
+  runCount: number;
+  errorCount: number;
+};
+
 export type HeartbeatState = {
   running: boolean;
   intervalMs: number;
@@ -21,6 +31,17 @@ export type HeartbeatState = {
   tickCount: number;
   handlers: HeartbeatHandler[];
 };
+
+const handlerRuns = new Map<string, HandlerRun>();
+
+function ensureRunRecord(name: string): HandlerRun {
+  let rec = handlerRuns.get(name);
+  if (!rec) {
+    rec = { lastRunAt: null, lastDurationMs: null, lastResult: null, lastError: null, runCount: 0, errorCount: 0 };
+    handlerRuns.set(name, rec);
+  }
+  return rec;
+}
 
 // Hard cap on a single handler invocation. Anything longer is treated as a
 // hang and abandoned (the handler keeps running in the background but stops
@@ -96,21 +117,28 @@ export function startHeartbeat(config: Config, ctx: HeartbeatContext): void {
     await Promise.allSettled(
       enabled.map(async (handler) => {
         const handlerStart = Date.now();
+        const rec = ensureRunRecord(handler.name);
         try {
           const result = await runWithTimeout(
             handler.execute(context!),
             HANDLER_TIMEOUT_MS,
             handler.name,
           );
-          if (result) {
-            const elapsed = Date.now() - handlerStart;
-            console.log(`Heartbeat: [${handler.name}] ${result} (${elapsed}ms)`);
-          }
+          const elapsed = Date.now() - handlerStart;
+          rec.lastRunAt = new Date().toISOString();
+          rec.lastDurationMs = elapsed;
+          rec.lastResult = typeof result === "string" ? result : null;
+          rec.lastError = null;
+          rec.runCount++;
+          if (result) console.log(`Heartbeat: [${handler.name}] ${result} (${elapsed}ms)`);
         } catch (err) {
-          console.error(
-            `Heartbeat: [${handler.name}] error after ${Date.now() - handlerStart}ms:`,
-            err,
-          );
+          const elapsed = Date.now() - handlerStart;
+          rec.lastRunAt = new Date().toISOString();
+          rec.lastDurationMs = elapsed;
+          rec.lastError = err instanceof Error ? err.message : String(err);
+          rec.lastResult = null;
+          rec.errorCount++;
+          console.error(`Heartbeat: [${handler.name}] error after ${elapsed}ms:`, err);
         }
       }),
     );
@@ -145,17 +173,36 @@ export function getHeartbeatState(): {
   intervalMs: number;
   lastTick: string | null;
   tickCount: number;
-  handlers: { name: string; description: string; enabled: boolean }[];
+  handlers: {
+    name: string;
+    description: string;
+    enabled: boolean;
+    lastRunAt: string | null;
+    lastDurationMs: number | null;
+    lastResult: string | null;
+    lastError: string | null;
+    runCount: number;
+    errorCount: number;
+  }[];
 } {
   return {
     running: state.running,
     intervalMs: state.intervalMs,
     lastTick: state.lastTick?.toISOString() ?? null,
     tickCount: state.tickCount,
-    handlers: state.handlers.map((h) => ({
-      name: h.name,
-      description: h.description,
-      enabled: h.enabled,
-    })),
+    handlers: state.handlers.map((h) => {
+      const rec = handlerRuns.get(h.name);
+      return {
+        name: h.name,
+        description: h.description,
+        enabled: h.enabled,
+        lastRunAt: rec?.lastRunAt ?? null,
+        lastDurationMs: rec?.lastDurationMs ?? null,
+        lastResult: rec?.lastResult ?? null,
+        lastError: rec?.lastError ?? null,
+        runCount: rec?.runCount ?? 0,
+        errorCount: rec?.errorCount ?? 0,
+      };
+    }),
   };
 }

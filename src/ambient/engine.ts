@@ -40,6 +40,21 @@ const runtimeOverrides = new Map<string, boolean>();
 // Evaluation stats per trigger (rolling, reset hourly)
 type EvalStats = { evaluated: number; fired: number; skipped: number; lastEvaluatedAt: number; lastFiredAt: number };
 const evalStats = new Map<string, EvalStats>();
+
+// Recent evaluation ring buffer for dashboard visibility.
+type EvalRecord = {
+  at: string;            // ISO timestamp
+  trigger: string;
+  channelId: string;
+  fired: boolean;
+  reason: string | null;
+};
+const RECENT_EVAL_CAP = 50;
+const recentEvaluations: EvalRecord[] = [];
+function pushEvaluation(rec: EvalRecord): void {
+  recentEvaluations.unshift(rec);
+  if (recentEvaluations.length > RECENT_EVAL_CAP) recentEvaluations.length = RECENT_EVAL_CAP;
+}
 let lastStatsReset = Date.now();
 
 function getOrCreateStats(name: string): EvalStats {
@@ -231,11 +246,20 @@ async function evaluateTick(): Promise<string | void> {
         continue;
       }
 
+      const firedNow = result.message !== null;
+      pushEvaluation({
+        at: new Date().toISOString(),
+        trigger: trigger.name,
+        channelId: buffer.channelId,
+        fired: firedNow,
+        reason: result.debugReason ?? null,
+      });
+
       broadcastEvent("mindmap", {
         type: "ambient:evaluated",
         conversationId: buffer.channelId,
         trigger: trigger.name,
-        fired: result.message !== null,
+        fired: firedNow,
         reason: result.debugReason ?? null,
         timestamp: new Date().toISOString(),
       });
@@ -419,5 +443,6 @@ export function getAmbientState() {
       };
     }),
     bufferStats: getBufferStats(),
+    recentEvaluations: recentEvaluations.slice(),
   };
 }

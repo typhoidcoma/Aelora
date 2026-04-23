@@ -51,22 +51,222 @@ async function runTask(taskKey, taskFn) {
 }
 
 // --- Toast system ---
-function showToast(message, type = "success") {
+// showToast(message, type)  — backwards compat: type is "success"|"error"|"warning"|"info"
+// toast.success(msg, title?) / toast.error(msg, title?) / ... — newer richer API
+function showToast(message, type = "success", title) {
   const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const icons = { success: "✓", error: "!", warning: "⚠", info: "i" };
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.textContent = message;
+
+  const icon = document.createElement("span");
+  icon.className = "toast-icon";
+  icon.textContent = icons[type] || icons.info;
+
+  const body = document.createElement("div");
+  body.className = "toast-body";
+  if (title) {
+    const t = document.createElement("div");
+    t.className = "toast-title";
+    t.textContent = title;
+    body.appendChild(t);
+    const m = document.createElement("div");
+    m.className = "toast-msg";
+    m.textContent = message;
+    body.appendChild(m);
+  } else {
+    body.textContent = message;
+  }
+
+  const close = document.createElement("button");
+  close.className = "toast-close";
+  close.setAttribute("aria-label", "Dismiss");
+  close.textContent = "×";
+  close.onclick = () => dismiss();
+
+  toast.appendChild(icon);
+  toast.appendChild(body);
+  toast.appendChild(close);
   container.appendChild(toast);
 
-  setTimeout(() => {
-    toast.classList.add("fade-out");
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  let timer = setTimeout(dismiss, type === "error" ? 6000 : 3500);
+
+  function dismiss() {
+    clearTimeout(timer);
+    toast.classList.add("toast-leaving");
+    setTimeout(() => toast.remove(), 250);
+  }
 }
 
-// --- Tab navigation ---
-function switchTab(tabName) {
+const toast = {
+  success: (msg, title) => showToast(msg, "success", title),
+  error: (msg, title) => showToast(msg, "error", title),
+  warning: (msg, title) => showToast(msg, "warning", title),
+  info: (msg, title) => showToast(msg, "info", title),
+};
+
+// --- Skeleton loader helpers ---
+// Usage: showSkeleton(containerEl, { rows: 3 })   hideSkeleton not needed — just replace innerHTML
+function renderSkeleton(rows = 3) {
+  const widths = ["long", "medium", "short"];
+  let html = '<div class="skeleton-block">';
+  for (let i = 0; i < rows; i++) {
+    html += `<div class="skeleton-row ${widths[i % widths.length]}"></div>`;
+  }
+  html += "</div>";
+  return html;
+}
+function showSkeleton(target, rows = 3) {
+  const el = typeof target === "string" ? document.getElementById(target) : target;
+  if (!el) return;
+  el.innerHTML = renderSkeleton(rows);
+}
+
+// --- Empty state helper ---
+function renderEmptyState({ icon = "∅", title = "Nothing here yet", message = "", ctaLabel, ctaHref, ctaOnClick } = {}) {
+  const ctaHtml = ctaLabel
+    ? ctaHref
+      ? `<a class="btn btn-secondary empty-state-cta" href="${escapeHtml(ctaHref)}">${escapeHtml(ctaLabel)}</a>`
+      : `<button class="btn btn-secondary empty-state-cta" type="button" data-empty-cta>${escapeHtml(ctaLabel)}</button>`
+    : "";
+  const msgHtml = message ? `<div class="empty-state-msg">${escapeHtml(message)}</div>` : "";
+  const html = `
+    <div class="empty-state">
+      <div class="empty-state-icon" aria-hidden="true">${escapeHtml(icon)}</div>
+      <div class="empty-state-title">${escapeHtml(title)}</div>
+      ${msgHtml}
+      ${ctaHtml}
+    </div>`;
+  return { html, bind: (rootEl) => {
+    if (ctaOnClick) {
+      const btn = rootEl.querySelector("[data-empty-cta]");
+      if (btn) btn.onclick = ctaOnClick;
+    }
+  }};
+}
+function showEmptyState(target, opts) {
+  const el = typeof target === "string" ? document.getElementById(target) : target;
+  if (!el) return;
+  const { html, bind } = renderEmptyState(opts);
+  el.innerHTML = html;
+  bind(el);
+}
+
+// --- HTML escape helper (used by several renderers) ---
+function escapeHtml(s) {
+  if (s === null || s === undefined) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// --- Modal helpers ---
+// openModal({ title, body: HTMLElement|string, actions: [{label, variant, onClick}] })
+function openModal({ title = "", body = "", actions = [] } = {}) {
+  closeModal();
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.id = "active-modal";
+
+  const modal = document.createElement("div");
+  modal.className = "modal";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+
+  const header = document.createElement("div");
+  header.className = "modal-header";
+  header.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "btn btn-secondary";
+  closeBtn.type = "button";
+  closeBtn.textContent = "×";
+  closeBtn.setAttribute("aria-label", "Close");
+  closeBtn.onclick = closeModal;
+  header.appendChild(closeBtn);
+
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "modal-body";
+  if (typeof body === "string") bodyEl.innerHTML = body;
+  else if (body instanceof HTMLElement) bodyEl.appendChild(body);
+
+  const footer = document.createElement("div");
+  footer.className = "modal-footer";
+  for (const a of actions) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `btn ${a.variant === "primary" ? "" : "btn-secondary"} ${a.variant === "danger" ? "btn-danger" : ""}`;
+    b.textContent = a.label;
+    b.onclick = async (ev) => {
+      try { await a.onClick?.(ev, { close: closeModal }); } catch (e) { toast.error(e.message || String(e)); }
+    };
+    footer.appendChild(b);
+  }
+
+  modal.appendChild(header);
+  modal.appendChild(bodyEl);
+  if (actions.length) modal.appendChild(footer);
+  backdrop.appendChild(modal);
+
+  backdrop.onclick = (ev) => { if (ev.target === backdrop) closeModal(); };
+  document.addEventListener("keydown", onModalKey);
+  document.body.appendChild(backdrop);
+  return { close: closeModal, body: bodyEl };
+}
+function closeModal() {
+  const existing = document.getElementById("active-modal");
+  if (existing) existing.remove();
+  document.removeEventListener("keydown", onModalKey);
+}
+function onModalKey(ev) {
+  if (ev.key === "Escape") closeModal();
+}
+
+// --- Safe fetch wrapper — shows toast on error, returns JSON or throws ---
+async function safeFetchJson(url, opts = {}) {
+  try {
+    const res = await fetch(buildUrl(url), { credentials: "same-origin", ...opts });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      const msg = text || `${res.status} ${res.statusText}`;
+      throw new Error(msg);
+    }
+    const ct = res.headers.get("content-type") || "";
+    return ct.includes("application/json") ? await res.json() : await res.text();
+  } catch (err) {
+    if (!opts.silent) toast.error(err.message || String(err), "Request failed");
+    throw err;
+  }
+}
+
+// --- Tab navigation (with sub-nav + hash-routing) ---
+
+// Legacy tab names from older builds — map them onto the new IA. Persona moved
+// into the Character tab; Data + People were split into Knowledge + System.
+const LEGACY_TAB_MAP = {
+  overview: "home",
+  persona: "character",
+  data: "knowledge",
+  people: "system",
+};
+
+// Sub-tab dispatch: keys are "{tab}/{subtab}", values are data-fetchers.
+// Each sub-tab's data is loaded on activation (not when the parent tab opens).
+// Populated lazily by each subsection's implementation.
+const subTabRefreshMap = {};
+
+function registerSubTabRefresh(key, fn) {
+  subTabRefreshMap[key] = fn;
+}
+
+function switchTab(tabName, subTabName) {
+  tabName = LEGACY_TAB_MAP[tabName] || tabName;
   activeTab = tabName;
+
   document.querySelectorAll(".tab-pane").forEach((pane) => {
     pane.classList.toggle("active", pane.dataset.tab === tabName);
   });
@@ -75,25 +275,107 @@ function switchTab(tabName) {
   });
   localStorage.setItem("dashboard-tab", tabName);
 
-  // Refresh data for the active tab
-  const tabRefreshMap = {
-    home: () => runTask("tab-home", () => fetchHomeData()),
-    persona: () => runTask("tab-persona", async () => { await fetchPersonas(); await fetchPersona(); }),
-    data: () => runTask("tab-data", async () => { await fetchMemory(); await fetchNotes(); await fetchKnowledgeBase(); }),
-    people: () => runTask("tab-people", async () => { await fetchSessions(); await fetchUsers(); }),
-    automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchAmbient(); await fetchTasks(); }),
-    system: () => runTask("tab-system", async () => { await fetchTools(); await fetchAgents(); }),
-    mindmap: () => initMindmap(),
-  };
-  if (tabRefreshMap[tabName]) tabRefreshMap[tabName]();
+  // Resolve sub-tab: explicit arg → saved → first sub-tab in DOM → none.
+  const activePane = document.querySelector(`.tab-pane[data-tab="${tabName}"]`);
+  const subnavBtns = activePane?.querySelectorAll(".subnav-btn") || [];
+  if (subnavBtns.length > 0) {
+    const savedSub = localStorage.getItem(`dashboard-subtab-${tabName}`);
+    const validNames = [...subnavBtns].map((b) => b.dataset.subtab);
+    let chosen = subTabName && validNames.includes(subTabName) ? subTabName
+              : savedSub && validNames.includes(savedSub) ? savedSub
+              : validNames[0];
+    switchSubTab(tabName, chosen, { skipHash: true });
+  } else {
+    // Legacy tabs still use the full-tab refresh map below.
+    const tabRefreshMap = {
+      home: () => runTask("tab-home", () => fetchHomeData()),
+      character: () => runTask("tab-character", async () => { await fetchPersonas(); await fetchPersona(); }),
+      knowledge: () => runTask("tab-knowledge", async () => { await fetchMemory(); await fetchNotes(); await fetchKnowledgeBase(); }),
+      automation: () => runTask("tab-automation", async () => { await fetchCalendarEvents(); await fetchCron(); await fetchAmbient(); await fetchTasks(); }),
+      system: () => runTask("tab-system", async () => { await fetchTools(); await fetchAgents(); }),
+      mindmap: () => initMindmap(),
+    };
+    if (tabRefreshMap[tabName]) tabRefreshMap[tabName]();
+  }
+
+  // Update hash without triggering the hashchange handler (loop protection).
+  const hash = `#${tabName}`;
+  if (window.location.hash !== hash && !subTabName) {
+    suppressNextHashChange = true;
+    window.location.hash = hash;
+  }
+
   closeMobileSidebar();
 }
 
-// Restore saved tab on load
+function switchSubTab(tabName, subTabName, { skipHash } = {}) {
+  const pane = document.querySelector(`.tab-pane[data-tab="${tabName}"]`);
+  if (!pane) return;
+
+  pane.querySelectorAll(".subnav-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.subtab === subTabName);
+  });
+  pane.querySelectorAll(".subtab-pane").forEach((p) => {
+    p.classList.toggle("active", p.dataset.subtab === subTabName);
+  });
+
+  localStorage.setItem(`dashboard-subtab-${tabName}`, subTabName);
+
+  const key = `${tabName}/${subTabName}`;
+  const fn = subTabRefreshMap[key];
+  if (fn) runTask(`subtab-${key}`, fn);
+
+  if (!skipHash) {
+    suppressNextHashChange = true;
+    window.location.hash = `#${tabName}/${subTabName}`;
+  }
+}
+
+let suppressNextHashChange = false;
+function handleHashChange() {
+  if (suppressNextHashChange) { suppressNextHashChange = false; return; }
+  const raw = window.location.hash.replace(/^#/, "");
+  if (!raw) return;
+  const [tab, sub] = raw.split("/");
+  if (!tab) return;
+  switchTab(tab, sub);
+}
+window.addEventListener("hashchange", handleHashChange);
+
+// Sub-tab refresh registrations. Each key is "{tab}/{subtab}"; value runs when
+// that sub-section becomes active. Existing fetch* functions are reused.
+registerSubTabRefresh("character/persona", async () => { await fetchPersonas(); await fetchPersona(); });
+registerSubTabRefresh("character/mood", async () => { await fetchMoodAndEmotion?.(); });
+registerSubTabRefresh("character/activity", async () => { /* Activity iframe loads on button click */ });
+
+registerSubTabRefresh("knowledge/memory", async () => { await fetchMemory(); });
+registerSubTabRefresh("knowledge/notes", async () => { await fetchNotes(); });
+registerSubTabRefresh("knowledge/profiles", async () => { await fetchUserProfiles?.(); });
+registerSubTabRefresh("knowledge/kb", async () => { await fetchKnowledgeBase(); });
+registerSubTabRefresh("knowledge/summaries", async () => { await fetchSummaries?.(); });
+
+registerSubTabRefresh("automation/calendar", async () => { await fetchCalendarEvents(); });
+registerSubTabRefresh("automation/cron", async () => { await fetchCron(); });
+registerSubTabRefresh("automation/tasks", async () => { await fetchTasks(); });
+registerSubTabRefresh("automation/ambient", async () => { await fetchAmbient(); });
+registerSubTabRefresh("automation/linear", async () => { await fetchLinearIssues?.(); });
+registerSubTabRefresh("automation/quests", async () => { await fetchQuests?.(); });
+
+registerSubTabRefresh("system/tools", async () => { await fetchTools(); });
+registerSubTabRefresh("system/agents", async () => { await fetchAgents(); });
+registerSubTabRefresh("system/heartbeat", async () => { await fetchHeartbeatDetail?.(); });
+registerSubTabRefresh("system/tokens", async () => { await fetchTokensDetail?.(); });
+registerSubTabRefresh("system/logs", async () => { await refreshLogs?.(); });
+registerSubTabRefresh("system/people", async () => { await fetchSessions(); await fetchUsers(); });
+
+// Restore saved tab on load (prefers hash, then localStorage).
 (function restoreTab() {
+  const raw = window.location.hash.replace(/^#/, "");
+  if (raw) {
+    const [tab, sub] = raw.split("/");
+    if (tab) { switchTab(tab, sub); return; }
+  }
   let saved = localStorage.getItem("dashboard-tab");
-  // Migrate old tab name
-  if (saved === "overview") saved = "persona";
   if (saved) switchTab(saved);
 })();
 
@@ -1147,10 +1429,16 @@ async function fetchTools() {
         <td><code>${esc(t.name)}</code></td>
         <td class="truncate-cell" title="${esc(t.description)}">${esc(t.description)}</td>
         <td>${t.enabled ? '<span class="ok">Yes</span>' : '<span class="error">No</span>'}</td>
-        <td><button class="btn" onclick="toggleTool('${esc(t.name)}')">${t.enabled ? "Disable" : "Enable"}</button></td>
+        <td class="flex-row">
+          <button class="btn btn-xs" onclick="toggleTool('${esc(t.name)}')">${t.enabled ? "Disable" : "Enable"}</button>
+          ${t.enabled ? `<button class="btn btn-xs btn-primary" onclick="openToolExecuteModal('${esc(t.name)}')">Run</button>` : ""}
+        </td>
       </tr>`,
       )
       .join("");
+
+    const label = document.getElementById("tools-count-label");
+    if (label) label.textContent = `${tools.length} tool(s)`;
   } catch (err) {
     console.error("fetchTools:", err);
   }
@@ -2770,10 +3058,36 @@ async function fetchAmbient() {
 
     // Buffers
     if (data.bufferStats) renderAmbientBuffers(data.bufferStats);
+    // Recent evaluations (ring buffer — latest first)
+    renderAmbientEvaluations(data.recentEvaluations || []);
   } catch (err) {
     if (err.name === "AbortError") return;
     console.warn("fetchAmbient failed:", err);
   }
+}
+
+function renderAmbientEvaluations(list) {
+  const el = document.getElementById("ambient-evals-list");
+  if (!el) return;
+  if (!list.length) {
+    el.innerHTML = '<span class="muted">No evaluations yet.</span>';
+    return;
+  }
+  el.innerHTML = list.slice(0, 20).map((r) => {
+    const when = r.at ? new Date(r.at).toLocaleTimeString() : "";
+    const firedBadge = r.fired
+      ? '<span class="badge" style="background:var(--success-bg);color:var(--success);">FIRED</span>'
+      : '<span class="badge" style="background:var(--surface-200);color:var(--text-dim);">skip</span>';
+    return `
+      <div style="display:grid;grid-template-columns:6rem 1fr 5rem;gap:var(--space-sm);padding:var(--space-2xs) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--font-size-xs);align-items:center;">
+        <code class="muted">${escapeHtml(r.trigger)}</code>
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(r.reason || "")}">${escapeHtml(r.reason || "—")}</div>
+        <div class="flex-row" style="gap:var(--space-xs);justify-content:flex-end;">
+          ${firedBadge}
+          <span class="muted text-sm">${escapeHtml(when)}</span>
+        </div>
+      </div>`;
+  }).join("");
 }
 
 function renderAmbientBuffers(stats) {
@@ -3073,8 +3387,104 @@ async function fetchHomeData() {
     fetchHomeTokens(),
     fetchHomeCalendar(),
     fetchHomeTodos(),
+    fetchHomeKB(),
+    fetchHomeHeartbeat(),
+    fetchHomeTokenSparkline(),
+    fetchHomeRecentFacts(),
   ]);
   updateSidebarGlance();
+}
+
+// --- Home: new widgets ---
+
+async function fetchHomeKB() {
+  const cardVal = document.getElementById("home-kb-value");
+  if (!cardVal) return;
+  try {
+    const stats = await safeFetchJson("/api/knowledge", { silent: true });
+    if (!stats?.enabled) {
+      cardVal.innerHTML = '<span class="muted">Disabled</span>';
+      return;
+    }
+    const files = stats.fileCount ?? 0;
+    const chunks = stats.totalChunks ?? 0;
+    cardVal.innerHTML = `<strong>${files}</strong> files · <strong>${chunks}</strong> chunks`;
+  } catch {
+    cardVal.innerHTML = '<span class="muted">--</span>';
+  }
+}
+
+async function fetchHomeHeartbeat() {
+  const cardVal = document.getElementById("home-heartbeat-value");
+  const detailEl = document.getElementById("home-heartbeat-detail");
+  try {
+    const data = await safeFetchJson("/api/heartbeat", { silent: true });
+    if (cardVal) {
+      const errorCount = (data.handlers || []).reduce((a, h) => a + (h.errorCount || 0), 0);
+      const statusColor = data.running ? (errorCount > 0 ? "var(--warning)" : "var(--success)") : "var(--danger)";
+      cardVal.innerHTML = `<span style="color:${statusColor};">●</span> ${data.running ? "Running" : "Stopped"}`;
+    }
+    if (detailEl) {
+      if (!data.handlers?.length) {
+        detailEl.innerHTML = '<span class="muted">No handlers registered.</span>';
+      } else {
+        const sorted = [...data.handlers].sort((a, b) => (b.lastRunAt || "").localeCompare(a.lastRunAt || ""));
+        detailEl.innerHTML = sorted.slice(0, 5).map((h) => {
+          const runAt = h.lastRunAt ? timeAgo(h.lastRunAt) : "never";
+          const status = h.lastError ? "var(--danger)" : h.enabled ? "var(--success)" : "var(--text-dim)";
+          return `
+            <div style="display:flex;align-items:center;gap:var(--space-sm);padding:var(--space-2xs) 0;border-bottom:1px solid var(--border-subtle);">
+              <span style="color:${status};">●</span>
+              <strong style="flex-shrink:0;">${escapeHtml(h.name)}</strong>
+              <span class="muted text-sm ml-auto">${escapeHtml(runAt)}</span>
+            </div>`;
+        }).join("");
+      }
+    }
+  } catch {
+    if (cardVal) cardVal.innerHTML = '<span class="muted">--</span>';
+  }
+}
+
+async function fetchHomeTokenSparkline() {
+  const svg = document.getElementById("home-tokens-sparkline");
+  if (!svg) return;
+  try {
+    const stats = await safeFetchJson("/api/tokens", { silent: true });
+    const hourly = Array.isArray(stats.hourly) ? stats.hourly.slice(-24) : [];
+    const total = (b) => (b?.inputTokens ?? 0) + (b?.outputTokens ?? 0) + (b?.reasoningTokens ?? 0);
+    renderSparkline("home-tokens-sparkline", hourly.map(total));
+  } catch {}
+}
+
+async function fetchHomeRecentFacts() {
+  const el = document.getElementById("home-recent-facts");
+  if (!el) return;
+  try {
+    const data = await safeFetchJson("/api/memory", { silent: true });
+    // Flatten {scope: [{fact, savedAt, ...}]} into an array sorted by savedAt desc.
+    const all = [];
+    for (const [scope, list] of Object.entries(data || {})) {
+      if (!Array.isArray(list)) continue;
+      for (const f of list) all.push({ ...f, scope });
+    }
+    all.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
+    const recent = all.slice(0, 5);
+    if (!recent.length) {
+      el.innerHTML = '<span class="muted">No facts yet.</span>';
+      return;
+    }
+    el.innerHTML = recent.map((f) => {
+      const when = f.savedAt ? timeAgo(f.savedAt) : "";
+      return `
+        <div style="padding:var(--space-2xs) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--font-size-xs);">
+          <div style="color:var(--text-secondary);">${escapeHtml((f.fact || "").slice(0, 140))}</div>
+          <div class="muted text-sm" style="margin-top:2px;">${escapeHtml(f.scope)} · ${escapeHtml(when)}</div>
+        </div>`;
+    }).join("");
+  } catch {
+    el.innerHTML = '<span class="muted">--</span>';
+  }
 }
 
 // --- Calendar (Automation tab) ---
@@ -3530,6 +3940,595 @@ function filterMindmapConversation(value) {
     });
   }
   fitMindmap();
+}
+
+// =====================================================================
+// New sub-section fetchers (added in dashboard overhaul)
+// =====================================================================
+
+// --- Tokens detail ---
+function formatInt(n) {
+  if (n === null || n === undefined || isNaN(n)) return "--";
+  return new Intl.NumberFormat().format(Math.round(n));
+}
+
+function renderBarChart(targetId, entries) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  if (!entries || entries.length === 0) {
+    el.innerHTML = '<span class="muted">No data yet.</span>';
+    return;
+  }
+  const max = Math.max(...entries.map((e) => e.value), 1);
+  el.innerHTML = entries.map((e) => {
+    const pct = Math.max(2, (e.value / max) * 100);
+    return `
+      <div class="bar-chart-row">
+        <div class="bar-chart-label" title="${escapeHtml(e.label)}">${escapeHtml(e.label)}</div>
+        <div class="bar-chart-bar"><div class="bar-chart-fill" style="width:${pct}%"></div></div>
+        <div class="bar-chart-value">${formatInt(e.value)}</div>
+      </div>`;
+  }).join("");
+}
+
+function renderSparkline(svgId, points) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  if (!points || points.length === 0) {
+    svg.innerHTML = "";
+    return;
+  }
+  const w = 400, h = 48, pad = 2;
+  const max = Math.max(...points, 1);
+  const stepX = points.length > 1 ? (w - pad * 2) / (points.length - 1) : 0;
+  const coords = points.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = h - pad - (v / max) * (h - pad * 2);
+    return [x, y];
+  });
+  const line = coords.map(([x, y], i) => (i === 0 ? `M${x},${y}` : `L${x},${y}`)).join(" ");
+  const fill = `${line} L${coords[coords.length - 1][0]},${h} L${coords[0][0]},${h} Z`;
+  const last = coords[coords.length - 1];
+  svg.innerHTML = `<path class="fill" d="${fill}"></path><path class="line" d="${line}"></path><circle cx="${last[0]}" cy="${last[1]}" r="2.5"></circle>`;
+}
+
+async function fetchTokensDetail() {
+  const sourceEl = document.getElementById("tokens-by-source");
+  const modelEl = document.getElementById("tokens-by-model");
+  if (sourceEl) showSkeleton(sourceEl, 5);
+  if (modelEl) showSkeleton(modelEl, 4);
+
+  let stats;
+  try { stats = await safeFetchJson("/api/tokens"); }
+  catch { return; }
+
+  const total = (b) => (b?.inputTokens ?? 0) + (b?.outputTokens ?? 0) + (b?.reasoningTokens ?? 0);
+  document.getElementById("tokens-today-value").textContent = formatInt(total(stats.today));
+  document.getElementById("tokens-lifetime-value").textContent = formatInt(total(stats.lifetime));
+  const hourly = Array.isArray(stats.hourly) ? stats.hourly : [];
+  const lastHour = hourly.length ? total(hourly[hourly.length - 1]) : 0;
+  document.getElementById("tokens-hour-value").textContent = formatInt(lastHour);
+  document.getElementById("tokens-model-count").textContent = Object.keys(stats.byModel || {}).length;
+
+  renderSparkline("tokens-sparkline", hourly.map(total));
+
+  const bySourceEntries = Object.entries(stats.bySource || {})
+    .map(([label, v]) => ({ label, value: total(v) }))
+    .sort((a, b) => b.value - a.value);
+  renderBarChart("tokens-by-source", bySourceEntries);
+
+  const byModelEntries = Object.entries(stats.byModel || {})
+    .map(([label, v]) => ({ label, value: total(v) }))
+    .sort((a, b) => b.value - a.value);
+  renderBarChart("tokens-by-model", byModelEntries);
+}
+
+async function resetTokenCounters() {
+  if (!confirm("Reset all token counters? Lifetime, today, hourly, by-model, by-source all zeroed.")) return;
+  try {
+    await safeFetchJson("/api/tokens/reset", { method: "POST" });
+    toast.success("Token counters reset.");
+    fetchTokensDetail();
+  } catch {}
+}
+
+// --- Linear ---
+async function fetchLinearIssues() {
+  const body = document.getElementById("linear-body");
+  if (body) body.innerHTML = `<tr><td colspan="6">${renderSkeleton(4)}</td></tr>`;
+
+  const teamFilter = document.getElementById("linear-team-filter")?.value || "";
+  const q = document.getElementById("linear-search")?.value?.trim() || "";
+
+  const statusEl = document.getElementById("linear-status");
+  const teamCountEl = document.getElementById("linear-team-count");
+  const openCountEl = document.getElementById("linear-open-count");
+
+  // Probe teams first (also tells us whether Linear is configured)
+  let teams = [];
+  try {
+    teams = await safeFetchJson("/api/linear/teams", { silent: true });
+    if (statusEl) statusEl.textContent = "Connected";
+    if (teamCountEl) teamCountEl.textContent = teams.length;
+    // Populate team filter (once)
+    const filterEl = document.getElementById("linear-team-filter");
+    if (filterEl && filterEl.options.length <= 1) {
+      for (const t of teams) {
+        const opt = document.createElement("option");
+        opt.value = t.key;
+        opt.textContent = `${t.key} — ${t.name}`;
+        filterEl.appendChild(opt);
+      }
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Not configured";
+    if (body) {
+      const { html, bind } = renderEmptyState({
+        icon: "⬚",
+        title: "Linear is not connected",
+        message: "Add tools.linear.apiKey to settings.yaml, then restart the bot to enable this tab.",
+      });
+      body.innerHTML = `<tr><td colspan="6">${html}</td></tr>`;
+      bind(body);
+    }
+    return;
+  }
+
+  // Fetch issues (optionally filtered)
+  let issues;
+  try {
+    const params = new URLSearchParams();
+    if (teamFilter) params.set("team", teamFilter);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    issues = await safeFetchJson(`/api/linear/issues${qs ? "?" + qs : ""}`);
+  } catch { return; }
+
+  if (openCountEl) openCountEl.textContent = issues.filter((i) => i.status && !/done|complete|cancel/i.test(i.status)).length;
+
+  if (!issues.length) {
+    const { html, bind } = renderEmptyState({ icon: "∅", title: "No issues", message: "Try a different team or clear the search." });
+    body.innerHTML = `<tr><td colspan="6">${html}</td></tr>`;
+    bind(body);
+    return;
+  }
+
+  const priorityLabels = { 0: "—", 1: "Urgent", 2: "High", 3: "Medium", 4: "Low" };
+  body.innerHTML = issues.map((i) => {
+    const updated = i.updatedAt ? new Date(i.updatedAt).toLocaleDateString() : "";
+    const assignee = i.assignee?.name || "";
+    return `
+      <tr>
+        <td><strong>${escapeHtml(i.identifier || "")}</strong></td>
+        <td>${escapeHtml(i.title || "")}</td>
+        <td>${escapeHtml(i.status || "")}</td>
+        <td>${escapeHtml(priorityLabels[i.priority] || "")}</td>
+        <td>${escapeHtml(assignee)}</td>
+        <td class="muted">${escapeHtml(updated)}</td>
+      </tr>`;
+  }).join("");
+}
+
+// --- Quests ---
+async function fetchQuests() {
+  const listEl = document.getElementById("quests-list");
+  if (!listEl) return;
+  showSkeleton(listEl, 4);
+
+  const category = document.getElementById("quests-category-filter")?.value || "";
+  const url = category ? `/api/quests?category=${encodeURIComponent(category)}` : "/api/quests";
+
+  let quests;
+  try { quests = await safeFetchJson(url, { silent: true }); }
+  catch (err) {
+    showEmptyState(listEl, {
+      icon: "⬚",
+      title: "Quests unavailable",
+      message: "Configure supabase.url + supabase.anonKey in settings.yaml (service role recommended for RLS bypass).",
+    });
+    return;
+  }
+
+  if (!Array.isArray(quests) || quests.length === 0) {
+    showEmptyState(listEl, {
+      icon: "✦",
+      title: "No quests yet",
+      message: category ? "No quests in that category." : "Create a new quest to get started.",
+      ctaLabel: "+ New Quest",
+      ctaOnClick: openQuestForm,
+    });
+    return;
+  }
+
+  listEl.innerHTML = quests.map((q) => {
+    const cat = escapeHtml(q.category || "—");
+    const progress = q.current_progress != null && q.target_progress
+      ? Math.round((q.current_progress / q.target_progress) * 100) : null;
+    const completed = q.completed_at != null;
+    const fav = q.is_favorite;
+    return `
+      <div class="card" style="margin-bottom:var(--space-xs);padding:var(--space-sm);">
+        <div style="display:flex;align-items:flex-start;gap:var(--space-sm);">
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:var(--space-xs);flex-wrap:wrap;">
+              <strong>${escapeHtml(q.title || "(untitled)")}</strong>
+              <span class="badge" style="background:var(--surface-200);color:var(--text-muted);">${cat}</span>
+              ${fav ? '<span class="badge" style="background:var(--glow-gold-soft);color:var(--accent);">★ Top</span>' : ""}
+              ${completed ? '<span class="badge" style="background:var(--success-bg);color:var(--success);">Done</span>' : ""}
+            </div>
+            ${q.description ? `<div class="muted text-sm" style="margin-top:var(--space-2xs);">${escapeHtml(q.description)}</div>` : ""}
+            ${progress !== null ? `
+              <div style="margin-top:var(--space-xs);">
+                <div style="background:var(--surface-100);height:6px;border-radius:var(--radius-sm);overflow:hidden;">
+                  <div style="width:${progress}%;background:var(--accent);height:100%;"></div>
+                </div>
+                <div class="muted text-sm" style="margin-top:2px;">${q.current_progress}/${q.target_progress} (${progress}%)</div>
+              </div>` : ""}
+          </div>
+          <div class="flex-row" style="flex-shrink:0;">
+            ${!completed ? `<button class="btn btn-xs" onclick="completeQuest('${escapeHtml(q.id)}')">Complete</button>` : ""}
+            <button class="btn btn-xs" onclick="favoriteQuest('${escapeHtml(q.id)}', ${!fav})">${fav ? "Unstar" : "Star"}</button>
+            <button class="btn btn-xs btn-danger" onclick="deleteQuest('${escapeHtml(q.id)}')">×</button>
+          </div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function openQuestForm() {
+  const bodyHtml = `
+    <label>Title<input id="quest-f-title" type="text" placeholder="Run 5k this week"></label>
+    <label>Description<textarea id="quest-f-desc" placeholder="Optional details..."></textarea></label>
+    <label>Category<select id="quest-f-category">
+      <option value="productivity">Productivity</option>
+      <option value="health">Health</option>
+      <option value="finance">Finance</option>
+      <option value="social">Social</option>
+      <option value="work">Work</option>
+    </select></label>
+    <label>Target progress<input id="quest-f-target" type="number" min="1" value="1"></label>`;
+  openModal({
+    title: "New Quest",
+    body: bodyHtml,
+    actions: [
+      { label: "Cancel", variant: "secondary", onClick: (_e, { close }) => close() },
+      { label: "Create", variant: "primary", onClick: async (_e, { close }) => {
+        const payload = {
+          title: document.getElementById("quest-f-title").value.trim(),
+          description: document.getElementById("quest-f-desc").value.trim() || null,
+          category: document.getElementById("quest-f-category").value,
+          target_progress: parseInt(document.getElementById("quest-f-target").value, 10) || 1,
+        };
+        if (!payload.title) { toast.error("Title is required"); return; }
+        await safeFetchJson("/api/quests", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        });
+        toast.success("Quest created");
+        close();
+        fetchQuests();
+      }},
+    ],
+  });
+}
+
+async function completeQuest(id) {
+  try { await safeFetchJson(`/api/quests/${encodeURIComponent(id)}/complete`, { method: "POST" }); toast.success("Quest complete"); fetchQuests(); } catch {}
+}
+async function favoriteQuest(id, on) {
+  try {
+    await safeFetchJson(`/api/quests/${encodeURIComponent(id)}/favorite`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_favorite: on }),
+    });
+    fetchQuests();
+  } catch {}
+}
+async function deleteQuest(id) {
+  if (!confirm("Delete this quest and its logs?")) return;
+  try { await safeFetchJson(`/api/quests/${encodeURIComponent(id)}`, { method: "DELETE" }); toast.success("Quest deleted"); fetchQuests(); } catch {}
+}
+
+// --- User Profiles ---
+let _userProfilesCache = null;
+async function fetchUserProfiles() {
+  const list = document.getElementById("profiles-list");
+  if (!list) return;
+  showSkeleton(list, 5);
+
+  let users;
+  try { users = await safeFetchJson("/api/users"); } catch { return; }
+  _userProfilesCache = users;
+
+  if (!users.length) {
+    showEmptyState(list, { icon: "👤", title: "No users yet", message: "Profiles appear once the bot interacts with Discord users." });
+    return;
+  }
+
+  list.innerHTML = users.map((u) => `
+    <button class="profiles-list-item" type="button" data-user-id="${escapeHtml(u.id || u.userId)}">
+      <div class="profiles-list-name">${escapeHtml(u.username || u.name || u.id || u.userId)}</div>
+      <div class="profiles-list-meta muted text-sm">Msgs: ${u.messageCount ?? 0}</div>
+    </button>`).join("");
+
+  list.querySelectorAll(".profiles-list-item").forEach((btn) => {
+    btn.onclick = () => selectUserProfile(btn.dataset.userId);
+  });
+
+  if (users[0]) selectUserProfile(users[0].id || users[0].userId);
+}
+
+async function selectUserProfile(userId) {
+  const detail = document.getElementById("profiles-detail");
+  if (!detail) return;
+  document.querySelectorAll(".profiles-list-item").forEach((b) => {
+    b.classList.toggle("active", b.dataset.userId === userId);
+  });
+  detail.innerHTML = renderSkeleton(6);
+
+  let data;
+  try { data = await safeFetchJson(`/api/users/${encodeURIComponent(userId)}/profile`); } catch { return; }
+
+  if (!data.markdown) {
+    const { html, bind } = renderEmptyState({
+      icon: "∅",
+      title: "No dossier yet",
+      message: `Profile will be built automatically once ${escapeHtml(data.username || userId)} has at least 5 extracted facts.`,
+    });
+    detail.innerHTML = html;
+    bind(detail);
+    return;
+  }
+
+  const built = data.profileBuiltAt ? new Date(data.profileBuiltAt).toLocaleString() : "—";
+  detail.innerHTML = `
+    <div class="muted text-sm" style="margin-bottom:var(--space-xs);">Built: ${escapeHtml(built)} · Facts at build: ${data.factCountAtProfileBuild ?? "—"}</div>
+    <div class="profile-markdown">${renderMarkdownLite(data.markdown)}</div>`;
+}
+
+// Tiny markdown-to-HTML converter (headings, bold, italic, code, lists).
+// Not a full spec — enough for LLM-synthesized dossier files.
+function renderMarkdownLite(md) {
+  const esc = (s) => escapeHtml(s);
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let inList = false;
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const isListItem = /^[-*]\s+/.test(line);
+    if (isListItem && !inList) { out.push("<ul>"); inList = true; }
+    if (!isListItem && inList) { out.push("</ul>"); inList = false; }
+
+    if (isListItem) {
+      out.push("<li>" + inlineMd(line.replace(/^[-*]\s+/, "")) + "</li>");
+      continue;
+    }
+    if (/^######\s+/.test(line)) out.push("<h6>" + esc(line.replace(/^######\s+/, "")) + "</h6>");
+    else if (/^#####\s+/.test(line)) out.push("<h5>" + esc(line.replace(/^#####\s+/, "")) + "</h5>");
+    else if (/^####\s+/.test(line)) out.push("<h4>" + esc(line.replace(/^####\s+/, "")) + "</h4>");
+    else if (/^###\s+/.test(line)) out.push("<h4>" + esc(line.replace(/^###\s+/, "")) + "</h4>");
+    else if (/^##\s+/.test(line)) out.push("<h3 style=\"color:var(--text-primary);text-transform:none;letter-spacing:0;font-size:var(--font-size-md);margin-top:var(--space-md);\">" + esc(line.replace(/^##\s+/, "")) + "</h3>");
+    else if (/^#\s+/.test(line)) out.push("<h2 style=\"color:var(--accent);text-transform:none;letter-spacing:0;font-size:var(--font-size-lg);\">" + esc(line.replace(/^#\s+/, "")) + "</h2>");
+    else if (line === "") out.push("<br>");
+    else out.push("<p>" + inlineMd(line) + "</p>");
+  }
+  if (inList) out.push("</ul>");
+  return out.join("");
+
+  function inlineMd(s) {
+    let o = esc(s);
+    o = o.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    o = o.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+    o = o.replace(/`([^`]+)`/g, "<code>$1</code>");
+    return o;
+  }
+}
+
+// --- Conversation Summaries ---
+async function fetchSummaries() {
+  const list = document.getElementById("summaries-list");
+  if (!list) return;
+  showSkeleton(list, 4);
+
+  let data;
+  try { data = await safeFetchJson("/api/memory/summaries"); } catch { return; }
+
+  const entries = Object.entries(data || {});
+  if (!entries.length) {
+    showEmptyState(list, {
+      icon: "∅",
+      title: "No summaries yet",
+      message: "Summaries appear automatically when conversation history is compacted by the memory heartbeat.",
+    });
+    return;
+  }
+
+  entries.sort((a, b) => (b[1].updatedAt || "").localeCompare(a[1].updatedAt || ""));
+  list.innerHTML = entries.map(([chan, s]) => {
+    const when = s.updatedAt ? new Date(s.updatedAt).toLocaleString() : "—";
+    return `
+      <div class="card" style="margin-bottom:var(--space-sm);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--space-xs);">
+          <strong>#${escapeHtml(chan)}</strong>
+          <span class="muted text-sm">${escapeHtml(when)}</span>
+        </div>
+        <div style="white-space:pre-wrap;font-size:var(--font-size-xs);color:var(--text-secondary);">${escapeHtml(s.summary || "")}</div>
+      </div>`;
+  }).join("");
+}
+
+// --- Heartbeat detail ---
+async function fetchHeartbeatDetail() {
+  const el = document.getElementById("heartbeat-handlers");
+  const intervalEl = document.getElementById("heartbeat-interval-label");
+  if (!el) return;
+  showSkeleton(el, 6);
+
+  let data;
+  try { data = await safeFetchJson("/api/heartbeat"); } catch { return; }
+
+  if (intervalEl) intervalEl.textContent = data.running
+    ? `Every ${Math.round(data.intervalMs / 1000)}s · ticks: ${data.tickCount}`
+    : "Stopped";
+
+  if (!data.handlers?.length) {
+    showEmptyState(el, { icon: "∅", title: "No handlers registered" });
+    return;
+  }
+
+  el.innerHTML = data.handlers.map((h) => {
+    const runAt = h.lastRunAt ? new Date(h.lastRunAt).toLocaleTimeString() : "—";
+    const dur = h.lastDurationMs != null ? `${h.lastDurationMs}ms` : "—";
+    const result = h.lastError
+      ? `<span style="color:var(--danger);">error: ${escapeHtml(h.lastError)}</span>`
+      : h.lastResult
+        ? `<span style="color:var(--text-secondary);">${escapeHtml(h.lastResult)}</span>`
+        : `<span class="muted">silent</span>`;
+    const statusBadge = h.enabled
+      ? `<span class="badge" style="background:var(--success-bg);color:var(--success);">on</span>`
+      : `<span class="badge" style="background:var(--surface-200);color:var(--text-dim);">off</span>`;
+    return `
+      <div class="card" style="margin-bottom:var(--space-xs);">
+        <div style="display:flex;align-items:center;gap:var(--space-sm);flex-wrap:wrap;">
+          <strong>${escapeHtml(h.name)}</strong>
+          ${statusBadge}
+          <span class="muted text-sm">runs: ${h.runCount} · errors: ${h.errorCount}</span>
+          <span class="muted text-sm ml-auto">last: ${escapeHtml(runAt)} (${escapeHtml(dur)})</span>
+        </div>
+        <div class="muted text-sm" style="margin-top:var(--space-2xs);">${escapeHtml(h.description || "")}</div>
+        <div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);">${result}</div>
+      </div>`;
+  }).join("");
+}
+
+// --- Mood & Emotion ---
+async function fetchMoodAndEmotion() {
+  const moodEl = document.getElementById("mood-current");
+  const emoEl = document.getElementById("emotion-vector");
+  if (moodEl) showSkeleton(moodEl, 3);
+  if (emoEl) showSkeleton(emoEl, 5);
+
+  try {
+    const [mood, emotion] = await Promise.all([
+      safeFetchJson("/api/mood", { silent: true }),
+      safeFetchJson("/api/emotion", { silent: true }),
+    ]);
+
+    if (moodEl) {
+      if (!mood.active) {
+        moodEl.innerHTML = '<span class="muted">Neutral (no active mood)</span>';
+      } else {
+        moodEl.innerHTML = `
+          <div style="font-size:var(--font-size-xl);color:var(--accent);">${escapeHtml(mood.label || mood.emotion)}</div>
+          <div class="muted text-sm">intensity: ${mood.intensity?.toFixed?.(2) ?? "—"}${mood.secondary ? ` · secondary: ${escapeHtml(mood.secondary)}` : ""}</div>
+          ${mood.note ? `<div class="muted text-sm" style="margin-top:var(--space-xs);">${escapeHtml(mood.note)}</div>` : ""}`;
+      }
+    }
+
+    if (emoEl) {
+      const dims = ["joy","trust","fear","surprise","sadness","disgust","anger","anticipation"];
+      const entries = dims.map((d) => ({ label: d, value: (emotion?.[d] ?? 0) }));
+      emoEl.innerHTML = entries.map((e) => {
+        const pct = Math.max(0, Math.min(100, e.value * 100));
+        return `
+          <div class="bar-chart-row">
+            <div class="bar-chart-label">${e.label}</div>
+            <div class="bar-chart-bar"><div class="bar-chart-fill" style="width:${pct}%"></div></div>
+            <div class="bar-chart-value">${e.value.toFixed(2)}</div>
+          </div>`;
+      }).join("");
+    }
+  } catch { /* safeFetchJson already toasted */ }
+}
+
+// --- Logs (polling fallback to SSE-driven console for full-page view) ---
+let _allLogs = [];
+async function refreshLogs() {
+  const list = document.getElementById("logs-list");
+  if (!list) return;
+  showSkeleton(list, 8);
+  try { _allLogs = await safeFetchJson("/api/logs"); } catch { return; }
+  renderLogsFiltered();
+}
+function renderLogsFiltered() {
+  const list = document.getElementById("logs-list");
+  const filter = document.getElementById("logs-level-filter")?.value || "all";
+  if (!list) return;
+  const filtered = filter === "all" ? _allLogs : _allLogs.filter((l) => (l.level || "info") === filter);
+  if (!filtered.length) {
+    showEmptyState(list, { icon: "∅", title: "No log entries", message: filter === "all" ? "Logs will appear as the bot runs." : "No logs at this level." });
+    return;
+  }
+  list.innerHTML = filtered.slice(-200).reverse().map((l) => {
+    const ts = l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : "";
+    const lvl = (l.level || "info").toUpperCase();
+    const color = l.level === "error" ? "var(--danger)" : l.level === "warn" ? "var(--warning)" : "var(--text-muted)";
+    return `<div class="logs-line" style="padding:2px 0;font-size:var(--font-size-xs);font-family:'Roboto Mono',monospace;">
+      <span class="muted" style="margin-right:var(--space-xs);">${escapeHtml(ts)}</span>
+      <span style="color:${color};margin-right:var(--space-xs);">[${lvl}]</span>
+      <span>${escapeHtml(l.message || "")}</span>
+    </div>`;
+  }).join("");
+}
+
+// --- Tool execute modal ---
+async function openToolExecuteModal(toolName) {
+  let tool;
+  try { tool = await safeFetchJson(`/api/tools/${encodeURIComponent(toolName)}`); } catch { return; }
+  const schema = tool?.parameters || tool?.inputSchema || {};
+  const props = schema.properties || {};
+  const required = new Set(schema.required || []);
+
+  const fields = Object.entries(props).map(([key, def]) => {
+    const t = def.type || "string";
+    const label = `${key}${required.has(key) ? " *" : ""}`;
+    if (t === "boolean") {
+      return `<label>${escapeHtml(label)}<select data-key="${escapeHtml(key)}"><option value="">(unset)</option><option value="true">true</option><option value="false">false</option></select></label>`;
+    }
+    if (t === "number" || t === "integer") {
+      return `<label>${escapeHtml(label)}<input type="number" data-key="${escapeHtml(key)}" placeholder="${escapeHtml(def.description || "")}"></label>`;
+    }
+    if (Array.isArray(def.enum)) {
+      return `<label>${escapeHtml(label)}<select data-key="${escapeHtml(key)}"><option value="">(unset)</option>${def.enum.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("")}</select></label>`;
+    }
+    return `<label>${escapeHtml(label)}<textarea data-key="${escapeHtml(key)}" placeholder="${escapeHtml(def.description || "")}"></textarea></label>`;
+  }).join("");
+
+  const bodyHtml = `
+    <div class="muted text-sm">${escapeHtml(tool?.description || "")}</div>
+    ${fields || '<div class="muted">This tool takes no parameters.</div>'}
+    <div id="tool-exec-result" style="display:none;margin-top:var(--space-sm);"></div>`;
+
+  openModal({
+    title: `Run: ${toolName}`,
+    body: bodyHtml,
+    actions: [
+      { label: "Cancel", variant: "secondary", onClick: (_e, { close }) => close() },
+      { label: "Run", variant: "primary", onClick: async (ev, { close }) => {
+        const btn = ev.target;
+        const modalEl = btn.closest(".modal");
+        const args = {};
+        modalEl.querySelectorAll("[data-key]").forEach((inp) => {
+          const key = inp.dataset.key;
+          let v = inp.value;
+          if (v === "" || v === "(unset)") return;
+          const t = props[key]?.type;
+          if (t === "boolean") v = v === "true";
+          else if (t === "number" || t === "integer") v = Number(v);
+          args[key] = v;
+        });
+        const resEl = modalEl.querySelector("#tool-exec-result");
+        resEl.style.display = "block";
+        resEl.innerHTML = renderSkeleton(3);
+        try {
+          const out = await safeFetchJson(`/api/tools/${encodeURIComponent(toolName)}/execute`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ args }),
+          });
+          resEl.innerHTML = `<pre style="white-space:pre-wrap;font-size:var(--font-size-xs);background:var(--bg-100);padding:var(--space-sm);border-radius:var(--radius-sm);">${escapeHtml(typeof out === "string" ? out : JSON.stringify(out, null, 2))}</pre>`;
+        } catch (err) {
+          resEl.innerHTML = `<div style="color:var(--danger);">${escapeHtml(err.message || String(err))}</div>`;
+        }
+      }},
+    ],
+  });
 }
 
 // --- Init ---

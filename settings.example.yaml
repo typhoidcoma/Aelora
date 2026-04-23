@@ -91,6 +91,34 @@ llm:
   # verifyToolClaims: true        # default: true
   # maxVerificationRetries: 1     # default: 1
 
+  # --- Transport & prompt caching ---
+  # Install an undici global dispatcher so the OpenAI SDK's native fetch
+  # reuses one HTTP/2 (or HTTP/1.1 keepalive) connection to the LLM endpoint.
+  # Shaves TLS handshakes on every call. Set false to fall back to Node's
+  # default fetch if your provider misbehaves.
+  # http2Enabled: true            # default: true
+  # Override via env: AELORA_LLM_HTTP2=false
+
+  # Send provider-specific prompt-cache hints (`prompt_cache_key` on OpenAI,
+  # cache_read_input_tokens accounting on Anthropic) to boost prefix-cache
+  # hit rate. Disable if your endpoint rejects unknown request fields.
+  # promptCacheEnabled: true      # default: true
+  # Override via env: AELORA_LLM_PROMPT_CACHE=false
+
+  # Provider hint — controls prompt-cache annotation shape.
+  #   auto       - infer from baseURL (default)
+  #   openai     - OpenAI / OpenAI-compatible prompt_cache_key path
+  #   anthropic  - Anthropic cache_control ephemeral-block path
+  # providerHint: "auto"          # default: "auto"
+  # Override via env: AELORA_LLM_PROVIDER_HINT=openai
+
+  # Cache key scope — narrower scopes raise per-conversation hit rate but
+  # lose sharing across channels/personas.
+  #   persona          - one key per active persona
+  #   channel          - one key per channel
+  #   persona+channel  - both (default, best for multi-channel bots)
+  # promptCacheScope: "persona+channel"    # default: "persona+channel"
+
 # --- Persona ---
 # Composes the bot's system prompt from markdown files in a persona directory.
 # Each file uses YAML frontmatter (order, enabled, label, section) + markdown body.
@@ -190,6 +218,19 @@ web:
     allowQueryToken: true     # HTTP: permit ?token=... fallback when no bearer header
     allowWsQueryToken: true   # WS: permit ?token=... fallback when no bearer header
 
+  # --- WebSocket transport ---
+  # permessage-deflate compresses frames ≥1 KB. Browsers negotiate automatically;
+  # the dashboard and ThreeJS frontend both benefit. Disable only if your proxy
+  # strips the negotiation header.
+  # wsCompression: true         # default: true
+
+  # Opt-in binary Float32Array frames for the "emotion" topic — high-rate
+  # emotion vector updates skip JSON serialisation for the ThreeJS mesh.
+  # The ThreeJS client turns this on per-connection via the subscribe message
+  # (`{ type: "subscribe", topics: ["emotion"], binary: true }`). The dashboard
+  # stays on JSON either way. This flag is the server-side master switch.
+  # wsBinaryEmotion: false      # default: false
+
   # If apiKey is omitted, public routes stay open and sensitive routes are local-only.
   # Sensitive routes: /api/reboot, /api/export, and persona file mutation endpoints.
 
@@ -236,9 +277,11 @@ cron:
   maxHistory: 10              # Max execution history records per cron job
 
 # --- Discord Activity ---
-# Embed a web app (e.g. Unity WebGL) as a Discord Activity.
+# Embed a web app (ThreeJS web frontend by default) as a Discord Activity.
 # Requires Activities enabled in the Discord Developer Portal.
 # Place build files in the activity/ directory at project root.
+# Note: Unity WebGL support was retired in favor of ThreeJS; the Activity
+# iframe + OAuth2 flow are unchanged, only the embedded client differs.
 
 activity:
   enabled: false

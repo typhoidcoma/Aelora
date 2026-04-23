@@ -1,5 +1,6 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { queueTextAppend } from "./async-write-queue.js";
 
 const LOGS_DIR = "data/memory/logs";
 
@@ -42,12 +43,7 @@ export function appendLog(entry: LogEntry): void {
     "",
   ].join("\n");
 
-  try {
-    const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
-    writeFileSync(file, existing + block, "utf-8");
-  } catch (err) {
-    console.error("DailyLog: failed to append:", err);
-  }
+  queueTextAppend(file, block, { debounceMs: 500 });
 }
 
 /**
@@ -111,12 +107,7 @@ export function appendSystemEvent(event: string, detail?: string): void {
     "",
   ].join("\n");
 
-  try {
-    const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
-    writeFileSync(file, existing + block, "utf-8");
-  } catch (err) {
-    console.error("DailyLog: failed to append system event:", err);
-  }
+  queueTextAppend(file, block, { debounceMs: 500 });
 }
 
 /**

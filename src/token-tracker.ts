@@ -17,6 +17,7 @@ export type TokenUsageEvent = {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens?: number;
+  cachedTokens?: number;  // subset of inputTokens served from provider prompt cache
   model: string;
   source: string;  // e.g. "chat", "extraction", "triage", "mood", "consolidation", "ambient", "compaction", "scoring", "correction"
 };
@@ -26,6 +27,7 @@ type HourlyBucket = {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   requests: number;
 };
 
@@ -33,6 +35,7 @@ type ModelStats = {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  cachedTokens: number;
   requests: number;
 };
 
@@ -43,6 +46,7 @@ type TokenStats = {
     inputTokens: number;
     outputTokens: number;
     reasoningTokens: number;
+    cachedTokens: number;
     requests: number;
     firstTrackedAt: string;
   };
@@ -51,6 +55,7 @@ type TokenStats = {
     inputTokens: number;
     outputTokens: number;
     reasoningTokens: number;
+    cachedTokens: number;
     requests: number;
   };
   hourly: HourlyBucket[]; // rolling 48 hours
@@ -70,6 +75,7 @@ function createEmptyStats(): TokenStats {
       inputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
+      cachedTokens: 0,
       requests: 0,
       firstTrackedAt: new Date().toISOString(),
     },
@@ -78,12 +84,27 @@ function createEmptyStats(): TokenStats {
       inputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
+      cachedTokens: 0,
       requests: 0,
     },
     hourly: [],
     byModel: {},
     bySource: {},
   };
+}
+
+function backfillStatsShape(s: TokenStats): TokenStats {
+  // Older data/token-usage.json snapshots predate cachedTokens — fill in defaults.
+  if (typeof s.lifetime.cachedTokens !== "number") s.lifetime.cachedTokens = 0;
+  if (typeof s.today.cachedTokens !== "number") s.today.cachedTokens = 0;
+  for (const b of s.hourly) if (typeof b.cachedTokens !== "number") b.cachedTokens = 0;
+  for (const k of Object.keys(s.byModel)) {
+    if (typeof s.byModel[k].cachedTokens !== "number") s.byModel[k].cachedTokens = 0;
+  }
+  for (const k of Object.keys(s.bySource)) {
+    if (typeof s.bySource[k].cachedTokens !== "number") s.bySource[k].cachedTokens = 0;
+  }
+  return s;
 }
 
 function todayStr(): string {
@@ -100,13 +121,13 @@ function load(): void {
   try {
     if (existsSync(STATS_FILE)) {
       const raw = JSON.parse(readFileSync(STATS_FILE, "utf-8"));
-      stats = {
+      stats = backfillStatsShape({
         lifetime: raw.lifetime ?? createEmptyStats().lifetime,
         today: raw.today ?? createEmptyStats().today,
         hourly: Array.isArray(raw.hourly) ? raw.hourly : [],
         byModel: raw.byModel ?? {},
         bySource: raw.bySource ?? {},
-      };
+      });
     }
   } catch {
     stats = createEmptyStats();
@@ -134,6 +155,7 @@ function rolloverDay(): void {
       inputTokens: 0,
       outputTokens: 0,
       reasoningTokens: 0,
+      cachedTokens: 0,
       requests: 0,
     };
   }
@@ -145,7 +167,7 @@ function getOrCreateHourBucket(): HourlyBucket {
   const hour = currentHour();
   let bucket = stats.hourly.find((b) => b.hour === hour);
   if (!bucket) {
-    bucket = { hour, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, requests: 0 };
+    bucket = { hour, inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, requests: 0 };
     stats.hourly.push(bucket);
 
     // Prune buckets older than 48 hours
@@ -165,6 +187,7 @@ export function recordUsage(event: TokenUsageEvent): void {
   const input = event.inputTokens || 0;
   const output = event.outputTokens || 0;
   const reasoning = event.reasoningTokens || 0;
+  const cached = event.cachedTokens || 0;
 
   if (input === 0 && output === 0) return; // nothing to record
 
@@ -174,12 +197,14 @@ export function recordUsage(event: TokenUsageEvent): void {
   stats.lifetime.inputTokens += input;
   stats.lifetime.outputTokens += output;
   stats.lifetime.reasoningTokens += reasoning;
+  stats.lifetime.cachedTokens += cached;
   stats.lifetime.requests++;
 
   // Today
   stats.today.inputTokens += input;
   stats.today.outputTokens += output;
   stats.today.reasoningTokens += reasoning;
+  stats.today.cachedTokens += cached;
   stats.today.requests++;
 
   // Hourly
@@ -187,26 +212,29 @@ export function recordUsage(event: TokenUsageEvent): void {
   bucket.inputTokens += input;
   bucket.outputTokens += output;
   bucket.reasoningTokens += reasoning;
+  bucket.cachedTokens += cached;
   bucket.requests++;
 
   // By model
   const modelKey = event.model || "unknown";
   if (!stats.byModel[modelKey]) {
-    stats.byModel[modelKey] = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, requests: 0 };
+    stats.byModel[modelKey] = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, requests: 0 };
   }
   stats.byModel[modelKey].inputTokens += input;
   stats.byModel[modelKey].outputTokens += output;
   stats.byModel[modelKey].reasoningTokens += reasoning;
+  stats.byModel[modelKey].cachedTokens += cached;
   stats.byModel[modelKey].requests++;
 
   // By source
   const sourceKey = event.source || "unknown";
   if (!stats.bySource[sourceKey]) {
-    stats.bySource[sourceKey] = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, requests: 0 };
+    stats.bySource[sourceKey] = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cachedTokens: 0, requests: 0 };
   }
   stats.bySource[sourceKey].inputTokens += input;
   stats.bySource[sourceKey].outputTokens += output;
   stats.bySource[sourceKey].reasoningTokens += reasoning;
+  stats.bySource[sourceKey].cachedTokens += cached;
   stats.bySource[sourceKey].requests++;
 
   dirty = true;
@@ -218,6 +246,7 @@ export function recordUsage(event: TokenUsageEvent): void {
     inputTokens: input,
     outputTokens: output,
     reasoningTokens: reasoning,
+    cachedTokens: cached,
     model: modelKey,
     source: sourceKey,
     timestamp: new Date().toISOString(),
@@ -229,16 +258,32 @@ export function recordUsage(event: TokenUsageEvent): void {
  * Works with any response that has a `.usage` field (streaming or non-streaming).
  */
 export function recordCompletionUsage(
-  response: { usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } } | null },
+  response: {
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      completion_tokens_details?: { reasoning_tokens?: number };
+      prompt_tokens_details?: { cached_tokens?: number };
+      // Anthropic OpenAI-compat shape (passthrough fields on /v1/chat/completions)
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    } | null;
+  },
   model: string,
   source: string,
 ): void {
   const usage = response?.usage;
   if (!usage) return;
+  const cached =
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.cache_read_input_tokens ??
+    0;
   recordUsage({
     inputTokens: usage.prompt_tokens ?? 0,
     outputTokens: usage.completion_tokens ?? 0,
     reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: cached,
     model,
     source,
   });

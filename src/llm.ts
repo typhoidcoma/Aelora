@@ -18,6 +18,7 @@ import { broadcastEvent } from "./logger.js";
 import { selectProviderRuntime } from "./llm/runtime-selector.js";
 import { recordUsage, recordCompletionUsage } from "./token-tracker.js";
 import { getProfileForPrompt } from "./user-profile.js";
+import { createLLMTransport } from "./llm/http-client.js";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
@@ -261,6 +262,9 @@ const compactionQueue = new Map<string, ChatMessage[]>();
 
 export function initLLM(cfg: Config): void {
   config = cfg;
+  // Install undici global dispatcher (HTTP/2 + keepalive). Safe no-op if disabled.
+  // SDK continues to use its native fetch — dispatcher intercepts transparently.
+  createLLMTransport(cfg);
   client = new OpenAI({
     baseURL: cfg.llm.baseURL,
     apiKey: cfg.llm.apiKey || undefined,
@@ -588,8 +592,25 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<string> {
  * so the LLM always knows the current state of its environment.
  */
 export async function buildSystemPrompt(userId?: string, channelId?: string, conversationContext?: string, kbQuery?: string): Promise<string> {
+  const buildStart = Date.now();
   const base = config.llm.systemPrompt;
   const sections: string[] = [];
+
+  // Kick off the only two network-bound fetches (memory semantic search + KB
+  // vector search) immediately so they run in parallel with the sync section
+  // assembly below. We await them just before they are needed.
+  // KB search prefers the focused kbQuery (latest user msg) so short direct
+  // questions like "who's tyler?" still trigger retrieval.
+  const kbSearchQuery = kbQuery || conversationContext;
+  const memoryAndKbPromise = Promise.all([
+    getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
+    kbSearchQuery && kbSearchQuery.trim().length >= 3
+      ? searchKnowledgeBase(kbSearchQuery).catch((err) => {
+          console.warn("KnowledgeBase: search failed during prompt build:", err instanceof Error ? err.message : err);
+          return [] as Awaited<ReturnType<typeof searchKnowledgeBase>>;
+        })
+      : Promise.resolve([] as Awaited<ReturnType<typeof searchKnowledgeBase>>),
+  ]);
 
   // Sections ordered static → dynamic to maximize OpenAI prompt prefix caching.
   // The persona base prompt (above) is always the same, so it anchors the cache.
@@ -655,19 +676,7 @@ export async function buildSystemPrompt(userId?: string, channelId?: string, con
 
   // --- Memory + Knowledge Base (semi-static) ---
   {
-    // KB search uses kbQuery (focused, latest user msg) when available, falling
-    // back to conversationContext. Short direct questions like "who's tyler?"
-    // should still trigger retrieval, so the minimum-length gate is small.
-    const kbSearchQuery = kbQuery || conversationContext;
-    const [memoryBlock, kbResults] = await Promise.all([
-      getMemoryForPrompt(userId ?? null, channelId ?? null, conversationContext),
-      kbSearchQuery && kbSearchQuery.trim().length >= 3
-        ? searchKnowledgeBase(kbSearchQuery).catch((err) => {
-            console.warn("KnowledgeBase: search failed during prompt build:", err instanceof Error ? err.message : err);
-            return [] as Awaited<ReturnType<typeof searchKnowledgeBase>>;
-          })
-        : Promise.resolve([]),
-    ]);
+    const [memoryBlock, kbResults] = await memoryAndKbPromise;
 
     if (memoryBlock) {
       sections.push("\n\n" + memoryBlock);
@@ -722,6 +731,14 @@ export async function buildSystemPrompt(userId?: string, channelId?: string, con
 
   // System status (uptime, heartbeat, cron) omitted to save prompt space.
   // The bot gets tool schemas via the tools array; runtime state is rarely needed.
+
+  const buildMs = Date.now() - buildStart;
+  // Cold-path floor is ~400ms (embedding API + KB search round-trip). Warm-path
+  // (embed cache hit) should be <50ms. Anything past 1500ms means unexpected IO,
+  // stalled Promise, or embedding API slowdown worth surfacing.
+  if (buildMs > 1500) {
+    console.warn(`LLM: buildSystemPrompt slow (${buildMs}ms) — hot-path IO regression?`);
+  }
 
   if (sections.length === 0) return base;
   return base + sections.join("");
@@ -986,6 +1003,25 @@ function resolveToolsForAllowlist(
   );
 }
 
+/**
+ * Derive a prompt_cache_key for the current turn. Scope controls how aggressively
+ * concurrent turns share a cached prefix; "persona+channel" is the default and
+ * maximises per-conversation cache hits without polluting across personas.
+ * Returns undefined when prompt caching is disabled in config.
+ */
+function buildPromptCacheKey(channelId: string | null): string | undefined {
+  if (!config.llm.promptCacheEnabled) return undefined;
+  const persona = config.persona.activePersona || "default";
+  const scope = config.llm.promptCacheScope;
+  const channel = channelId ?? "global";
+  switch (scope) {
+    case "persona": return persona;
+    case "channel": return channel;
+    case "persona+channel":
+    default:        return `${persona}:${channel}`;
+  }
+}
+
 // Cache for agent registry (set after agents are loaded to break circular dep)
 let agentRegistryCache: typeof import("./agent-registry.js") | null = null;
 
@@ -1099,6 +1135,7 @@ async function runCompletionLoop(
     let content: string | null;
     let toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined;
     const apiStart = Date.now();
+    let ttftMs: number | null = null;
     const thinkFilter = onToken ? new ThinkBlockFilter(onToken) : null;
 
     try {
@@ -1110,8 +1147,10 @@ async function runCompletionLoop(
         maxOutputTokens: resolveMaxOutputTokens(),
         stream: !!onToken,
         userId,
+        promptCacheKey: buildPromptCacheKey(channelId),
         onTextDelta: onToken
           ? (delta) => {
+              if (ttftMs === null) ttftMs = Date.now() - apiStart;
               thinkFilter?.push(delta);
               emotionAnalyzer?.push(delta);
             }
@@ -1123,18 +1162,20 @@ async function runCompletionLoop(
 
       const apiMs = Date.now() - apiStart;
       if (result.usage?.totalTokens !== undefined) {
+        const cached = result.usage.cachedTokens ?? 0;
         console.log(
-          `LLM: response ${apiMs}ms (in=${result.usage.inputTokens ?? "?"}, out=${result.usage.outputTokens ?? "?"}, total=${result.usage.totalTokens})`,
+          `LLM: response ${apiMs}ms${ttftMs !== null ? ` TTFT=${ttftMs}ms` : ""} (in=${result.usage.inputTokens ?? "?"}, out=${result.usage.outputTokens ?? "?"}, total=${result.usage.totalTokens}${cached > 0 ? `, cached=${cached}` : ""})`,
         );
         recordUsage({
           inputTokens: result.usage.inputTokens ?? 0,
           outputTokens: result.usage.outputTokens ?? 0,
           reasoningTokens: result.usage.reasoningTokens ?? 0,
+          cachedTokens: cached,
           model: config.llm.model,
           source: "chat",
         });
       } else {
-        console.log(`LLM: response ${apiMs}ms`);
+        console.log(`LLM: response ${apiMs}ms${ttftMs !== null ? ` TTFT=${ttftMs}ms` : ""}`);
       }
       broadcastEvent("mindmap", {
         type: "llm:iteration",

@@ -339,6 +339,18 @@ export function startWeb(state: AppState): Server | null {
     res.json({ success: true });
   });
 
+  // LLM transport (HTTP/2 + keepalive) diagnostics
+  app.get("/api/llm/transport", async (_req, res) => {
+    const { getLLMTransportStats } = await import("./llm/http-client.js");
+    const { getEmbeddingCacheStats } = await import("./vector-store.js");
+    const { getAsyncWriteStats } = await import("./async-write-queue.js");
+    res.json({
+      transport: getLLMTransportStats(),
+      embeddingCache: getEmbeddingCacheStats(),
+      asyncWriteQueue: getAsyncWriteStats(),
+    });
+  });
+
   // Cron job list with state
   app.get("/api/cron", (_req, res) => {
     res.json(getCronJobsForAPI());

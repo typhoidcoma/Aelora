@@ -70,7 +70,7 @@ tags:
   - name: Export
     description: Data export (full or selective JSON bundle)
   - name: Activity
-    description: Discord Activity (Unity WebGL) support
+    description: Discord Activity (ThreeJS web frontend) support. Unity WebGL was retired; the Activity iframe, OAuth2 flow, and bridge API are unchanged.
   - name: Tokens
     description: LLM token usage tracking and statistics
   - name: Quests
@@ -84,14 +84,14 @@ tags:
       ```json
       { "action": "created|completed|updated|deleted", "quest": {...} }
       ```
-      Unity/frontend clients listen for `{ type: "event", event: "quest", data }` on `/ws` to update UI without polling.
+      Frontend clients (ThreeJS web frontend, dashboard, any WebSocket consumer) listen for `{ type: "event", event: "quest", data }` on `/ws` to update UI without polling.
   - name: Linear
     description: Linear project management integration (issues, projects, teams)
   - name: Knowledge Base
     description: Google Drive knowledge base sync, search, and file management
   - name: Emotion
     description: |
-      Real-time continuous emotion vectors for 3D mesh animation (Unity frontend).
+      Real-time continuous emotion vectors for 3D mesh animation (ThreeJS web frontend).
       Uses Plutchik's 8 primary emotions as 0.0–1.0 float dimensions.
 
       Three sources broadcast `"emotion"` events via SSE/WebSocket:
@@ -102,11 +102,19 @@ tags:
     description: Ambient awareness engine status, buffers, and trigger management
   - name: WebSocket
     description: |
-      Real-time bidirectional chat via WebSocket at `ws://host:port/ws`.
+      Real-time bidirectional chat + topic-subscribed event bus at `ws://host:port/ws`.
 
       **Connection:** prefer bearer auth (if the client supports headers).
       Query-token (`?token=...`) remains available for compatibility and can be
       disabled with `web.auth.allowWsQueryToken`.
+
+      **Compression:** server negotiates `permessage-deflate` automatically when
+      `web.wsCompression: true` (default). Frames ≥1 KB are compressed.
+
+      **Topics:** the event bus is partitioned into six topics — `chat`,
+      `emotion`, `mindmap`, `logs`, `tokens`, `heartbeat`. Clients narrow their
+      feed via the `subscribe` message below. Clients that never subscribe keep
+      receiving every topic (backward compatibility).
 
       **Protocol (JSON):**
       Client -> Server:
@@ -114,15 +122,21 @@ tags:
       - `{ "type": "message", "content": "..." }` - send chat message
       - `{ "type": "clear" }` - start new session (clears history, summary, context, and session stats)
       - `{ "type": "presence", "status": "online|idle|offline" }` - report user presence (updates activity tracking)
+      - `{ "type": "subscribe", "topics": ["emotion", "mindmap"], "binary?": true }` - narrow event feed to the listed topics. Optional `binary: true` (for the `emotion` topic) switches that topic's payloads to `Float32Array` frames when `web.wsBinaryEmotion: true`.
+      - `{ "type": "unsubscribe", "topics": ["logs"] }` - remove topics from the current subscription
 
       Server -> Client:
       - `{ "type": "ready", "sessionId": "..." }` - session bound
       - `{ "type": "token", "content": "..." }` - streamed response chunk
       - `{ "type": "done", "reply": "..." }` - full response
       - `{ "type": "error", "error": "..." }` - error message
-      - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update (Plutchik label + intensity)
-      - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats + source: user|stream|llm)
-      - `{ "type": "event", "event": "quest", "data": {...} }` - quest mutation (action: created|completed|updated|deleted + quest row)
+      - `{ "type": "subscribed", "topics": [...] }` - ack for subscribe/unsubscribe
+      - `{ "type": "event", "event": "mood", "data": {...} }` - discrete mood update, routed to `emotion` topic
+      - `{ "type": "event", "event": "emotion", "data": {...} }` - continuous emotion vector (8D floats + source: user|stream|llm), routed to `emotion` topic
+      - `{ "type": "event", "event": "quest", "data": {...} }` - quest mutation (action: created|completed|updated|deleted + quest row), routed to `heartbeat` topic
+      - `{ "type": "event", "event": "tokens:usage", "data": {...} }` - token accounting for the last LLM call, includes `cachedTokens`, routed to `tokens` topic
+      - `{ "type": "event", "event": "mindmap", "data": {...} }` - conversation-graph updates (conversation:start / :message / :end, tool:start / :end, memory:search, kb:search), routed to `mindmap` topic
+      - Binary frame (when `emotion` subscribed with `binary: true` and server-side `wsBinaryEmotion` enabled) - `Float32Array` packed as `[conversationIdHash, joy, trust, fear, surprise, sadness, disgust, anger, anticipation]`
 
 components:
   securitySchemes:
@@ -3622,7 +3636,13 @@ paths:
     get:
       tags: [Tokens]
       summary: Get token usage statistics
-      description: Returns LLM token usage stats including lifetime totals, today's usage, hourly buckets (48h rolling), and breakdowns by model and source.
+      description: |
+        Returns LLM token usage stats including lifetime totals, today's usage, hourly buckets (48h rolling),
+        and breakdowns by model and source.
+
+        `cachedTokens` is a subset of `inputTokens` that was served from the provider's prompt cache
+        (OpenAI `usage.prompt_tokens_details.cached_tokens` or Anthropic `usage.cache_read_input_tokens`).
+        It is additive — the canonical input-token meter stays `inputTokens`; do not subtract.
       responses:
         "200":
           description: Token usage statistics
@@ -3637,6 +3657,7 @@ paths:
                       inputTokens: { type: integer }
                       outputTokens: { type: integer }
                       reasoningTokens: { type: integer }
+                      cachedTokens: { type: integer, description: "Subset of inputTokens served from the provider prompt cache." }
                       requests: { type: integer }
                       firstTrackedAt: { type: string, format: date-time }
                   today:
@@ -3646,6 +3667,7 @@ paths:
                       inputTokens: { type: integer }
                       outputTokens: { type: integer }
                       reasoningTokens: { type: integer }
+                      cachedTokens: { type: integer }
                       requests: { type: integer }
                   hourly:
                     type: array
@@ -3655,6 +3677,8 @@ paths:
                         hour: { type: string }
                         inputTokens: { type: integer }
                         outputTokens: { type: integer }
+                        reasoningTokens: { type: integer }
+                        cachedTokens: { type: integer }
                         requests: { type: integer }
                   byModel:
                     type: object
@@ -3663,6 +3687,8 @@ paths:
                       properties:
                         inputTokens: { type: integer }
                         outputTokens: { type: integer }
+                        reasoningTokens: { type: integer }
+                        cachedTokens: { type: integer }
                         requests: { type: integer }
                   bySource:
                     type: object
@@ -3671,12 +3697,15 @@ paths:
                       properties:
                         inputTokens: { type: integer }
                         outputTokens: { type: integer }
+                        reasoningTokens: { type: integer }
+                        cachedTokens: { type: integer }
                         requests: { type: integer }
                 example:
                   lifetime:
                     inputTokens: 184502
                     outputTokens: 51930
                     reasoningTokens: 10200
+                    cachedTokens: 92400
                     requests: 842
                     firstTrackedAt: "2026-03-01T00:00:00.000Z"
                   today:
@@ -3684,25 +3713,30 @@ paths:
                     inputTokens: 12400
                     outputTokens: 3820
                     reasoningTokens: 820
+                    cachedTokens: 6200
                     requests: 54
                   hourly:
                     - hour: "2026-04-18T14:00:00.000Z"
                       inputTokens: 2180
                       outputTokens: 621
+                      cachedTokens: 1100
                       requests: 9
                   byModel:
                     "claude-opus-4-7":
                       inputTokens: 12400
                       outputTokens: 3820
+                      cachedTokens: 6200
                       requests: 54
                   bySource:
                     chat:
                       inputTokens: 8200
                       outputTokens: 2900
+                      cachedTokens: 5400
                       requests: 42
                     triage:
                       inputTokens: 1800
                       outputTokens: 320
+                      cachedTokens: 0
                       requests: 10
 
   /api/tokens/reset:
@@ -3721,6 +3755,76 @@ paths:
                   success: { type: boolean }
                 example:
                   success: true
+
+  /api/llm/transport:
+    get:
+      tags: [Tokens]
+      summary: LLM transport and embedding-cache diagnostics
+      description: |
+        Consolidated diagnostic view of the low-latency subsystems introduced
+        with the service reshape:
+
+        - `transport` — undici global-dispatcher connection counters
+          (from `diagnostics_channel` subscriptions on
+          `undici:client:connected`, `undici:client:disconnected`,
+          `undici:request:create`). Healthy pool: `inflight` oscillates near
+          zero, `opened` stops growing after the first few requests.
+        - `embeddingCache` — LRU+TTL cache in `src/vector-store.ts`
+          (cap 2000 entries). Query-text embeddings carry a 5-minute TTL;
+          fact-indexing embeddings have `Infinity` TTL and are only evicted by
+          LRU. `hitRate` above ~0.4 confirms cross-request dedup is paying off.
+        - `asyncWriteQueue` — current queue depth across every file being
+          written via `src/async-write-queue.ts` (users.json, daily-log,
+          token-usage, conversations, summaries, etc.). `flushFailures > 0` is
+          the alert signal — look for disk or permission issues.
+
+        Pair this with `GET /api/tokens` (especially `bySource.chat.cachedTokens`)
+        to confirm prompt caching is firing end-to-end.
+      responses:
+        "200":
+          description: Transport diagnostics snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transport:
+                    type: object
+                    properties:
+                      enabled: { type: boolean, description: "True when the undici global dispatcher is installed." }
+                      opened: { type: integer, description: "Total sockets opened to LLM/embedding hosts via undici." }
+                      closed: { type: integer, description: "Total sockets closed." }
+                      requests: { type: integer, description: "Total requests issued through the dispatcher." }
+                      inflight: { type: integer, description: "`opened - closed`. Should oscillate near 0 under a healthy pool." }
+                  embeddingCache:
+                    type: object
+                    properties:
+                      size: { type: integer }
+                      hits: { type: integer }
+                      misses: { type: integer }
+                      hitRate: { type: number, format: float, minimum: 0, maximum: 1 }
+                  asyncWriteQueue:
+                    type: object
+                    properties:
+                      queuedFiles: { type: integer }
+                      queuedBytes: { type: integer }
+                      flushFailures: { type: integer }
+                example:
+                  transport:
+                    enabled: true
+                    opened: 2
+                    closed: 0
+                    requests: 147
+                    inflight: 1
+                  embeddingCache:
+                    size: 312
+                    hits: 418
+                    misses: 260
+                    hitRate: 0.6165
+                  asyncWriteQueue:
+                    queuedFiles: 3
+                    queuedBytes: 28401
+                    flushFailures: 0
 
 
   # â”€â”€ Quests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

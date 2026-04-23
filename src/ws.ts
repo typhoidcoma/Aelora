@@ -10,7 +10,7 @@ import { appendLog } from "./daily-log.js";
 import { updateUser } from "./users.js";
 import { extractFacts, trackMessage } from "./fact-extractor.js";
 import { triageUserMessage } from "./message-triage.js";
-import { addWSClient } from "./logger.js";
+import { addWSClient, updateWSClientTopics, WS_TOPICS, type WSTopic } from "./logger.js";
 
 // ============================================================
 // Types
@@ -20,14 +20,17 @@ type ClientMessage =
   | { type: "init"; sessionId: string; userId?: string; username?: string }
   | { type: "message"; content: string }
   | { type: "clear" }
-  | { type: "presence"; status: string };
+  | { type: "presence"; status: string }
+  | { type: "subscribe"; topics: string[] }
+  | { type: "unsubscribe"; topics: string[] };
 
 type ServerMessage =
   | { type: "ready"; sessionId: string }
   | { type: "token"; content: string }
   | { type: "done"; reply: string }
   | { type: "error"; error: string }
-  | { type: "event"; event: string; data: unknown };
+  | { type: "event"; event: string; data: unknown }
+  | { type: "subscribed"; topics: WSTopic[] };
 
 type ClientState = {
   sessionId: string | null;
@@ -57,7 +60,20 @@ const MAX_WS_CONNECTIONS = 150;
 let lastWsQueryTokenWarningAt = 0;
 
 export function startWebSocket(server: Server, config: Config): void {
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    // Compress frames ≥1 KB. Browser clients negotiate permessage-deflate automatically.
+    perMessageDeflate: config.web.wsCompression === false
+      ? false
+      : {
+          threshold: 1024,
+          zlibDeflateOptions: { level: 6 },
+          clientNoContextTakeover: true,
+          serverNoContextTakeover: true,
+          concurrencyLimit: 10,
+        },
+  });
 
   // Heartbeat to detect stale connections
   const interval = setInterval(() => {
@@ -225,6 +241,20 @@ export function startWebSocket(server: Server, config: Config): void {
             updateUser(state.userId, state.username, state.sessionId);
           }
           console.log(`WS: presence session=${state.sessionId} user=${state.username ?? "anonymous"} status=${status}`);
+          break;
+        }
+
+        // ---- Subscribe: narrow this client's event topic set ----
+        case "subscribe":
+        case "unsubscribe": {
+          const raw = Array.isArray(msg.topics) ? msg.topics : [];
+          const valid = raw.filter((t): t is WSTopic => (WS_TOPICS as readonly string[]).includes(t));
+          if (valid.length === 0) {
+            send(ws, { type: "error", error: `No valid topics. Allowed: ${WS_TOPICS.join(", ")}` });
+            return;
+          }
+          updateWSClientTopics(ws, valid, msg.type === "subscribe" ? "replace" : "remove");
+          send(ws, { type: "subscribed", topics: valid });
           break;
         }
 

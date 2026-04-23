@@ -44,7 +44,7 @@ import { listTasks, getTaskByUid, createTask, completeTask, updateTask, deleteTa
 import { listEvents } from "./tools/google-calendar.js";
 import { resolveUserCalendar } from "./tools/calendar.js";
 import { getAllUsers, getUser, deleteUser, updateUser } from "./users.js";
-import { getUserProfile as getUserProfileMarkdown } from "./user-profile.js";
+import { getUserProfile as getUserProfileMarkdown, buildUserProfile, getUserProfileConfig } from "./user-profile.js";
 import { googleFetch } from "./tools/_google-auth.js";
 import { getKnowledgeBaseStats, syncKnowledgeBase, getFileChunks, removeFile } from "./knowledge-base.js";
 import { LinearClient } from "@linear/sdk";
@@ -1899,13 +1899,35 @@ export function startWeb(state: AppState): Server | null {
       return;
     }
     const markdown = getUserProfileMarkdown(userId);
+    const factCount = getFacts(`user:${userId}`).length;
+    const pCfg = getUserProfileConfig();
     res.json({
       userId,
       username: profile.username ?? null,
       markdown: markdown ?? null,
       profileBuiltAt: (profile as Record<string, unknown>).profileBuiltAt ?? null,
       factCountAtProfileBuild: (profile as Record<string, unknown>).factCountAtProfileBuild ?? null,
+      factCount,
+      profileMinFacts: pCfg.minFacts,
+      profileMaxChars: pCfg.maxChars,
+      profileEnabled: pCfg.enabled,
     });
+  });
+
+  // Users  -  force an immediate profile rebuild (fire-and-forget).
+  // buildUserProfile internally guards against concurrent rebuilds and
+  // debounces back-to-back calls, so it's safe to spam this endpoint.
+  app.post("/api/users/:userId/profile/rebuild", (req, res) => {
+    const { userId } = req.params;
+    const profile = getUser(userId);
+    if (!profile) {
+      res.status(404).json({ error: `User "${userId}" not found` });
+      return;
+    }
+    buildUserProfile(userId).catch((err) => {
+      console.warn(`Web: profile rebuild for ${userId} failed:`, err instanceof Error ? err.message : err);
+    });
+    res.json({ queued: true, userId });
   });
 
   // Users  -  delete profile

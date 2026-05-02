@@ -1,0 +1,54 @@
+timezone: "${TIMEZONE:-UTC}"
+discord:
+  token: ""
+  guildMode: "mention"
+  allowedChannels: []
+  allowDMs: false
+  status: ""
+llm:
+  baseURL: "https://api.openai.com/v1"
+  apiKey: ""
+  model: "gpt-4o-mini"
+  systemPrompt: "You are Aelora."
+  maxTokens: 16384
+  maxHistory: 50
+persona:
+  enabled: true
+  dir: "persona"
+  botName: "Aelora"
+  activePersona: "aelora"
+tools:
+  brave:
+    apiKey: ""
+  google:
+    clientId: ""
+    clientSecret: ""
+    refreshToken: ""
+  luminizer: {}
+agents:
+  enabled: true
+  maxIterations: 5
+heartbeat:
+  enabled: true
+  intervalMs: 900000
+web:
+  enabled: true
+  port: 3000
+  basePath: "/aelora"
+  auth:
+    allowQueryToken: false
+    allowWsQueryToken: false
+memory:
+  maxFactsPerScope: 100
+  maxFactLength: 1000
+  vectorSearch: true
+  consolidationEnabled: true
+  consolidationThreshold: 10
+knowledge:
+  enabled: false
+ambient:
+  enabled: true
+supabase:
+  url: ""
+  anonKey: ""
+  serviceRoleKey: ""

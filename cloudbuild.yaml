@@ -1,0 +1,21 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--platform'
+      - 'linux/amd64'
+      - '-t'
+      - 'us-west1-docker.pkg.dev/luminora-core/luminora-registry/aelora:latest'
+      - '.'
+
+images:
+  - 'us-west1-docker.pkg.dev/luminora-core/luminora-registry/aelora:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _REGION: us-west1
+  _PROJECT: luminora-core
+  _REGISTRY: luminora-registry
+  _IMAGE: aelora

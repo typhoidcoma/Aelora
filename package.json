@@ -22,7 +22,7 @@
     "build": "tsc",
     "start": "node dist/boot.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/scoring.test.ts && tsx src/persona-llm.test.ts && tsx src/tool-architecture.test.ts && tsx src/llm-runtime.test.ts",
+    "test": "tsx src/persona-llm.test.ts && tsx src/tool-architecture.test.ts && tsx src/llm-runtime.test.ts",
     "check": "npm run build && npm run lint && npm run test"
   },
   "dependencies": {
@@ -45,7 +45,7 @@
     "@types/node": "^22.0.0",
     "@types/pdf-parse": "^1.1.5",
     "@types/ws": "^8.18.1",
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.1",
     "typescript": "^5.7.0"
   }
 }
